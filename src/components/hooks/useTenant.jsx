@@ -1,0 +1,107 @@
+import { useState, useEffect, createContext, useContext } from 'react';
+import { base44 } from '@/api/base44Client';
+
+const TenantContext = createContext(null);
+
+export function TenantProvider({ children }) {
+  const [tenant, setTenant] = useState(null);
+  const [membership, setMembership] = useState(null);
+  const [subscription, setSubscription] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    loadTenantData();
+  }, []);
+
+  const loadTenantData = async () => {
+    try {
+      const currentUser = await base44.auth.me();
+      setUser(currentUser);
+
+      // Find user's membership
+      const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });
+      
+      if (memberships.length === 0) {
+        // New user - create tenant and membership
+        const newTenant = await base44.entities.Tenant.create({
+          name: `${currentUser.full_name || currentUser.email}'s Workspace`,
+          slug: currentUser.email.split('@')[0] + '-' + Date.now()
+        });
+
+        const newMembership = await base44.entities.Membership.create({
+          tenant_id: newTenant.id,
+          user_id: currentUser.id,
+          user_email: currentUser.email,
+          role: 'owner'
+        });
+
+        // Create trial subscription
+        const trialEnd = new Date();
+        trialEnd.setDate(trialEnd.getDate() + 14);
+        const newSubscription = await base44.entities.Subscription.create({
+          tenant_id: newTenant.id,
+          plan: 'trial',
+          status: 'active',
+          current_period_end: trialEnd.toISOString().split('T')[0]
+        });
+
+        setTenant(newTenant);
+        setMembership(newMembership);
+        setSubscription(newSubscription);
+      } else {
+        const mem = memberships[0];
+        setMembership(mem);
+
+        const tenants = await base44.entities.Tenant.filter({ id: mem.tenant_id });
+        if (tenants.length > 0) {
+          setTenant(tenants[0]);
+        }
+
+        const subs = await base44.entities.Subscription.filter({ tenant_id: mem.tenant_id });
+        if (subs.length > 0) {
+          setSubscription(subs[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading tenant data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isActive = subscription?.status === 'active';
+  const isOwner = membership?.role === 'owner';
+  const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
+  const isPlatformAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
+
+  const value = {
+    tenant,
+    membership,
+    subscription,
+    user,
+    loading,
+    isActive,
+    isOwner,
+    isAdmin,
+    isPlatformAdmin,
+    tenantId: tenant?.id,
+    refresh: loadTenantData
+  };
+
+  return (
+    <TenantContext.Provider value={value}>
+      {children}
+    </TenantContext.Provider>
+  );
+}
+
+export function useTenant() {
+  const context = useContext(TenantContext);
+  if (!context) {
+    throw new Error('useTenant must be used within TenantProvider');
+  }
+  return context;
+}
+
+export default useTenant;
