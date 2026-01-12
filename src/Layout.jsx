@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
+import { Toaster } from '@/components/ui/toaster';
 import {
   LayoutDashboard,
   Package,
@@ -209,6 +210,7 @@ export default function Layout({ children, currentPageName }) {
       <LayoutContent currentPageName={currentPageName}>
         {children}
       </LayoutContent>
+      <Toaster />
     </TenantProvider>
   );
 }
