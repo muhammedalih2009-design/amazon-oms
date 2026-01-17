@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
   const [dueDate, setDueDate] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const checklistEndRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -58,6 +59,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
     if (!newChecklistItem.trim()) return;
     setChecklistItems([...checklistItems, newChecklistItem.trim()]);
     setNewChecklistItem('');
+    setTimeout(() => checklistEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const handleRemoveChecklistItem = (index) => {
@@ -119,13 +121,13 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[550px]">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[550px] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b sticky top-0 bg-white z-10">
           <DialogTitle>Create New Task</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1">
             <div>
               <Label htmlFor="title">Task Title *</Label>
               <Input
@@ -190,6 +192,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
                         </Button>
                       </div>
                     ))}
+                    <div ref={checklistEndRef} />
                   </div>
                 )}
               </div>
@@ -263,7 +266,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t sticky bottom-0 bg-white">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>

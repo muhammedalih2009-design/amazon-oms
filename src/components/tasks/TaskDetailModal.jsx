@@ -160,8 +160,8 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b sticky top-0 bg-white z-10">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
               <DialogTitle className="text-xl">{task.title}</DialogTitle>
@@ -179,7 +179,7 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
           </div>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="space-y-6 px-6 py-4 overflow-y-auto flex-1">
           {/* Task Info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="flex items-center gap-2 text-sm">
