@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, User, MessageCircle } from 'lucide-react';
+import { Calendar, User, MessageCircle, CheckSquare } from 'lucide-react';
 import { format } from 'date-fns';
+import { base44 } from '@/api/base44Client';
 
 const STATUS_COLORS = {
   'New': 'bg-blue-100 text-blue-700 border-blue-300',
@@ -19,7 +20,22 @@ const PRIORITY_COLORS = {
 };
 
 export default function TaskCard({ task, onClick, commentCount = 0 }) {
+  const [checklistProgress, setChecklistProgress] = useState({ completed: 0, total: 0 });
   const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'Completed';
+
+  useEffect(() => {
+    loadChecklistProgress();
+  }, [task.id]);
+
+  const loadChecklistProgress = async () => {
+    try {
+      const items = await base44.entities.TaskChecklistItem.filter({ task_id: task.id });
+      const completed = items.filter(item => item.is_completed).length;
+      setChecklistProgress({ completed, total: items.length });
+    } catch (error) {
+      console.error('Error loading checklist:', error);
+    }
+  };
 
   return (
     <Card
@@ -32,16 +48,44 @@ export default function TaskCard({ task, onClick, commentCount = 0 }) {
         <div className="space-y-3">
           {/* Header */}
           <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-slate-900 text-sm line-clamp-2">
-              {task.title}
-            </h3>
+            <div className="flex-1">
+              <h3 className="font-semibold text-slate-900 text-sm line-clamp-2 mb-1">
+                {task.title}
+              </h3>
+              {task.account_name && (
+                <Badge className="bg-purple-100 text-purple-700 text-xs">
+                  {task.account_name}
+                </Badge>
+              )}
+            </div>
             <Badge className={STATUS_COLORS[task.status]} style={{ fontSize: '10px' }}>
               {task.status}
             </Badge>
           </div>
 
+          {/* Checklist Progress */}
+          {checklistProgress.total > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1 text-slate-600">
+                  <CheckSquare className="w-3 h-3" />
+                  <span>{checklistProgress.completed}/{checklistProgress.total} tasks</span>
+                </div>
+                <span className="text-slate-500">
+                  {Math.round((checklistProgress.completed / checklistProgress.total) * 100)}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-1.5">
+                <div 
+                  className="h-1.5 rounded-full bg-green-500 transition-all"
+                  style={{ width: `${(checklistProgress.completed / checklistProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Description Preview */}
-          {task.description && (
+          {task.description && !checklistProgress.total && (
             <p className="text-xs text-slate-600 line-clamp-2">{task.description}</p>
           )}
 

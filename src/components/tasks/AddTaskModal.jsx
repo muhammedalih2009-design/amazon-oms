@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Plus, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 
@@ -29,6 +29,9 @@ const PRIORITIES = ['Low', 'Medium', 'High'];
 export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [newChecklistItem, setNewChecklistItem] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [tag, setTag] = useState('General');
   const [priority, setPriority] = useState('Medium');
@@ -51,6 +54,16 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
     }
   };
 
+  const handleAddChecklistItem = () => {
+    if (!newChecklistItem.trim()) return;
+    setChecklistItems([...checklistItems, newChecklistItem.trim()]);
+    setNewChecklistItem('');
+  };
+
+  const handleRemoveChecklistItem = (index) => {
+    setChecklistItems(checklistItems.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -59,10 +72,11 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
       const currentUser = await base44.auth.me();
       const selectedMember = members.find(m => m.user_id === assignedTo);
 
-      await base44.entities.Task.create({
+      const task = await base44.entities.Task.create({
         tenant_id: tenantId,
         title,
         description,
+        account_name: accountName || null,
         assigned_to: assignedTo,
         assigned_to_email: selectedMember?.user_email,
         created_by: currentUser.id,
@@ -73,9 +87,22 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
         due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null
       });
 
+      // Create checklist items
+      for (let i = 0; i < checklistItems.length; i++) {
+        await base44.entities.TaskChecklistItem.create({
+          task_id: task.id,
+          content: checklistItems[i],
+          is_completed: false,
+          order_index: i
+        });
+      }
+
       // Reset form
       setTitle('');
       setDescription('');
+      setAccountName('');
+      setChecklistItems([]);
+      setNewChecklistItem('');
       setAssignedTo('');
       setTag('General');
       setPriority('Medium');
@@ -112,14 +139,60 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
             </div>
 
             <div>
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="accountName">Account Name</Label>
+              <Input
+                id="accountName"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder="e.g., Amazon Store A, Client XYZ"
+                className="mt-2"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description">Description (Optional)</Label>
               <Textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add task details..."
-                className="mt-2 h-24"
+                placeholder="Add additional context..."
+                className="mt-2 h-20"
               />
+            </div>
+
+            <div>
+              <Label>Checklist Items</Label>
+              <div className="mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    value={newChecklistItem}
+                    onChange={(e) => setNewChecklistItem(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddChecklistItem())}
+                    placeholder="Add a checklist item..."
+                  />
+                  <Button type="button" onClick={handleAddChecklistItem} size="sm">
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {checklistItems.length > 0 && (
+                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 space-y-2">
+                    {checklistItems.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="flex-1">{item}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => handleRemoveChecklistItem(index)}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

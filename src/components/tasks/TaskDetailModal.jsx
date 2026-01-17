@@ -16,10 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, User, Tag, AlertCircle, Send, Clock } from 'lucide-react';
+import { Calendar, User, Tag, AlertCircle, Send, Clock, CheckSquare, Square } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 import { useToast } from '@/components/ui/use-toast';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const STATUS_COLORS = {
   'New': 'bg-blue-100 text-blue-700 border-blue-300',
@@ -36,6 +37,7 @@ const PRIORITY_COLORS = {
 
 export default function TaskDetailModal({ open, onClose, task, onUpdate, currentUser, isAdmin }) {
   const [comments, setComments] = useState([]);
+  const [checklistItems, setChecklistItems] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [status, setStatus] = useState(task?.status || 'New');
   const [loading, setLoading] = useState(false);
@@ -45,6 +47,7 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
     if (open && task) {
       setStatus(task.status);
       loadComments();
+      loadChecklistItems();
     }
   }, [open, task]);
 
@@ -57,6 +60,44 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
       setComments(taskComments);
     } catch (error) {
       console.error('Error loading comments:', error);
+    }
+  };
+
+  const loadChecklistItems = async () => {
+    try {
+      const items = await base44.entities.TaskChecklistItem.filter(
+        { task_id: task.id },
+        'order_index'
+      );
+      setChecklistItems(items);
+    } catch (error) {
+      console.error('Error loading checklist:', error);
+    }
+  };
+
+  const handleToggleChecklistItem = async (itemId, currentStatus) => {
+    try {
+      await base44.entities.TaskChecklistItem.update(itemId, { 
+        is_completed: !currentStatus 
+      });
+      await loadChecklistItems();
+      
+      // Check if all items are completed
+      const updatedItems = await base44.entities.TaskChecklistItem.filter({ task_id: task.id });
+      const allCompleted = updatedItems.every(item => item.is_completed);
+      
+      if (allCompleted && updatedItems.length > 0 && status !== 'Completed') {
+        toast({
+          title: 'All items completed!',
+          description: 'Consider marking this task as Completed.',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update checklist item',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -113,6 +154,9 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
   if (!task) return null;
 
   const canChangeStatus = isAdmin || task.assigned_to === currentUser.id;
+  const completedCount = checklistItems.filter(item => item.is_completed).length;
+  const totalCount = checklistItems.length;
+  const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -121,10 +165,15 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
               <DialogTitle className="text-xl">{task.title}</DialogTitle>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <Badge className={STATUS_COLORS[status]}>{status}</Badge>
                 <Badge className={PRIORITY_COLORS[task.priority]}>{task.priority} Priority</Badge>
                 <Badge variant="outline">{task.tag}</Badge>
+                {task.account_name && (
+                  <Badge className="bg-purple-100 text-purple-700 border-purple-300">
+                    {task.account_name}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
@@ -149,9 +198,45 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
             )}
           </div>
 
+          {/* Checklist */}
+          {checklistItems.length > 0 && (
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4" />
+                  Checklist
+                </h3>
+                <span className="text-sm text-slate-600">
+                  {completedCount}/{totalCount} completed
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 mb-3">
+                <div 
+                  className="h-2 rounded-full bg-green-500 transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="space-y-2">
+                {checklistItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 p-2 hover:bg-white rounded transition-colors">
+                    <Checkbox
+                      checked={item.is_completed}
+                      onCheckedChange={() => handleToggleChecklistItem(item.id, item.is_completed)}
+                      disabled={!canChangeStatus}
+                    />
+                    <span className={`text-sm flex-1 ${item.is_completed ? 'line-through text-slate-500' : 'text-slate-700'}`}>
+                      {item.content}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Description */}
           {task.description && (
             <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+              <h3 className="font-semibold text-slate-900 mb-2">Additional Notes</h3>
               <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.description}</p>
             </div>
           )}
