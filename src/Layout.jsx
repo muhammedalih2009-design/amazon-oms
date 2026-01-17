@@ -36,7 +36,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
   { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard' },
-  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks' },
   { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus' },
   { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders' },
   { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
@@ -44,6 +43,7 @@ const navItems = [
   { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns' },
   { name: 'Settlement', icon: DollarSign, page: 'Settlement', pageKey: 'settlement' },
   { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers' },
+  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks' },
 ];
 
 function LayoutContent({ children, currentPageName }) {
