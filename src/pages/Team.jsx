@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { Users, Plus, Shield, Trash2, Settings, Mail } from 'lucide-react';
+import { Users, Plus, Shield, Trash2, Settings, Mail, CheckCircle2, Lock } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
@@ -190,6 +196,22 @@ export default function TeamPage() {
     return userRecord?.full_name || member.user_email;
   };
 
+  const getAccessCoverage = (member) => {
+    if (member.role === 'owner') {
+      return { granted: 7, total: 7, percentage: 100 };
+    }
+
+    const pages = ['dashboard', 'skus', 'orders', 'purchases', 'returns', 'settlement', 'suppliers'];
+    const granted = pages.filter(page => member.permissions?.[page]?.view).length;
+    
+    return {
+      granted,
+      total: pages.length,
+      percentage: Math.round((granted / pages.length) * 100),
+      restricted: pages.filter(page => !member.permissions?.[page]?.view)
+    };
+  };
+
   if (!isOwner) {
     return (
       <div className="space-y-6">
@@ -244,57 +266,125 @@ export default function TeamPage() {
                   <th className="py-4 px-6 text-left text-xs font-semibold text-slate-500 uppercase">User</th>
                   <th className="py-4 px-6 text-left text-xs font-semibold text-slate-500 uppercase">Email</th>
                   <th className="py-4 px-6 text-left text-xs font-semibold text-slate-500 uppercase">Role</th>
+                  <th className="py-4 px-6 text-left text-xs font-semibold text-slate-500 uppercase">Coverage</th>
                   <th className="py-4 px-6 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {members.map((member) => (
-                  <tr key={member.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 flex items-center justify-center text-white font-semibold">
-                          {getUserName(member).charAt(0).toUpperCase()}
+                {members.map((member) => {
+                  const coverage = getAccessCoverage(member);
+                  return (
+                    <tr key={member.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-4 px-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 flex items-center justify-center text-white font-semibold">
+                            {getUserName(member).charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-medium text-slate-900">{getUserName(member)}</span>
                         </div>
-                        <span className="font-medium text-slate-900">{getUserName(member)}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6 text-slate-600">{member.user_email}</td>
-                    <td className="py-4 px-6">{getRoleBadge(member.role)}</td>
-                    <td className="py-4 px-6">
-                      <div className="flex items-center justify-end gap-2">
-                        {member.role !== 'owner' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedMember(member);
-                                setShowPermissionsModal(true);
-                              }}
-                            >
-                              <Settings className="w-4 h-4 mr-2" />
-                              Permissions
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setMemberToDelete(member);
-                                setShowDeleteDialog(true);
-                              }}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
-                        {member.role === 'owner' && (
-                          <Badge variant="outline" className="text-xs">Full Access</Badge>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-4 px-6 text-slate-600">{member.user_email}</td>
+                      <td className="py-4 px-6">{getRoleBadge(member.role)}</td>
+                      <td className="py-4 px-6">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="cursor-pointer">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-semibold text-slate-900">
+                                    {coverage.granted}/{coverage.total} Features
+                                  </span>
+                                  <Badge 
+                                    className={
+                                      coverage.percentage === 100 
+                                        ? 'bg-green-100 text-green-700' 
+                                        : coverage.percentage >= 50 
+                                        ? 'bg-blue-100 text-blue-700' 
+                                        : 'bg-amber-100 text-amber-700'
+                                    }
+                                  >
+                                    {coverage.percentage}%
+                                  </Badge>
+                                </div>
+                                <div className="w-full bg-slate-200 rounded-full h-2">
+                                  <div 
+                                    className={`h-2 rounded-full transition-all ${
+                                      coverage.percentage === 100 
+                                        ? 'bg-green-500' 
+                                        : coverage.percentage >= 50 
+                                        ? 'bg-blue-500' 
+                                        : 'bg-amber-500'
+                                    }`}
+                                    style={{ width: `${coverage.percentage}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <div className="space-y-2">
+                                <p className="font-semibold text-xs">Access Summary:</p>
+                                <div className="flex items-start gap-2">
+                                  <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                                  <p className="text-xs">
+                                    <strong>{coverage.granted}</strong> features granted
+                                  </p>
+                                </div>
+                                {coverage.restricted?.length > 0 && (
+                                  <div>
+                                    <div className="flex items-start gap-2 mb-1">
+                                      <Lock className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+                                      <p className="text-xs">
+                                        <strong>{coverage.restricted.length}</strong> features restricted:
+                                      </p>
+                                    </div>
+                                    <ul className="ml-6 text-xs text-slate-600 space-y-0.5">
+                                      {coverage.restricted.map(page => (
+                                        <li key={page}>• {page.charAt(0).toUpperCase() + page.slice(1)}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center justify-end gap-2">
+                          {member.role !== 'owner' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedMember(member);
+                                  setShowPermissionsModal(true);
+                                }}
+                              >
+                                <Settings className="w-4 h-4 mr-2" />
+                                Permissions
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setMemberToDelete(member);
+                                  setShowDeleteDialog(true);
+                                }}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </>
+                          )}
+                          {member.role === 'owner' && (
+                            <Badge variant="outline" className="text-xs">Full Access</Badge>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

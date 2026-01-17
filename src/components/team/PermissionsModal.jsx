@@ -9,7 +9,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { DollarSign, ShoppingCart, Package } from 'lucide-react';
+import { DollarSign, ShoppingCart, Package, CheckCircle2, XCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function PermissionsModal({ open, onClose, member, onUpdate }) {
   const [permissions, setPermissions] = useState({
@@ -96,22 +97,47 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
                 <h3 className="font-semibold text-slate-900">{group.title}</h3>
               </div>
               
-              <div className="space-y-4 pl-4">
-                {group.permissions.map((perm) => (
-                  <div key={perm.key} className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <Label htmlFor={perm.key} className="text-sm font-medium text-slate-900">
-                        {perm.label}
-                      </Label>
-                      <p className="text-xs text-slate-500 mt-1">{perm.description}</p>
+              <div className="space-y-3 pl-4">
+                {group.permissions.map((perm) => {
+                  const isGranted = permissions[perm.key];
+                  return (
+                    <div 
+                      key={perm.key} 
+                      className={`rounded-lg p-3 transition-colors ${
+                        isGranted 
+                          ? 'bg-green-50 border border-green-200' 
+                          : 'bg-slate-50 border border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Label htmlFor={perm.key} className="text-sm font-medium text-slate-900">
+                              {perm.label}
+                            </Label>
+                            {isGranted ? (
+                              <Badge className="bg-green-100 text-green-700 border-green-300 flex items-center gap-1 text-xs">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Access Granted
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 flex items-center gap-1 text-xs">
+                                <XCircle className="w-3 h-3" />
+                                Access Restricted
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600">{perm.description}</p>
+                        </div>
+                        <Switch
+                          id={perm.key}
+                          checked={isGranted}
+                          onCheckedChange={() => handleToggle(perm.key)}
+                        />
+                      </div>
                     </div>
-                    <Switch
-                      id={perm.key}
-                      checked={permissions[perm.key]}
-                      onCheckedChange={() => handleToggle(perm.key)}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
