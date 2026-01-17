@@ -43,11 +43,14 @@ export default function TeamPage() {
     try {
       const membersData = await base44.entities.Membership.filter({ tenant_id: tenantId });
       
-      // Fetch user details for each member
-      const userIds = membersData.map(m => m.user_id);
-      const usersData = await base44.entities.User.filter({ 
-        id: { $in: userIds } 
-      });
+      // Fetch user details for each member (exclude 'pending' user_ids)
+      const userIds = membersData
+        .map(m => m.user_id)
+        .filter(id => id !== 'pending');
+      
+      const usersData = userIds.length > 0 
+        ? await base44.entities.User.filter({ id: { $in: userIds } })
+        : [];
       
       setMembers(membersData);
       setUsers(usersData);
@@ -180,6 +183,9 @@ export default function TeamPage() {
   };
 
   const getUserName = (member) => {
+    if (member.user_id === 'pending') {
+      return 'Pending Invitation';
+    }
     const userRecord = users.find(u => u.id === member.user_id);
     return userRecord?.full_name || member.user_email;
   };
