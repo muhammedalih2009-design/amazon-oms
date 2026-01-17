@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 
 const TOAST_LIMIT = 20;
 const TOAST_REMOVE_DELAY = 1000000;
-const AUTO_DISMISS_DURATION = 4000;
+const AUTO_DISMISS_DURATION = 5000;
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -20,6 +20,7 @@ function genId() {
 }
 
 const toastTimeouts = new Map();
+const autoDismissTimeouts = new Map();
 
 const addToRemoveQueue = (toastId) => {
   if (toastTimeouts.has(toastId)) {
@@ -120,8 +121,15 @@ function toast({ duration, ...props }) {
       toast: { ...props, id },
     });
 
-  const dismiss = () =>
+  const dismiss = () => {
+    // Clear auto-dismiss timeout when manually dismissing
+    const timeout = autoDismissTimeouts.get(id);
+    if (timeout) {
+      clearTimeout(timeout);
+      autoDismissTimeouts.delete(id);
+    }
     dispatch({ type: actionTypes.DISMISS_TOAST, toastId: id });
+  };
 
   dispatch({
     type: actionTypes.ADD_TOAST,
@@ -135,12 +143,13 @@ function toast({ duration, ...props }) {
     },
   });
 
-  // Auto-dismiss after specified duration or default 4 seconds
+  // Auto-dismiss after specified duration or default 5 seconds
   const dismissDuration = duration !== undefined ? duration : AUTO_DISMISS_DURATION;
   if (dismissDuration > 0) {
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
       dismiss();
     }, dismissDuration);
+    autoDismissTimeouts.set(id, timeout);
   }
 
   return {
