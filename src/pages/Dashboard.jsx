@@ -11,9 +11,10 @@ import RecentOrdersTable from '@/components/dashboard/RecentOrdersTable';
 import DateRangeFilter from '@/components/dashboard/DateRangeFilter';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import { KPISkeleton, ChartSkeleton } from '@/components/ui/LoadingSkeleton';
+import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
 
 export default function Dashboard() {
-  const { tenantId, subscription, isActive } = useTenant();
+  const { tenantId, subscription, isActive, user } = useTenant();
   const [orders, setOrders] = useState([]);
   const [orderLines, setOrderLines] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
@@ -205,9 +206,10 @@ export default function Dashboard() {
         <RevenueChart data={revenueChartData} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <TopSKUsChart data={topSKUsData} />
         <RecentOrdersTable orders={orders.sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))} />
+        <PendingTasksWidget tenantId={tenantId} userId={user?.id} />
       </div>
     </div>
   );

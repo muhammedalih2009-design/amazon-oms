@@ -36,6 +36,7 @@ export function TenantProvider({ children }) {
           role: 'owner',
           permissions: {
             dashboard: { view: true, edit: true },
+            tasks: { view: true, edit: true },
             skus: { view: true, edit: true },
             orders: { view: true, edit: true },
             purchases: { view: true, edit: true },

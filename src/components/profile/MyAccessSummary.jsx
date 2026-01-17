@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 
 const PAGES = [
   { key: 'dashboard', name: 'Dashboard' },
+  { key: 'tasks', name: 'Tasks' },
   { key: 'skus', name: 'SKUs / Products' },
   { key: 'orders', name: 'Orders' },
   { key: 'purchases', name: 'Purchases' },

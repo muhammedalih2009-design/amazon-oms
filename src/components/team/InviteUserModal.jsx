@@ -22,6 +22,7 @@ import { Mail, Eye, Edit } from 'lucide-react';
 const ROLE_PRESETS = {
   admin: {
     dashboard: { view: true, edit: true },
+    tasks: { view: true, edit: true },
     skus: { view: true, edit: true },
     orders: { view: true, edit: true },
     purchases: { view: true, edit: true },
@@ -31,6 +32,7 @@ const ROLE_PRESETS = {
   },
   manager: {
     dashboard: { view: true, edit: true },
+    tasks: { view: true, edit: true },
     skus: { view: true, edit: true },
     orders: { view: true, edit: true },
     purchases: { view: true, edit: true },
@@ -40,6 +42,7 @@ const ROLE_PRESETS = {
   },
   staff: {
     dashboard: { view: true, edit: false },
+    tasks: { view: true, edit: false },
     skus: { view: true, edit: false },
     orders: { view: true, edit: false },
     purchases: { view: false, edit: false },
@@ -51,6 +54,7 @@ const ROLE_PRESETS = {
 
 const PAGES = [
   { key: 'dashboard', name: 'Dashboard' },
+  { key: 'tasks', name: 'Tasks' },
   { key: 'skus', name: 'SKUs / Products' },
   { key: 'orders', name: 'Orders' },
   { key: 'purchases', name: 'Purchases' },
