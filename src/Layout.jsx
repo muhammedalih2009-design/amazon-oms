@@ -20,7 +20,8 @@ import {
   Settings,
   Moon,
   Sun,
-  Shield
+  Shield,
+  CheckSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
   { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard' },
+  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks' },
   { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus' },
   { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders' },
   { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
