@@ -9,8 +9,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { DollarSign, ShoppingCart, Package, CheckCircle2, XCircle } from 'lucide-react';
+import { DollarSign, ShoppingCart, Package, CheckCircle2, XCircle, Filter } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function PermissionsModal({ open, onClose, member, onUpdate }) {
   const [permissions, setPermissions] = useState({
@@ -24,10 +25,13 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
     manage_purchases: false,
     manage_suppliers: false
   });
+  const [originalPermissions, setOriginalPermissions] = useState({});
+  const [filterMode, setFilterMode] = useState('all');
 
   useEffect(() => {
     if (member?.permissions) {
       setPermissions(member.permissions);
+      setOriginalPermissions(member.permissions);
     }
   }, [member]);
 
@@ -39,6 +43,15 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
 
   const handleSubmit = () => {
     onUpdate(member.id, permissions);
+    setOriginalPermissions(permissions);
+  };
+
+  const hasChanges = JSON.stringify(permissions) !== JSON.stringify(originalPermissions);
+
+  const getTotalCounts = () => {
+    const granted = Object.values(permissions).filter(Boolean).length;
+    const restricted = Object.values(permissions).length - granted;
+    return { granted, restricted };
   };
 
   const permissionGroups = [
@@ -77,9 +90,20 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
     }
   ];
 
+  const counts = getTotalCounts();
+
+  const filteredGroups = permissionGroups.map(group => ({
+    ...group,
+    permissions: group.permissions.filter(perm => {
+      if (filterMode === 'granted') return permissions[perm.key];
+      if (filterMode === 'restricted') return !permissions[perm.key];
+      return true;
+    })
+  })).filter(group => group.permissions.length > 0);
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[650px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Manage Permissions</DialogTitle>
           <p className="text-sm text-slate-500 mt-2">
@@ -87,8 +111,59 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
           </p>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          {permissionGroups.map((group) => (
+        {/* Summary Bar */}
+        <div className="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-4 border border-indigo-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500" />
+                <span className="text-sm font-semibold text-slate-900">
+                  Granted: <span className="text-green-600">{counts.granted}</span>
+                </span>
+              </div>
+              <div className="w-px h-6 bg-slate-300" />
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-slate-400" />
+                <span className="text-sm font-semibold text-slate-900">
+                  Restricted: <span className="text-slate-600">{counts.restricted}</span>
+                </span>
+              </div>
+            </div>
+            {hasChanges && (
+              <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+                Unsaved Changes
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Filter Tabs */}
+        <Tabs value={filterMode} onValueChange={setFilterMode}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="all" className="text-xs">
+              All ({Object.keys(permissions).length})
+            </TabsTrigger>
+            <TabsTrigger value="granted" className="text-xs">
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              Granted ({counts.granted})
+            </TabsTrigger>
+            <TabsTrigger value="restricted" className="text-xs">
+              <XCircle className="w-3 h-3 mr-1" />
+              Restricted ({counts.restricted})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="space-y-6 py-2">
+          {filteredGroups.length === 0 ? (
+            <div className="text-center py-8">
+              <Filter className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">
+                No permissions in this category
+              </p>
+            </div>
+          ) : (
+            filteredGroups.map((group) => (
             <div key={group.title} className="space-y-4">
               <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
                 <div className={`p-2 rounded-lg ${group.iconBg}`}>
@@ -140,14 +215,21 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
                 })}
               </div>
             </div>
-          ))}
+          ))
+          )}
         </div>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Save Permissions</Button>
+          <Button 
+            onClick={handleSubmit}
+            disabled={!hasChanges}
+            className={hasChanges ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
+          >
+            {hasChanges ? 'Save Changes' : 'No Changes'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
