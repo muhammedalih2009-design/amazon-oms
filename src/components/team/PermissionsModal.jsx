@@ -9,22 +9,23 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { DollarSign, ShoppingCart, Package, CheckCircle2, XCircle, Filter } from 'lucide-react';
+import { CheckCircle2, XCircle, Filter, Eye, Edit } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+  const PAGES = [
+    { key: 'dashboard', label: 'Dashboard', category: 'General Access' },
+    { key: 'tasks', label: 'Tasks', category: 'Task Management' },
+    { key: 'skus', label: 'SKUs / Products', category: 'Inventory & Suppliers' },
+    { key: 'suppliers', label: 'Suppliers', category: 'Inventory & Suppliers' },
+    { key: 'orders', label: 'Orders', category: 'Operations' },
+    { key: 'purchases', label: 'Purchases', category: 'Operations' },
+    { key: 'returns', label: 'Returns', category: 'Operations' },
+    { key: 'settlement', label: 'Settlement', category: 'Financial Data' },
+  ];
+
 export default function PermissionsModal({ open, onClose, member, onUpdate }) {
-  const [permissions, setPermissions] = useState({
-    view_net_revenue: false,
-    view_profit: false,
-    view_sku_costs: false,
-    edit_orders: false,
-    bulk_upload_csv: false,
-    process_returns: false,
-    manage_inventory: false,
-    manage_purchases: false,
-    manage_suppliers: false
-  });
+  const [permissions, setPermissions] = useState({});
   const [originalPermissions, setOriginalPermissions] = useState({});
   const [filterMode, setFilterMode] = useState('all');
 
@@ -37,8 +38,32 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
 
   if (!member) return null;
 
-  const handleToggle = (key) => {
-    setPermissions({ ...permissions, [key]: !permissions[key] });
+  const handleToggleView = (pageKey) => {
+    setPermissions(prev => {
+      const newPerms = { ...prev };
+      const newViewValue = !prev[pageKey]?.view;
+      
+      newPerms[pageKey] = {
+        view: newViewValue,
+        edit: newViewValue ? prev[pageKey]?.edit || false : false
+      };
+      
+      return newPerms;
+    });
+  };
+
+  const handleToggleEdit = (pageKey) => {
+    setPermissions(prev => {
+      const newPerms = { ...prev };
+      const newEditValue = !prev[pageKey]?.edit;
+      
+      newPerms[pageKey] = {
+        view: newEditValue ? true : prev[pageKey]?.view || false,
+        edit: newEditValue
+      };
+      
+      return newPerms;
+    });
   };
 
   const handleSubmit = () => {
@@ -49,57 +74,42 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
   const hasChanges = JSON.stringify(permissions) !== JSON.stringify(originalPermissions);
 
   const getTotalCounts = () => {
-    const granted = Object.values(permissions).filter(Boolean).length;
-    const restricted = Object.values(permissions).length - granted;
-    return { granted, restricted };
+    let granted = 0;
+    let total = 0;
+    
+    PAGES.forEach(page => {
+      const perm = permissions[page.key];
+      if (perm?.view) granted++;
+      if (perm?.edit) granted++;
+      total += 2; // view + edit
+    });
+    
+    return { granted, restricted: total - granted };
   };
-
-  const permissionGroups = [
-    {
-      title: 'Financial Data',
-      icon: DollarSign,
-      iconBg: 'bg-green-100',
-      iconColor: 'text-green-600',
-      permissions: [
-        { key: 'view_net_revenue', label: 'View Net Revenue', description: 'See order revenue and totals' },
-        { key: 'view_profit', label: 'View Profit & Margins', description: 'See profit calculations and margins' },
-        { key: 'view_sku_costs', label: 'View SKU Costs', description: 'See cost prices in product catalog' }
-      ]
-    },
-    {
-      title: 'Operations',
-      icon: ShoppingCart,
-      iconBg: 'bg-blue-100',
-      iconColor: 'text-blue-600',
-      permissions: [
-        { key: 'edit_orders', label: 'Edit Orders', description: 'Modify and delete orders' },
-        { key: 'bulk_upload_csv', label: 'Bulk Upload CSV', description: 'Import data via CSV files' },
-        { key: 'process_returns', label: 'Process Returns', description: 'Handle return requests' }
-      ]
-    },
-    {
-      title: 'Inventory & Suppliers',
-      icon: Package,
-      iconBg: 'bg-purple-100',
-      iconColor: 'text-purple-600',
-      permissions: [
-        { key: 'manage_inventory', label: 'Manage SKUs', description: 'Add, edit, and delete products' },
-        { key: 'manage_purchases', label: 'Record Purchases', description: 'Add purchase orders' },
-        { key: 'manage_suppliers', label: 'Manage Suppliers', description: 'Add and edit supplier information' }
-      ]
-    }
-  ];
 
   const counts = getTotalCounts();
 
-  const filteredGroups = permissionGroups.map(group => ({
-    ...group,
-    permissions: group.permissions.filter(perm => {
-      if (filterMode === 'granted') return permissions[perm.key];
-      if (filterMode === 'restricted') return !permissions[perm.key];
-      return true;
-    })
-  })).filter(group => group.permissions.length > 0);
+  const groupedPages = PAGES.reduce((acc, page) => {
+    if (!acc[page.category]) {
+      acc[page.category] = [];
+    }
+    acc[page.category].push(page);
+    return acc;
+  }, {});
+
+  const filteredCategories = Object.entries(groupedPages)
+    .map(([category, pages]) => ({
+      category,
+      pages: pages.filter(page => {
+        const perm = permissions[page.key];
+        const hasAnyAccess = perm?.view || perm?.edit;
+        
+        if (filterMode === 'granted') return hasAnyAccess;
+        if (filterMode === 'restricted') return !hasAnyAccess;
+        return true;
+      })
+    }))
+    .filter(group => group.pages.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -141,78 +151,102 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
         <Tabs value={filterMode} onValueChange={setFilterMode}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="all" className="text-xs">
-              All ({Object.keys(permissions).length})
+              All ({PAGES.length})
             </TabsTrigger>
             <TabsTrigger value="granted" className="text-xs">
               <CheckCircle2 className="w-3 h-3 mr-1" />
-              Granted ({counts.granted})
+              Has Access ({filteredCategories.filter(c => filterMode === 'all' || c.pages.length > 0).length})
             </TabsTrigger>
             <TabsTrigger value="restricted" className="text-xs">
               <XCircle className="w-3 h-3 mr-1" />
-              Restricted ({counts.restricted})
+              No Access
             </TabsTrigger>
           </TabsList>
         </Tabs>
 
         <div className="space-y-6 py-2">
-          {filteredGroups.length === 0 ? (
+          {filteredCategories.length === 0 ? (
             <div className="text-center py-8">
               <Filter className="w-12 h-12 text-slate-300 mx-auto mb-3" />
               <p className="text-sm text-slate-500">
-                No permissions in this category
+                No pages in this category
               </p>
             </div>
           ) : (
-            filteredGroups.map((group) => (
-            <div key={group.title} className="space-y-4">
+            filteredCategories.map(({ category, pages }) => (
+            <div key={category} className="space-y-4">
               <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                <div className={`p-2 rounded-lg ${group.iconBg}`}>
-                  <group.icon className={`w-5 h-5 ${group.iconColor}`} />
-                </div>
-                <h3 className="font-semibold text-slate-900">{group.title}</h3>
+                <h3 className="font-semibold text-slate-900">{category}</h3>
               </div>
               
-              <div className="space-y-3 pl-4">
-                {group.permissions.map((perm) => {
-                  const isGranted = permissions[perm.key];
-                  return (
-                    <div 
-                      key={perm.key} 
-                      className={`rounded-lg p-3 transition-colors ${
-                        isGranted 
-                          ? 'bg-green-50 border border-green-200' 
-                          : 'bg-slate-50 border border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label htmlFor={perm.key} className="text-sm font-medium text-slate-900">
-                              {perm.label}
-                            </Label>
-                            {isGranted ? (
-                              <Badge className="bg-green-100 text-green-700 border-green-300 flex items-center gap-1 text-xs">
-                                <CheckCircle2 className="w-3 h-3" />
-                                Access Granted
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 flex items-center gap-1 text-xs">
-                                <XCircle className="w-3 h-3" />
-                                Access Restricted
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-600">{perm.description}</p>
+              <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-slate-100 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase">
+                        Page
+                      </th>
+                      <th className="py-3 px-4 text-center text-xs font-semibold text-slate-600 uppercase w-24">
+                        <div className="flex items-center justify-center gap-1">
+                          <Eye className="w-3 h-3" />
+                          View
                         </div>
-                        <Switch
-                          id={perm.key}
-                          checked={isGranted}
-                          onCheckedChange={() => handleToggle(perm.key)}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                      </th>
+                      <th className="py-3 px-4 text-center text-xs font-semibold text-slate-600 uppercase w-24">
+                        <div className="flex items-center justify-center gap-1">
+                          <Edit className="w-3 h-3" />
+                          Edit
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {pages.map((page) => {
+                      const perm = permissions[page.key] || { view: false, edit: false };
+                      const hasAccess = perm.view || perm.edit;
+                      
+                      return (
+                        <tr key={page.key} className={`transition-colors ${
+                          hasAccess ? 'bg-green-50/50' : 'bg-white'
+                        }`}>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-slate-900">{page.label}</span>
+                              {hasAccess ? (
+                                <Badge className="bg-green-100 text-green-700 border-green-300 flex items-center gap-1 text-xs">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  Access Granted
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 flex items-center gap-1 text-xs">
+                                  <XCircle className="w-3 h-3" />
+                                  Access Restricted
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex justify-center">
+                              <Switch
+                                checked={perm.view}
+                                onCheckedChange={() => handleToggleView(page.key)}
+                              />
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex justify-center">
+                              <Switch
+                                checked={perm.edit}
+                                onCheckedChange={() => handleToggleEdit(page.key)}
+                                disabled={!perm.view}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           ))
