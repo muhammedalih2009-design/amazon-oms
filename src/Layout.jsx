@@ -127,8 +127,8 @@ function LayoutContent({ children, currentPageName }) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
-              // Hide menu item if user doesn't have view permission
-              if (item.pageKey && !canViewPage(item.pageKey)) {
+              // Hide menu item if user doesn't have view permission (skip for owners)
+              if (!isOwner && item.pageKey && !canViewPage(item.pageKey)) {
                 return null;
               }
 
