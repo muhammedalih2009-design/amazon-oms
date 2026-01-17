@@ -1,0 +1,240 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Calendar, User, Tag, AlertCircle, Send, Clock } from 'lucide-react';
+import { format } from 'date-fns';
+import { base44 } from '@/api/base44Client';
+import { useToast } from '@/components/ui/use-toast';
+
+const STATUS_COLORS = {
+  'New': 'bg-blue-100 text-blue-700 border-blue-300',
+  'In Progress': 'bg-yellow-100 text-yellow-700 border-yellow-300',
+  'Inquiry': 'bg-orange-100 text-orange-700 border-orange-300',
+  'Completed': 'bg-green-100 text-green-700 border-green-300'
+};
+
+const PRIORITY_COLORS = {
+  'Low': 'bg-slate-100 text-slate-700',
+  'Medium': 'bg-blue-100 text-blue-700',
+  'High': 'bg-red-100 text-red-700'
+};
+
+export default function TaskDetailModal({ open, onClose, task, onUpdate, currentUser, isAdmin }) {
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [status, setStatus] = useState(task?.status || 'New');
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (open && task) {
+      setStatus(task.status);
+      loadComments();
+    }
+  }, [open, task]);
+
+  const loadComments = async () => {
+    try {
+      const taskComments = await base44.entities.TaskComment.filter(
+        { task_id: task.id },
+        '-created_date'
+      );
+      setComments(taskComments);
+    } catch (error) {
+      console.error('Error loading comments:', error);
+    }
+  };
+
+  const handleStatusChange = async (newStatus) => {
+    try {
+      await base44.entities.Task.update(task.id, { status: newStatus });
+      setStatus(newStatus);
+      onUpdate();
+      
+      toast({
+        title: 'Status updated',
+        description: `Task status changed to ${newStatus}`
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update status',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!newComment.trim()) return;
+
+    setLoading(true);
+    try {
+      await base44.entities.TaskComment.create({
+        task_id: task.id,
+        user_id: currentUser.id,
+        user_email: currentUser.email,
+        user_name: currentUser.full_name,
+        comment_text: newComment
+      });
+
+      setNewComment('');
+      await loadComments();
+      
+      toast({
+        title: 'Comment added',
+        description: 'Your comment has been posted'
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add comment',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!task) return null;
+
+  const canChangeStatus = isAdmin || task.assigned_to === currentUser.id;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <DialogTitle className="text-xl">{task.title}</DialogTitle>
+              <div className="flex items-center gap-2 mt-2">
+                <Badge className={STATUS_COLORS[status]}>{status}</Badge>
+                <Badge className={PRIORITY_COLORS[task.priority]}>{task.priority} Priority</Badge>
+                <Badge variant="outline">{task.tag}</Badge>
+              </div>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-6 py-4">
+          {/* Task Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <User className="w-4 h-4 text-slate-500" />
+              <span className="text-slate-600">Assigned to:</span>
+              <span className="font-medium">{task.assigned_to_email}</span>
+            </div>
+            {task.due_date && (
+              <div className="flex items-center gap-2 text-sm">
+                <Calendar className="w-4 h-4 text-slate-500" />
+                <span className="text-slate-600">Due:</span>
+                <span className="font-medium">
+                  {format(new Date(task.due_date), 'MMM dd, yyyy')}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          {task.description && (
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Status Changer */}
+          {canChangeStatus && (
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-2 block">
+                Update Status
+              </label>
+              <Select value={status} onValueChange={handleStatusChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="New">New</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
+                  <SelectItem value="Inquiry">Inquiry</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Comments Section */}
+          <div className="border-t border-slate-200 pt-4">
+            <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Send className="w-4 h-4" />
+              Comments ({comments.length})
+            </h3>
+
+            {/* Comment List */}
+            <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
+              {comments.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-4">No comments yet</p>
+              ) : (
+                comments.map((comment) => (
+                  <div key={comment.id} className="flex gap-3">
+                    <Avatar className="w-8 h-8 bg-gradient-to-r from-indigo-600 to-violet-600">
+                      <AvatarFallback className="bg-transparent text-white text-xs">
+                        {comment.user_name?.charAt(0)?.toUpperCase() || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="bg-slate-100 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-sm text-slate-900">
+                            {comment.user_name || comment.user_email}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {format(new Date(comment.created_date), 'MMM dd, HH:mm')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                          {comment.comment_text}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add Comment */}
+            <div className="flex gap-2">
+              <Textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1"
+                rows={2}
+              />
+              <Button
+                onClick={handleAddComment}
+                disabled={loading || !newComment.trim()}
+                className="self-end"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
