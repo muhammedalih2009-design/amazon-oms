@@ -266,7 +266,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
             </div>
           </div>
 
-          <DialogFooter className="px-6 py-4 border-t sticky bottom-0 bg-white">
+          <DialogFooter className="px-6 py-4 border-t mt-auto bg-white">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
