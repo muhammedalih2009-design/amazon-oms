@@ -12,6 +12,7 @@ import DateRangeFilter from '@/components/dashboard/DateRangeFilter';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import { KPISkeleton, ChartSkeleton } from '@/components/ui/LoadingSkeleton';
 import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
+import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
 
 export default function Dashboard() {
   const { tenantId, subscription, isActive, user } = useTenant();
@@ -136,8 +137,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
+    <PagePermissionGuard pageKey="dashboard">
+      <div className="space-y-6">
+        <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
       
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
@@ -212,5 +214,6 @@ export default function Dashboard() {
         <PendingTasksWidget tenantId={tenantId} userId={user?.id} />
       </div>
     </div>
+    </PagePermissionGuard>
   );
 }
