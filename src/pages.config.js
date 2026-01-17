@@ -8,8 +8,8 @@ import Returns from './pages/Returns';
 import SKUs from './pages/SKUs';
 import Settlement from './pages/Settlement';
 import Suppliers from './pages/Suppliers';
-import Team from './pages/Team';
 import Tasks from './pages/Tasks';
+import Team from './pages/Team';
 import __Layout from './Layout.jsx';
 
 
@@ -24,8 +24,8 @@ export const PAGES = {
     "SKUs": SKUs,
     "Settlement": Settlement,
     "Suppliers": Suppliers,
-    "Team": Team,
     "Tasks": Tasks,
+    "Team": Team,
 }
 
 export const pagesConfig = {

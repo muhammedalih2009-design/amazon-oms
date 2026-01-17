@@ -198,10 +198,10 @@ export default function TeamPage() {
 
   const getAccessCoverage = (member) => {
     if (member.role === 'owner') {
-      return { granted: 7, total: 7, percentage: 100 };
+      return { granted: 8, total: 8, percentage: 100 };
     }
 
-    const pages = ['dashboard', 'skus', 'orders', 'purchases', 'returns', 'settlement', 'suppliers'];
+    const pages = ['dashboard', 'tasks', 'skus', 'orders', 'purchases', 'returns', 'settlement', 'suppliers'];
     const granted = pages.filter(page => member.permissions?.[page]?.view).length;
     
     return {
