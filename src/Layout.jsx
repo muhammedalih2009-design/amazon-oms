@@ -34,20 +34,20 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard' },
-  { name: 'SKUs / Products', icon: Package, page: 'SKUs' },
-  { name: 'Orders', icon: ShoppingCart, page: 'Orders' },
-  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests' },
-  { name: 'Purchases', icon: Truck, page: 'Purchases' },
-  { name: 'Returns', icon: RotateCcw, page: 'Returns' },
-  { name: 'Settlement', icon: DollarSign, page: 'Settlement' },
-  { name: 'Suppliers', icon: Users, page: 'Suppliers' },
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', permission: null },
+  { name: 'SKUs / Products', icon: Package, page: 'SKUs', permission: null },
+  { name: 'Orders', icon: ShoppingCart, page: 'Orders', permission: null },
+  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', permission: null },
+  { name: 'Purchases', icon: Truck, page: 'Purchases', permission: 'manage_purchases' },
+  { name: 'Returns', icon: RotateCcw, page: 'Returns', permission: 'process_returns' },
+  { name: 'Settlement', icon: DollarSign, page: 'Settlement', permission: 'view_profit' },
+  { name: 'Suppliers', icon: Users, page: 'Suppliers', permission: 'manage_suppliers' },
 ];
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, hasPermission, isOwner } = useTenant();
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -125,6 +125,11 @@ function LayoutContent({ children, currentPageName }) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
+              // Hide menu item if user doesn't have required permission
+              if (item.permission && !hasPermission(item.permission)) {
+                return null;
+              }
+
               const isActive = currentPageName === item.page;
               return (
                 <Link
@@ -143,6 +148,22 @@ function LayoutContent({ children, currentPageName }) {
                 </Link>
               );
             })}
+
+            {isOwner && (
+              <Link
+                to={createPageUrl('Team')}
+                onClick={() => setSidebarOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mt-4
+                  ${currentPageName === 'Team'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
+                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                `}
+              >
+                <Users className="w-5 h-5" />
+                <span className="font-medium">Team</span>
+              </Link>
+            )}
 
             {isPlatformAdmin && (
               <Link

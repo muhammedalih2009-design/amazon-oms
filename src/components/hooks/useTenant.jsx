@@ -33,7 +33,18 @@ export function TenantProvider({ children }) {
           tenant_id: newTenant.id,
           user_id: currentUser.id,
           user_email: currentUser.email,
-          role: 'owner'
+          role: 'owner',
+          permissions: {
+            view_net_revenue: true,
+            view_profit: true,
+            view_sku_costs: true,
+            edit_orders: true,
+            bulk_upload_csv: true,
+            process_returns: true,
+            manage_inventory: true,
+            manage_purchases: true,
+            manage_suppliers: true
+          }
         });
 
         // Create trial subscription
@@ -75,6 +86,13 @@ export function TenantProvider({ children }) {
   const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
   const isPlatformAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
 
+  // Permissions helper - owner has all permissions
+  const permissions = membership?.permissions || {};
+  const hasPermission = (permissionKey) => {
+    if (isOwner) return true;
+    return permissions[permissionKey] === true;
+  };
+
   const value = {
     tenant,
     membership,
@@ -86,6 +104,8 @@ export function TenantProvider({ children }) {
     isAdmin,
     isPlatformAdmin,
     tenantId: tenant?.id,
+    permissions,
+    hasPermission,
     refresh: loadTenantData
   };
 
