@@ -35,8 +35,10 @@ import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 
 export default function SKUsPage() {
-  const { tenantId, subscription, isActive, tenant } = useTenant();
+  const { tenantId, subscription, isActive, tenant, canEditPage } = useTenant();
   const { toast } = useToast();
+  
+  const canEdit = canEditPage('skus');
   
   const [skus, setSkus] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -483,7 +485,7 @@ export default function SKUsPage() {
           <Button 
             variant="outline" 
             onClick={() => setShowUploadModal(true)}
-            disabled={!isActive}
+            disabled={!isActive || !canEdit}
             className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
           >
             <Upload className="w-4 h-4 mr-2" />
@@ -491,7 +493,7 @@ export default function SKUsPage() {
           </Button>
           <Button 
             onClick={() => setShowAddModal(true)}
-            disabled={!isActive}
+            disabled={!isActive || !canEdit}
             className="bg-indigo-600 hover:bg-indigo-700"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -507,7 +509,7 @@ export default function SKUsPage() {
           <Button 
             variant="destructive"
             onClick={() => setShowDeleteDialog(true)}
-            disabled={selectedRows.length === 0}
+            disabled={selectedRows.length === 0 || !canEdit}
           >
             <Trash2 className="w-4 h-4 mr-2" />
             Delete ({selectedRows.length})
@@ -551,10 +553,12 @@ export default function SKUsPage() {
               <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-100">
                 <tr>
                   <th className="py-4 px-6 text-left w-12">
-                    <Checkbox
-                      checked={selectedRows.length === filteredSkus.length}
-                      onCheckedChange={toggleSelectAll}
-                    />
+                    {canEdit && (
+                      <Checkbox
+                        checked={selectedRows.length === filteredSkus.length}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    )}
                   </th>
                   <th className="py-4 px-6 text-left w-20 text-xs font-semibold text-slate-500 uppercase">Image</th>
                   <th className="py-4 px-6 text-left text-xs font-semibold text-slate-500 uppercase">SKU Code</th>
@@ -578,10 +582,12 @@ export default function SKUsPage() {
                       }}
                     >
                       <td className="py-4 px-6" onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={selectedRows.includes(sku.id)}
-                          onCheckedChange={() => toggleSelectRow(sku.id)}
-                        />
+                        {canEdit && (
+                          <Checkbox
+                            checked={selectedRows.includes(sku.id)}
+                            onCheckedChange={() => toggleSelectRow(sku.id)}
+                          />
+                        )}
                       </td>
                       <td className="py-4 px-6">
                         {sku.image_url ? (

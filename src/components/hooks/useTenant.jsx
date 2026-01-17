@@ -35,15 +35,13 @@ export function TenantProvider({ children }) {
           user_email: currentUser.email,
           role: 'owner',
           permissions: {
-            view_net_revenue: true,
-            view_profit: true,
-            view_sku_costs: true,
-            edit_orders: true,
-            bulk_upload_csv: true,
-            process_returns: true,
-            manage_inventory: true,
-            manage_purchases: true,
-            manage_suppliers: true
+            dashboard: { view: true, edit: true },
+            skus: { view: true, edit: true },
+            orders: { view: true, edit: true },
+            purchases: { view: true, edit: true },
+            returns: { view: true, edit: true },
+            settlement: { view: true, edit: true },
+            suppliers: { view: true, edit: true }
           }
         });
 
@@ -86,11 +84,17 @@ export function TenantProvider({ children }) {
   const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
   const isPlatformAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
 
-  // Permissions helper - owner has all permissions
+  // Page-level permissions helper - owner has all permissions
   const permissions = membership?.permissions || {};
-  const hasPermission = (permissionKey) => {
+
+  const canViewPage = (pageKey) => {
     if (isOwner) return true;
-    return permissions[permissionKey] === true;
+    return permissions[pageKey]?.view === true;
+  };
+
+  const canEditPage = (pageKey) => {
+    if (isOwner) return true;
+    return permissions[pageKey]?.edit === true;
   };
 
   const value = {
@@ -105,7 +109,8 @@ export function TenantProvider({ children }) {
     isPlatformAdmin,
     tenantId: tenant?.id,
     permissions,
-    hasPermission,
+    canViewPage,
+    canEditPage,
     refresh: loadTenantData
   };
 

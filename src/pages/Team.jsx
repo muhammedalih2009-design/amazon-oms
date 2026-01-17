@@ -62,7 +62,7 @@ export default function TeamPage() {
     }
   };
 
-  const handleInviteUser = async (email, role) => {
+  const handleInviteUser = async (email, role, permissions) => {
     try {
       // Invite user to the app
       await base44.users.inviteUser(email, 'user');
@@ -79,17 +79,7 @@ export default function TeamPage() {
           user_id: 'pending',
           user_email: email,
           role,
-          permissions: {
-            view_net_revenue: false,
-            view_profit: false,
-            view_sku_costs: false,
-            edit_orders: false,
-            bulk_upload_csv: false,
-            process_returns: false,
-            manage_inventory: false,
-            manage_purchases: false,
-            manage_suppliers: false
-          }
+          permissions
         });
       } else {
         // Check if membership already exists
@@ -108,17 +98,7 @@ export default function TeamPage() {
           user_id: userId,
           user_email: email,
           role,
-          permissions: {
-            view_net_revenue: false,
-            view_profit: false,
-            view_sku_costs: false,
-            edit_orders: false,
-            bulk_upload_csv: false,
-            process_returns: false,
-            manage_inventory: false,
-            manage_purchases: false,
-            manage_suppliers: false
-          }
+          permissions
         });
       }
       

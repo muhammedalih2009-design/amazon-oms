@@ -34,20 +34,20 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', permission: null },
-  { name: 'SKUs / Products', icon: Package, page: 'SKUs', permission: null },
-  { name: 'Orders', icon: ShoppingCart, page: 'Orders', permission: null },
-  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', permission: null },
-  { name: 'Purchases', icon: Truck, page: 'Purchases', permission: 'manage_purchases' },
-  { name: 'Returns', icon: RotateCcw, page: 'Returns', permission: 'process_returns' },
-  { name: 'Settlement', icon: DollarSign, page: 'Settlement', permission: 'view_profit' },
-  { name: 'Suppliers', icon: Users, page: 'Suppliers', permission: 'manage_suppliers' },
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard' },
+  { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus' },
+  { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders' },
+  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
+  { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases' },
+  { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns' },
+  { name: 'Settlement', icon: DollarSign, page: 'Settlement', pageKey: 'settlement' },
+  { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers' },
 ];
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin, hasPermission, isOwner } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner } = useTenant();
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -125,8 +125,8 @@ function LayoutContent({ children, currentPageName }) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
-              // Hide menu item if user doesn't have required permission
-              if (item.permission && !hasPermission(item.permission)) {
+              // Hide menu item if user doesn't have view permission
+              if (item.pageKey && !canViewPage(item.pageKey)) {
                 return null;
               }
 
