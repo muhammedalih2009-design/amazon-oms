@@ -75,7 +75,11 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
     }
   };
 
+  const canEdit = isAdmin || task.assigned_to === currentUser.id;
+
   const handleToggleChecklistItem = async (itemId, currentStatus) => {
+    if (!canEdit) return;
+    
     try {
       await base44.entities.TaskChecklistItem.update(itemId, { 
         is_completed: !currentStatus 
@@ -153,7 +157,6 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
 
   if (!task) return null;
 
-  const canChangeStatus = isAdmin || task.assigned_to === currentUser.id;
   const completedCount = checklistItems.filter(item => item.is_completed).length;
   const totalCount = checklistItems.length;
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
@@ -222,7 +225,7 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
                     <Checkbox
                       checked={item.is_completed}
                       onCheckedChange={() => handleToggleChecklistItem(item.id, item.is_completed)}
-                      disabled={!canChangeStatus}
+                      disabled={!canEdit}
                     />
                     <span className={`text-sm flex-1 ${item.is_completed ? 'line-through text-slate-500' : 'text-slate-700'}`}>
                       {item.content}
@@ -242,7 +245,7 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
           )}
 
           {/* Status Changer */}
-          {canChangeStatus && (
+          {canEdit && (
             <div>
               <label className="text-sm font-medium text-slate-700 mb-2 block">
                 Update Status
