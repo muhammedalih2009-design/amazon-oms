@@ -191,10 +191,18 @@ export default function SKUsPage() {
         total_rows: rows.length
       });
 
+      // Fetch all existing SKUs once for fast duplicate checking
+      const existingSKUs = await base44.entities.SKU.filter({ tenant_id: tenantId });
+      const existingSKUCodesSet = new Set(existingSKUs.map(s => s.sku_code.toLowerCase().trim()));
+
       let successCount = 0;
       let failedCount = 0;
       const errors = [];
+      const validSKUs = [];
+      const validStockRecords = [];
+      const validStockMovements = [];
 
+      // First pass: Validate all rows
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         
@@ -212,9 +220,9 @@ export default function SKUsPage() {
             throw new Error('Cost must be a number greater than 0');
           }
 
-          // Check duplicate
-          const existing = skus.find(s => s.sku_code === row.sku_code);
-          if (existing) {
+          // Fast duplicate check using Set
+          const skuCodeLower = row.sku_code.toLowerCase().trim();
+          if (existingSKUCodesSet.has(skuCodeLower)) {
             throw new Error(`Duplicate SKU code: ${row.sku_code}`);
           }
 
@@ -236,56 +244,106 @@ export default function SKUsPage() {
             supplierId = supplier.id;
           }
 
-          // Create SKU
-          const newSKU = await base44.entities.SKU.create({
+          // Add to valid SKUs array for bulk insert
+          validSKUs.push({
             tenant_id: tenantId,
             sku_code: row.sku_code.trim(),
             product_name: row.product_name.trim(),
             cost_price: costValue,
             supplier_id: supplierId,
             image_url: row.image_url || null,
-            import_batch_id: batch.id
+            import_batch_id: batch.id,
+            _initialStock: stockValue,
+            _rowNumber: i + 1
           });
 
-          // Handle initial stock
-          const initialStock = stockValue;
-          
-          await base44.entities.CurrentStock.create({
-            tenant_id: tenantId,
-            sku_id: newSKU.id,
-            sku_code: newSKU.sku_code,
-            quantity_available: initialStock
-          });
-
-          if (initialStock > 0) {
-            await base44.entities.StockMovement.create({
-              tenant_id: tenantId,
-              sku_id: newSKU.id,
-              sku_code: newSKU.sku_code,
-              movement_type: 'manual',
-              quantity: initialStock,
-              reference_type: 'batch',
-              reference_id: batch.id,
-              movement_date: new Date().toISOString().split('T')[0],
-              notes: 'Initial stock from CSV import'
-            });
-          }
-
-          successCount++;
+          // Mark as processed in Set to prevent duplicates within same file
+          existingSKUCodesSet.add(skuCodeLower);
         } catch (error) {
           failedCount++;
-          await base44.entities.ImportError.create({
-            tenant_id: tenantId,
-            batch_id: batch.id,
-            row_number: i + 1,
-            raw_row_json: JSON.stringify(row),
-            error_reason: error.message
-          });
           errors.push({
             row_number: i + 1,
             ...row,
             error_reason: error.message
           });
+        }
+      }
+
+      // Bulk insert SKUs in batches of 100
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < validSKUs.length; i += BATCH_SIZE) {
+        const batchToInsert = validSKUs.slice(i, i + BATCH_SIZE);
+        
+        // Remove temporary fields before insert
+        const cleanedBatch = batchToInsert.map(({ _initialStock, _rowNumber, ...sku }) => sku);
+        
+        try {
+          const insertedSKUs = await base44.entities.SKU.bulkCreate(cleanedBatch);
+          
+          // Create stock records for this batch
+          const stockRecords = insertedSKUs.map((sku, idx) => ({
+            tenant_id: tenantId,
+            sku_id: sku.id,
+            sku_code: sku.sku_code,
+            quantity_available: batchToInsert[idx]._initialStock || 0
+          }));
+          
+          await base44.entities.CurrentStock.bulkCreate(stockRecords);
+          
+          // Create stock movements for SKUs with initial stock
+          const movementsToCreate = insertedSKUs
+            .map((sku, idx) => {
+              const initialStock = batchToInsert[idx]._initialStock;
+              if (initialStock > 0) {
+                return {
+                  tenant_id: tenantId,
+                  sku_id: sku.id,
+                  sku_code: sku.sku_code,
+                  movement_type: 'manual',
+                  quantity: initialStock,
+                  reference_type: 'batch',
+                  reference_id: batch.id,
+                  movement_date: new Date().toISOString().split('T')[0],
+                  notes: 'Initial stock from CSV import'
+                };
+              }
+              return null;
+            })
+            .filter(m => m !== null);
+          
+          if (movementsToCreate.length > 0) {
+            await base44.entities.StockMovement.bulkCreate(movementsToCreate);
+          }
+          
+          successCount += insertedSKUs.length;
+        } catch (error) {
+          // If batch insert fails, mark all rows in this batch as failed
+          for (const sku of batchToInsert) {
+            failedCount++;
+            errors.push({
+              row_number: sku._rowNumber,
+              sku_code: sku.sku_code,
+              product_name: sku.product_name,
+              cost: sku.cost_price,
+              error_reason: error.message
+            });
+          }
+        }
+      }
+
+      // Save import errors
+      if (errors.length > 0) {
+        const errorRecords = errors.map(e => ({
+          tenant_id: tenantId,
+          batch_id: batch.id,
+          row_number: e.row_number,
+          raw_row_json: JSON.stringify(e),
+          error_reason: e.error_reason
+        }));
+        
+        // Insert errors in batches too
+        for (let i = 0; i < errorRecords.length; i += BATCH_SIZE) {
+          await base44.entities.ImportError.bulkCreate(errorRecords.slice(i, i + BATCH_SIZE));
         }
       }
 

@@ -13,6 +13,7 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
   const [result, setResult] = useState(null);
 
   const handleFileChange = (e) => {
@@ -28,11 +29,16 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
 
     setUploading(true);
     setProgress(10);
+    setProgressText('Uploading file...');
 
     try {
       setProgress(30);
+      setProgressText('Processing rows...');
+      
       const uploadResult = await onUpload(file);
+      
       setProgress(100);
+      setProgressText('Complete!');
       
       // Ensure we have a valid result
       if (!uploadResult || uploadResult.status === 'failed') {
@@ -59,6 +65,7 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
     } finally {
       setUploading(false);
       setProgress(0);
+      setProgressText('');
     }
   };
 
@@ -66,6 +73,7 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
     setFile(null);
     setResult(null);
     setProgress(0);
+    setProgressText('');
     onClose();
   };
 
@@ -149,8 +157,14 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
           {/* Progress */}
           {uploading && (
             <div className="space-y-2">
-              <p className="text-sm text-slate-600">Processing CSV file...</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600">{progressText}</p>
+                <p className="text-xs text-slate-500">{progress}%</p>
+              </div>
               <Progress value={progress} className="h-2" />
+              <p className="text-xs text-slate-500 italic">
+                Processing large files may take a few minutes...
+              </p>
             </div>
           )}
 
