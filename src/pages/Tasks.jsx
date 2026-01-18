@@ -226,13 +226,11 @@ export default function TasksPage() {
               {isAdmin ? 'Manage and assign tasks to your team' : 'View and update your assigned tasks'}
             </p>
           </div>
-          {isAdmin && (
-            {canEdit && (
-              <Button onClick={() => setShowAddModal(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Create Task
-              </Button>
-            )}
+          {canEdit && (
+            <Button onClick={() => setShowAddModal(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Task
+            </Button>
           )}
         </div>
 
