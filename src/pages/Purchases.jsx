@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { Truck, Plus, Search, Edit, Trash2, ShoppingCart } from 'lucide-react';
+import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
+import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +38,7 @@ export default function Purchases() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showCartForm, setShowCartForm] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [formData, setFormData] = useState({
     sku_id: '',
     quantity_purchased: '',
@@ -320,6 +322,15 @@ export default function Purchases() {
             </Button>
           )}
           <Button 
+            onClick={() => setShowBulkUpload(true)}
+            variant="outline"
+            className="border-indigo-200 text-indigo-600"
+            disabled={!isActive}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Bulk Upload
+          </Button>
+          <Button 
             onClick={() => setShowForm(true)}
             className="bg-indigo-600 hover:bg-indigo-700"
             disabled={!isActive}
@@ -534,6 +545,14 @@ export default function Purchases() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Upload Modal */}
+      <BulkUploadModal
+        open={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
+        tenantId={tenantId}
+        onSuccess={() => loadData()}
+      />
     </div>
   );
 }
