@@ -125,40 +125,59 @@ export default function SKUsPage() {
       // Upload file
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       
-      // Extract data
+      // Extract data - CSV returns array directly, not nested in 'data'
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
         file_url,
         json_schema: {
-          type: 'object',
-          properties: {
-            data: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  sku_code: { type: 'string' },
-                  product_name: { type: 'string' },
-                  cost: { type: 'number' },
-                  supplier: { type: 'string' },
-                  stock: { type: 'number' },
-                  image_url: { type: 'string' }
-                }
-              }
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              sku_code: { type: 'string' },
+              product_name: { type: 'string' },
+              cost: { type: ['number', 'string'] },
+              supplier: { type: 'string' },
+              stock: { type: ['number', 'string'] },
+              image_url: { type: 'string' }
             }
           }
         }
       });
 
-      const rows = result.output?.data || [];
+      let rows = result.output || [];
       
       // Validate CSV is not empty
       if (!rows || rows.length === 0) {
         throw new Error('CSV file is empty or has no valid data rows');
       }
 
-      // Validate required columns exist in first row
+      // Filter out completely empty rows
+      rows = rows.filter(row => {
+        const hasAnyData = Object.values(row).some(val => val !== null && val !== undefined && val !== '');
+        return hasAnyData;
+      });
+
+      if (rows.length === 0) {
+        throw new Error('CSV file contains no valid data rows');
+      }
+
+      // Normalize headers to lowercase and trim spaces
+      rows = rows.map(row => {
+        const normalized = {};
+        Object.keys(row).forEach(key => {
+          const normalizedKey = key.toLowerCase().trim();
+          normalized[normalizedKey] = row[key];
+        });
+        return normalized;
+      });
+
+      // Validate required columns exist
       const firstRow = rows[0];
-      if (!firstRow.sku_code && !firstRow.product_name && !firstRow.cost) {
+      const hasRequiredColumns = firstRow.sku_code !== undefined || 
+                                 firstRow.product_name !== undefined || 
+                                 firstRow.cost !== undefined;
+      
+      if (!hasRequiredColumns) {
         throw new Error('CSV file missing required columns. Expected: sku_code, product_name, cost');
       }
       
@@ -180,12 +199,16 @@ export default function SKUsPage() {
         const row = rows[i];
         
         try {
+          // Convert cost and stock to numbers
+          const costValue = typeof row.cost === 'string' ? parseFloat(row.cost) : row.cost;
+          const stockValue = row.stock ? (typeof row.stock === 'string' ? parseInt(row.stock) : row.stock) : 0;
+
           // Validation
           if (!row.sku_code || !row.product_name) {
             throw new Error('Missing required fields: sku_code or product_name');
           }
 
-          if (!row.cost || row.cost <= 0) {
+          if (!costValue || isNaN(costValue) || costValue <= 0) {
             throw new Error('Cost must be a number greater than 0');
           }
 
@@ -216,16 +239,16 @@ export default function SKUsPage() {
           // Create SKU
           const newSKU = await base44.entities.SKU.create({
             tenant_id: tenantId,
-            sku_code: row.sku_code,
-            product_name: row.product_name,
-            cost_price: row.cost,
+            sku_code: row.sku_code.trim(),
+            product_name: row.product_name.trim(),
+            cost_price: costValue,
             supplier_id: supplierId,
             image_url: row.image_url || null,
             import_batch_id: batch.id
           });
 
           // Handle initial stock
-          const initialStock = row.stock ? parseInt(row.stock) : 0;
+          const initialStock = stockValue;
           
           await base44.entities.CurrentStock.create({
             tenant_id: tenantId,
