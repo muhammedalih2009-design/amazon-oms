@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Calendar, User, MessageCircle, CheckSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const STATUS_COLORS = {
   'New': 'bg-blue-100 text-blue-700 border-blue-300',
@@ -19,7 +20,7 @@ const PRIORITY_COLORS = {
   'High': 'border-red-400'
 };
 
-export default function TaskCard({ task, onClick, commentCount = 0 }) {
+export default function TaskCard({ task, onClick, commentCount = 0, isAdmin = false, isSelected = false, onToggleSelect }) {
   const [checklistProgress, setChecklistProgress] = useState({ completed: 0, total: 0 });
   const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'Completed';
 
@@ -39,24 +40,37 @@ export default function TaskCard({ task, onClick, commentCount = 0 }) {
 
   return (
     <Card
-      className={`cursor-pointer hover:shadow-md transition-all border-l-4 ${PRIORITY_COLORS[task.priority]} ${
+      className={`cursor-pointer hover:shadow-md transition-all border-l-4 relative ${PRIORITY_COLORS[task.priority]} ${
         isOverdue ? 'bg-red-50' : ''
-      }`}
+      } ${isSelected ? 'ring-2 ring-indigo-500 bg-indigo-50' : ''}`}
       onClick={onClick}
     >
       <CardContent className="p-4">
         <div className="space-y-3">
           {/* Header */}
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
-              <h3 className="font-semibold text-slate-900 text-sm line-clamp-2 mb-1">
-                {task.title}
-              </h3>
-              {task.account_name && (
-                <Badge className="bg-purple-100 text-purple-700 text-xs">
-                  {task.account_name}
-                </Badge>
+            <div className="flex-1 flex items-start gap-2">
+              {isAdmin && (
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={(e) => {
+                    e?.stopPropagation?.();
+                    onToggleSelect?.();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
               )}
+              <div className="flex-1">
+                <h3 className="font-semibold text-slate-900 text-sm line-clamp-2 mb-1">
+                  {task.title}
+                </h3>
+                {task.account_name && (
+                  <Badge className="bg-purple-100 text-purple-700 text-xs">
+                    {task.account_name}
+                  </Badge>
+                )}
+              </div>
             </div>
             <Badge className={STATUS_COLORS[task.status]} style={{ fontSize: '10px' }}>
               {task.status}

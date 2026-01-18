@@ -3,7 +3,19 @@ import { useTenant } from '@/components/hooks/useTenant';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, CheckSquare, Search, Filter } from 'lucide-react';
+import { Plus, CheckSquare, Search, Filter, Trash2, CheckCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/components/ui/use-toast';
+import { Checkbox } from '@/components/ui/checkbox';
 import AddTaskModal from '@/components/tasks/AddTaskModal';
 import TaskDetailModal from '@/components/tasks/TaskDetailModal';
 import TaskCard from '@/components/tasks/TaskCard';
@@ -31,6 +43,8 @@ export default function TasksPage() {
   const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [accountFilter, setAccountFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTaskIds, setSelectedTaskIds] = useState([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   useEffect(() => {
     if (!tenantLoading && tenantId) {
@@ -112,6 +126,62 @@ export default function TasksPage() {
     acc[tag] = filteredTasks.filter(task => task.tag === tag);
     return acc;
   }, {});
+
+  const { toast } = useToast();
+
+  const handleToggleTask = (taskId) => {
+    setSelectedTaskIds(prev => 
+      prev.includes(taskId) 
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId]
+    );
+  };
+
+  const handleSelectAll = (tag) => {
+    const tagTaskIds = tasksByTag[tag].map(t => t.id);
+    const allSelected = tagTaskIds.every(id => selectedTaskIds.includes(id));
+    
+    if (allSelected) {
+      setSelectedTaskIds(prev => prev.filter(id => !tagTaskIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => [...new Set([...prev, ...tagTaskIds])]);
+    }
+  };
+
+  const handleDeleteTasks = async () => {
+    try {
+      // Delete associated checklist items and comments
+      for (const taskId of selectedTaskIds) {
+        const checklistItems = await base44.entities.TaskChecklistItem.filter({ task_id: taskId });
+        for (const item of checklistItems) {
+          await base44.entities.TaskChecklistItem.delete(item.id);
+        }
+
+        const taskComments = await base44.entities.TaskComment.filter({ task_id: taskId });
+        for (const comment of taskComments) {
+          await base44.entities.TaskComment.delete(comment.id);
+        }
+
+        // Delete the task itself
+        await base44.entities.Task.delete(taskId);
+      }
+
+      toast({
+        title: 'Tasks deleted',
+        description: `Successfully deleted ${selectedTaskIds.length} task${selectedTaskIds.length > 1 ? 's' : ''}`
+      });
+
+      setSelectedTaskIds([]);
+      setShowDeleteDialog(false);
+      loadTasks();
+    } catch (error) {
+      toast({
+        title: 'Error deleting tasks',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
 
   if (tenantLoading) {
     return (
@@ -275,10 +345,21 @@ export default function TasksPage() {
             {TAGS.map(tag => (
               tasksByTag[tag].length > 0 && (
                 <div key={tag} className="space-y-3">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 rounded-lg">
-                    <CheckSquare className="w-4 h-4 text-slate-600" />
-                    <h2 className="font-semibold text-slate-900">{tag}</h2>
-                    <span className="text-xs text-slate-500">({tasksByTag[tag].length})</span>
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-100 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckSquare className="w-4 h-4 text-slate-600" />
+                      <h2 className="font-semibold text-slate-900">{tag}</h2>
+                      <span className="text-xs text-slate-500">({tasksByTag[tag].length})</span>
+                    </div>
+                    {isAdmin && tasksByTag[tag].length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={tasksByTag[tag].every(t => selectedTaskIds.includes(t.id))}
+                          onCheckedChange={() => handleSelectAll(tag)}
+                        />
+                        <span className="text-xs text-slate-600">Select All</span>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-3">
                     {tasksByTag[tag].map(task => (
@@ -287,6 +368,9 @@ export default function TasksPage() {
                         task={task}
                         onClick={() => setSelectedTask(task)}
                         commentCount={comments[task.id] || 0}
+                        isAdmin={isAdmin}
+                        isSelected={selectedTaskIds.includes(task.id)}
+                        onToggleSelect={() => handleToggleTask(task.id)}
                       />
                     ))}
                   </div>
@@ -326,6 +410,59 @@ export default function TasksPage() {
             isAdmin={isAdmin}
           />
         )}
+
+        {/* Bulk Action Bar */}
+        {isAdmin && selectedTaskIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+            <div className="bg-slate-900 text-white rounded-full shadow-2xl px-6 py-4 flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-400" />
+                <span className="font-semibold">
+                  {selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected
+                </span>
+              </div>
+              <div className="w-px h-6 bg-slate-700" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedTaskIds([])}
+                className="text-white hover:bg-slate-800"
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setShowDeleteDialog(true)}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Selected
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Tasks?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete {selectedTaskIds.length} task{selectedTaskIds.length > 1 ? 's' : ''}? 
+                This will also remove all associated checklist items and comments. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleDeleteTasks}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Delete Tasks
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </PagePermissionGuard>
   );
