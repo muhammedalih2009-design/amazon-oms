@@ -2,8 +2,8 @@ import React from 'react';
 import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
-export default function UploadRequirementsBanner() {
-  const requiredColumns = [
+export default function UploadRequirementsBanner({ columns }) {
+  const requiredColumns = columns || [
     { name: 'sku_code', required: true },
     { name: 'product_name', required: true },
     { name: 'cost', required: true },

@@ -34,6 +34,7 @@ import CSVUploader from '@/components/shared/CSVUploader';
 import BatchHistory from '@/components/shared/BatchHistory';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PaywallBanner from '@/components/ui/PaywallBanner';
+import UploadRequirementsBanner from '@/components/skus/UploadRequirementsBanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -553,7 +554,15 @@ export default function Orders() {
           />
         </TabsContent>
 
-        <TabsContent value="import">
+        <TabsContent value="import" className="space-y-4">
+          <UploadRequirementsBanner 
+            columns={[
+              { name: 'amazon_order_id', required: true },
+              { name: 'order_date', required: true },
+              { name: 'sku_code', required: true },
+              { name: 'quantity', required: true }
+            ]}
+          />
           <CSVUploader
             title="Import Orders"
             description="Upload a CSV file to bulk import orders"
