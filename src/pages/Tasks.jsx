@@ -32,7 +32,8 @@ import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
 const TAGS = ['Returns', 'Shipping', 'Inventory', 'Orders', 'Suppliers', 'General'];
 
 export default function TasksPage() {
-  const { tenantId, user, isAdmin, loading: tenantLoading } = useTenant();
+  const { tenantId, user, isAdmin, canEditPage, loading: tenantLoading } = useTenant();
+  const canEdit = canEditPage('tasks');
   const [tasks, setTasks] = useState([]);
   const [comments, setComments] = useState({});
   const [members, setMembers] = useState([]);
@@ -193,6 +194,16 @@ export default function TasksPage() {
     }
   };
 
+  const handleEditTask = (task) => {
+    setEditingTask(task);
+    setShowAddModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowAddModal(false);
+    setEditingTask(null);
+  };
+
   if (tenantLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -216,10 +227,12 @@ export default function TasksPage() {
             </p>
           </div>
           {isAdmin && (
-            <Button onClick={() => setShowAddModal(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Task
-            </Button>
+            {canEdit && (
+              <Button onClick={() => setShowAddModal(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Task
+              </Button>
+            )}
           )}
         </div>
 
@@ -389,6 +402,8 @@ export default function TasksPage() {
                         isAdmin={isAdmin}
                         isSelected={selectedTaskIds.includes(task.id)}
                         onToggleSelect={() => handleToggleTask(task.id)}
+                        canEdit={canEdit}
+                        onEdit={handleEditTask}
                       />
                     ))}
                   </div>
@@ -409,12 +424,19 @@ export default function TasksPage() {
         )}
 
         {/* Modals */}
-        {isAdmin && (
+        {canEdit && (
           <AddTaskModal
             open={showAddModal}
-            onClose={() => setShowAddModal(false)}
-            onTaskCreated={loadTasks}
+            onClose={handleCloseModal}
+            onTaskCreated={() => {
+              loadTasks();
+              toast({
+                title: 'Success',
+                description: editingTask ? 'Task updated successfully' : 'Task created successfully'
+              });
+            }}
             tenantId={tenantId}
+            editTask={editingTask}
           />
         )}
 
@@ -426,6 +448,7 @@ export default function TasksPage() {
             onUpdate={loadTasks}
             currentUser={user}
             isAdmin={isAdmin}
+            onEdit={handleEditTask}
           />
         )}
 
