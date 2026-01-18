@@ -260,123 +260,259 @@ export default function Orders() {
   const handleCSVUpload = async (file) => {
     setProcessing(true);
     
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    
-    const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
-      file_url,
-      json_schema: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            amazon_order_id: { type: 'string' },
-            order_date: { type: 'string' },
-            sku_code: { type: 'string' },
-            quantity: { type: 'number' }
+    try {
+      // Upload file
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      
+      // Extract data
+      const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
+        file_url,
+        json_schema: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              amazon_order_id: { type: 'string' },
+              order_date: { type: 'string' },
+              sku_code: { type: 'string' },
+              quantity: { type: ['number', 'string'] }
+            }
           }
         }
-      }
-    });
+      });
 
-    const batch = await base44.entities.ImportBatch.create({
-      tenant_id: tenantId,
-      batch_type: 'orders',
-      batch_name: `Orders Batch - ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
-      filename: file.name,
-      status: 'processing',
-      total_rows: 0
-    });
-
-    const rows = result.output || [];
-    let successCount = 0;
-    let failedCount = 0;
-    const errors = [];
-    const orderMap = {};
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
+      let rows = result.output || [];
       
-      if (!row.amazon_order_id || !row.sku_code) {
-        failedCount++;
-        errors.push({
-          row_number: i + 1,
-          raw_row_json: JSON.stringify(row),
-          error_reason: 'Missing required fields'
-        });
-        continue;
+      // Validate CSV is not empty
+      if (!rows || rows.length === 0) {
+        throw new Error('CSV file is empty or has no valid data rows');
       }
 
-      const sku = skus.find(s => s.sku_code === row.sku_code);
-      if (!sku) {
-        failedCount++;
-        errors.push({
-          row_number: i + 1,
-          raw_row_json: JSON.stringify(row),
-          error_reason: `SKU not found: ${row.sku_code}`
-        });
-        continue;
+      // Filter out empty rows
+      rows = rows.filter(row => {
+        const hasAnyData = Object.values(row).some(val => val !== null && val !== undefined && val !== '');
+        return hasAnyData;
+      });
+
+      if (rows.length === 0) {
+        throw new Error('CSV file contains no valid data rows');
       }
 
-      // Get or create order
-      if (!orderMap[row.amazon_order_id]) {
-        const existing = orders.find(o => o.amazon_order_id === row.amazon_order_id);
-        if (existing) {
+      // Normalize headers
+      rows = rows.map(row => {
+        const normalized = {};
+        Object.keys(row).forEach(key => {
+          const normalizedKey = key.toLowerCase().trim();
+          normalized[normalizedKey] = row[key];
+        });
+        return normalized;
+      });
+
+      // Create batch
+      const batch = await base44.entities.ImportBatch.create({
+        tenant_id: tenantId,
+        batch_type: 'orders',
+        batch_name: `Orders Batch - ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
+        filename: file.name,
+        status: 'processing',
+        total_rows: rows.length
+      });
+
+      // Build SKU lookup map
+      const skuMap = new Map();
+      skus.forEach(sku => {
+        skuMap.set(sku.sku_code.toLowerCase().trim(), sku);
+      });
+
+      // Build existing order IDs set
+      const existingOrderIds = new Set(orders.map(o => o.amazon_order_id.toLowerCase().trim()));
+
+      let successCount = 0;
+      let failedCount = 0;
+      const errors = [];
+      const validOrders = new Map();
+      const validOrderLines = [];
+      const seenOrderIds = new Set();
+
+      // Validate all rows
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        
+        try {
+          // Convert quantity to number
+          const quantityValue = typeof row.quantity === 'string' ? parseInt(row.quantity) : row.quantity;
+
+          // Validation
+          if (!row.amazon_order_id || !row.sku_code) {
+            throw new Error('Missing required fields: amazon_order_id or sku_code');
+          }
+
+          if (!row.order_date) {
+            throw new Error('Missing required field: order_date');
+          }
+
+          // Validate date format
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(row.order_date)) {
+            throw new Error('Invalid order_date format. Expected: YYYY-MM-DD');
+          }
+
+          if (!quantityValue || isNaN(quantityValue) || quantityValue <= 0) {
+            throw new Error('Quantity must be a number greater than 0');
+          }
+
+          // Check if SKU exists
+          const sku = skuMap.get(row.sku_code.toLowerCase().trim());
+          if (!sku) {
+            throw new Error(`SKU not found: ${row.sku_code}`);
+          }
+
+          // Check for duplicate order ID in existing orders
+          const orderIdLower = row.amazon_order_id.toLowerCase().trim();
+          if (existingOrderIds.has(orderIdLower)) {
+            throw new Error(`Duplicate order ID: ${row.amazon_order_id} (already exists in system)`);
+          }
+
+          // Track order for creation (group lines by order)
+          if (!validOrders.has(orderIdLower)) {
+            validOrders.set(orderIdLower, {
+              amazon_order_id: row.amazon_order_id.trim(),
+              order_date: row.order_date,
+              _rowNumber: i + 1
+            });
+            seenOrderIds.add(orderIdLower);
+          }
+
+          // Add order line
+          validOrderLines.push({
+            amazon_order_id_key: orderIdLower,
+            sku_id: sku.id,
+            sku_code: sku.sku_code,
+            quantity: quantityValue,
+            _rowNumber: i + 1,
+            _originalRow: { ...row }
+          });
+
+        } catch (error) {
           failedCount++;
           errors.push({
             row_number: i + 1,
-            raw_row_json: JSON.stringify(row),
-            error_reason: `Duplicate order ID: ${row.amazon_order_id}`
+            ...row,
+            error_reason: error.message
           });
-          continue;
         }
-
-        const order = await base44.entities.Order.create({
-          tenant_id: tenantId,
-          amazon_order_id: row.amazon_order_id,
-          order_date: row.order_date || format(new Date(), 'yyyy-MM-dd'),
-          status: 'pending',
-          import_batch_id: batch.id
-        });
-        orderMap[row.amazon_order_id] = order;
       }
 
-      await base44.entities.OrderLine.create({
+      // Bulk create orders in batches
+      const BATCH_SIZE = 400;
+      const ordersToCreate = Array.from(validOrders.values()).map(({ _rowNumber, ...order }) => ({
         tenant_id: tenantId,
-        order_id: orderMap[row.amazon_order_id].id,
-        sku_id: sku.id,
-        sku_code: sku.sku_code,
-        quantity: parseInt(row.quantity) || 1
-      });
-      successCount++;
-    }
+        ...order,
+        status: 'pending',
+        import_batch_id: batch.id
+      }));
 
-    for (const error of errors) {
-      await base44.entities.ImportError.create({
+      const createdOrders = [];
+      for (let i = 0; i < ordersToCreate.length; i += BATCH_SIZE) {
+        const batchToInsert = ordersToCreate.slice(i, i + BATCH_SIZE);
+        const inserted = await base44.entities.Order.bulkCreate(batchToInsert);
+        createdOrders.push(...inserted);
+      }
+
+      // Build order ID to DB ID map
+      const orderIdMap = new Map();
+      createdOrders.forEach(order => {
+        orderIdMap.set(order.amazon_order_id.toLowerCase().trim(), order.id);
+      });
+
+      // Create order lines in batches
+      const linesToCreate = validOrderLines.map(({ amazon_order_id_key, _rowNumber, _originalRow, ...line }) => ({
         tenant_id: tenantId,
-        batch_id: batch.id,
-        ...error
+        order_id: orderIdMap.get(amazon_order_id_key),
+        ...line
+      }));
+
+      for (let i = 0; i < linesToCreate.length; i += BATCH_SIZE) {
+        const batchToInsert = linesToCreate.slice(i, i + BATCH_SIZE);
+        await base44.entities.OrderLine.bulkCreate(batchToInsert);
+      }
+
+      successCount = validOrderLines.length;
+
+      // Save import errors in batches
+      if (errors.length > 0) {
+        const errorRecords = errors.map(e => ({
+          tenant_id: tenantId,
+          batch_id: batch.id,
+          row_number: e.row_number,
+          raw_row_json: JSON.stringify(e),
+          error_reason: e.error_reason
+        }));
+        
+        for (let i = 0; i < errorRecords.length; i += BATCH_SIZE) {
+          await base44.entities.ImportError.bulkCreate(errorRecords.slice(i, i + BATCH_SIZE));
+        }
+
+        // Generate error CSV
+        const errorCSVHeaders = Object.keys(errors[0]).filter(k => k !== 'error_reason');
+        errorCSVHeaders.push('error_reason');
+        
+        const errorCSVContent = [
+          errorCSVHeaders.join(','),
+          ...errors.map(e => 
+            errorCSVHeaders.map(h => {
+              const val = e[h];
+              if (val === null || val === undefined) return '';
+              const str = String(val);
+              return str.includes(',') || str.includes('"') || str.includes('\n') 
+                ? `"${str.replace(/"/g, '""')}"` 
+                : str;
+            }).join(',')
+          )
+        ].join('\n');
+
+        const errorBlob = new Blob([errorCSVContent], { type: 'text/csv;charset=utf-8;' });
+        const errorFile = new File([errorBlob], `errors_${batch.id}.csv`, { type: 'text/csv' });
+        const { file_url: errorFileUrl } = await base44.integrations.Core.UploadFile({ file: errorFile });
+
+        await base44.entities.ImportBatch.update(batch.id, {
+          error_file_url: errorFileUrl
+        });
+      }
+
+      // Determine final status
+      const status = failedCount === 0 ? 'success' : 
+                     successCount === 0 ? 'failed' : 'partial';
+
+      await base44.entities.ImportBatch.update(batch.id, {
+        status,
+        success_rows: successCount,
+        failed_rows: failedCount
       });
+
+      setUploadResult({
+        status,
+        total_rows: rows.length,
+        success_rows: successCount,
+        failed_rows: failedCount,
+        error_file_url: errors.length > 0 ? await (async () => {
+          const updatedBatch = await base44.entities.ImportBatch.filter({ id: batch.id });
+          return updatedBatch[0]?.error_file_url;
+        })() : null
+      });
+
+      loadData();
+    } catch (error) {
+      setUploadResult({
+        status: 'failed',
+        total_rows: 0,
+        success_rows: 0,
+        failed_rows: 0,
+        error: error.message || 'Upload failed'
+      });
+    } finally {
+      setProcessing(false);
     }
-
-    const status = failedCount === 0 ? 'success' : 
-                   successCount === 0 ? 'failed' : 'partial';
-
-    await base44.entities.ImportBatch.update(batch.id, {
-      status,
-      total_rows: rows.length,
-      success_rows: successCount,
-      failed_rows: failedCount
-    });
-
-    setUploadResult({
-      status,
-      total_rows: rows.length,
-      success_rows: successCount,
-      failed_rows: failedCount
-    });
-
-    setProcessing(false);
-    loadData();
   };
 
   const addLine = () => {
