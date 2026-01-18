@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +58,8 @@ export default function Orders() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(false);
+  const [editFormData, setEditFormData] = useState(null);
   const [deleteBatch, setDeleteBatch] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -232,6 +234,90 @@ export default function Orders() {
     await base44.entities.Order.delete(order.id);
     loadData();
     toast({ title: 'Order deleted' });
+  };
+
+  const handleEditOrder = (order) => {
+    const lines = orderLines.filter(l => l.order_id === order.id);
+    setEditFormData({
+      ...order,
+      lines: lines.map(l => ({
+        id: l.id,
+        sku_id: l.sku_id,
+        quantity: l.quantity
+      }))
+    });
+    setEditingOrder(true);
+  };
+
+  const handleUpdateOrder = async () => {
+    if (!editFormData) return;
+
+    // Verify order status hasn't changed
+    const currentOrder = orders.find(o => o.id === editFormData.id);
+    if (currentOrder?.status === 'fulfilled') {
+      toast({ 
+        title: 'Cannot edit order', 
+        description: 'This order has been fulfilled',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    // Update order lines
+    for (const line of editFormData.lines) {
+      const sku = skus.find(s => s.id === line.sku_id);
+      if (line.id) {
+        // Update existing line
+        await base44.entities.OrderLine.update(line.id, {
+          sku_id: line.sku_id,
+          sku_code: sku?.sku_code,
+          quantity: parseInt(line.quantity)
+        });
+      } else {
+        // New line
+        await base44.entities.OrderLine.create({
+          tenant_id: tenantId,
+          order_id: editFormData.id,
+          sku_id: line.sku_id,
+          sku_code: sku?.sku_code,
+          quantity: parseInt(line.quantity)
+        });
+      }
+    }
+
+    // Delete removed lines
+    const existingLines = orderLines.filter(l => l.order_id === editFormData.id);
+    const updatedLineIds = editFormData.lines.map(l => l.id).filter(Boolean);
+    const linesToDelete = existingLines.filter(l => !updatedLineIds.includes(l.id));
+    for (const line of linesToDelete) {
+      await base44.entities.OrderLine.delete(line.id);
+    }
+
+    setEditingOrder(false);
+    setEditFormData(null);
+    setShowDetails(null);
+    loadData();
+    toast({ title: 'Order updated successfully' });
+  };
+
+  const addEditLine = () => {
+    setEditFormData({
+      ...editFormData,
+      lines: [...editFormData.lines, { sku_id: '', quantity: 1 }]
+    });
+  };
+
+  const updateEditLine = (index, field, value) => {
+    const newLines = [...editFormData.lines];
+    newLines[index][field] = value;
+    setEditFormData({ ...editFormData, lines: newLines });
+  };
+
+  const removeEditLine = (index) => {
+    setEditFormData({
+      ...editFormData,
+      lines: editFormData.lines.filter((_, i) => i !== index)
+    });
   };
 
   const handleDeleteBatch = async () => {
@@ -1053,53 +1139,149 @@ export default function Orders() {
       </Dialog>
 
       {/* Order Details Dialog */}
-      <Dialog open={!!showDetails} onOpenChange={() => setShowDetails(null)}>
+      <Dialog open={!!showDetails} onOpenChange={() => {
+        setShowDetails(null);
+        setEditingOrder(false);
+        setEditFormData(null);
+      }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Order Details</DialogTitle>
           </DialogHeader>
           {showDetails && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-slate-500">Order ID</p>
-                  <p className="font-medium">{showDetails.amazon_order_id}</p>
+              {/* Warning message if fulfilled */}
+              {showDetails.status === 'fulfilled' && !editingOrder && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-sm text-amber-800">
+                    This order is fulfilled and cannot be edited.
+                  </p>
                 </div>
-                <div>
-                  <p className="text-sm text-slate-500">Date</p>
-                  <p className="font-medium">{showDetails.order_date ? format(new Date(showDetails.order_date), 'MMM d, yyyy') : '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">Status</p>
-                  <StatusBadge status={showDetails.status} />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">Revenue</p>
-                  <p className="font-medium">${(showDetails.net_revenue || 0).toFixed(2)}</p>
-                </div>
-              </div>
+              )}
 
-              <div>
-                <p className="text-sm text-slate-500 mb-2">Order Lines</p>
-                <div className="space-y-2">
-                  {orderLines.filter(l => l.order_id === showDetails.id).map(line => (
-                    <div key={line.id} className="flex justify-between p-3 bg-slate-50 rounded-lg">
-                      <div>
-                        <p className="font-medium">{line.sku_code}</p>
-                        <p className="text-sm text-slate-500">Qty: {line.quantity}</p>
-                      </div>
-                      <div className="text-right">
-                        {line.line_total_cost && (
-                          <p className="font-medium">${line.line_total_cost.toFixed(2)}</p>
-                        )}
-                        {line.is_returned && (
-                          <StatusBadge status="fully_returned" />
-                        )}
-                      </div>
+              {!editingOrder ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-slate-500">Order ID</p>
+                      <p className="font-medium">{showDetails.amazon_order_id}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div>
+                      <p className="text-sm text-slate-500">Date</p>
+                      <p className="font-medium">{showDetails.order_date ? format(new Date(showDetails.order_date), 'MMM d, yyyy') : '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500">Status</p>
+                      <StatusBadge status={showDetails.status} />
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500">Revenue</p>
+                      <p className="font-medium">${(showDetails.net_revenue || 0).toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-slate-500 mb-2">Order Lines</p>
+                    <div className="space-y-2">
+                      {orderLines.filter(l => l.order_id === showDetails.id).map(line => (
+                        <div key={line.id} className="flex justify-between p-3 bg-slate-50 rounded-lg">
+                          <div>
+                            <p className="font-medium">{line.sku_code}</p>
+                            <p className="text-sm text-slate-500">Qty: {line.quantity}</p>
+                          </div>
+                          <div className="text-right">
+                            {line.line_total_cost && (
+                              <p className="font-medium">${line.line_total_cost.toFixed(2)}</p>
+                            )}
+                            {line.is_returned && (
+                              <StatusBadge status="fully_returned" />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {showDetails.status !== 'fulfilled' && (
+                    <div className="flex justify-end pt-2">
+                      <Button 
+                        onClick={() => handleEditOrder(showDetails)}
+                        className="bg-indigo-600 hover:bg-indigo-700"
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit Order
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-800">
+                      Editing Order: {editFormData.amazon_order_id}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Order Lines</Label>
+                      <Button type="button" variant="outline" size="sm" onClick={addEditLine}>
+                        <Plus className="w-4 h-4 mr-1" /> Add Line
+                      </Button>
+                    </div>
+                    {editFormData.lines.map((line, i) => (
+                      <div key={i} className="flex gap-2">
+                        <Select
+                          value={line.sku_id}
+                          onValueChange={(val) => updateEditLine(i, 'sku_id', val)}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select SKU" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {skus.map(s => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.sku_code} - {s.product_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={line.quantity}
+                          onChange={(e) => updateEditLine(i, 'quantity', e.target.value)}
+                          className="w-20"
+                        />
+                        {editFormData.lines.length > 1 && (
+                          <Button type="button" variant="ghost" size="icon" onClick={() => removeEditLine(i)}>
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setEditingOrder(false);
+                        setEditFormData(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleUpdateOrder}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Changes
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </DialogContent>
