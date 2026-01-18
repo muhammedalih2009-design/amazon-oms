@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { Users, Plus, Edit, Trash2, Search, Mail, Phone, MapPin } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,6 +22,7 @@ export default function Suppliers() {
   const { toast } = useToast();
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState(null);
@@ -36,11 +38,19 @@ export default function Suppliers() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const data = await base44.entities.Supplier.filter({ tenant_id: tenantId });
     setSuppliers(data);
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -158,14 +168,17 @@ export default function Suppliers() {
           <h1 className="text-2xl font-bold text-slate-900">Suppliers</h1>
           <p className="text-slate-500">Manage your vendor contacts</p>
         </div>
-        <Button 
-          onClick={() => setShowForm(true)}
-          className="bg-indigo-600 hover:bg-indigo-700"
-          disabled={!isActive}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Supplier
-        </Button>
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          <Button 
+            onClick={() => setShowForm(true)}
+            className="bg-indigo-600 hover:bg-indigo-700"
+            disabled={!isActive}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Supplier
+          </Button>
+        </div>
       </div>
 
       <div className="relative max-w-md">

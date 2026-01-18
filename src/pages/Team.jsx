@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { Users, Plus, Shield, Trash2, Settings, Mail, CheckCircle2, Lock } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import {
   Tooltip,
   TooltipContent,
@@ -33,6 +34,7 @@ export default function TeamPage() {
   const [members, setMembers] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -44,8 +46,12 @@ export default function TeamPage() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const membersData = await base44.entities.Membership.filter({ tenant_id: tenantId });
       
@@ -67,7 +73,11 @@ export default function TeamPage() {
         variant: 'destructive'
       });
     } finally {
-      setLoading(false);
+      if (isRefresh) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -233,13 +243,16 @@ export default function TeamPage() {
           <p className="text-slate-500 mt-1">Manage workspace members and permissions</p>
         </div>
         
-        <Button 
-          onClick={() => setShowInviteModal(true)}
-          className="bg-indigo-600 hover:bg-indigo-700"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Invite User
-        </Button>
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          <Button 
+            onClick={() => setShowInviteModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Invite User
+          </Button>
+        </div>
       </div>
 
       {/* Team Table */}

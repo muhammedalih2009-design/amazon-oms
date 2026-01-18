@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
 import { Truck, Plus, Search, Edit, Trash2, ShoppingCart } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,6 +33,7 @@ export default function Purchases() {
   const [suppliers, setSuppliers] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showCartForm, setShowCartForm] = useState(false);
@@ -49,8 +51,12 @@ export default function Purchases() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [purchasesData, skusData, suppliersData, cartData] = await Promise.all([
       base44.entities.Purchase.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
@@ -69,7 +75,11 @@ export default function Purchases() {
       unit_cost: skus.find(s => s.id === c.sku_id)?.cost_price || 0
     })));
     
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -298,6 +308,7 @@ export default function Purchases() {
           <p className="text-slate-500">Record inventory purchases</p>
         </div>
         <div className="flex gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           {cart.length > 0 && (
             <Button 
               onClick={() => setShowCartForm(true)}

@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
 import { RotateCcw, Search, Check, Package } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -24,6 +25,7 @@ export default function Returns() {
   const [orderLines, setOrderLines] = useState([]);
   const [stockMovements, setStockMovements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [returnLines, setReturnLines] = useState([]);
@@ -32,8 +34,12 @@ export default function Returns() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [ordersData, linesData, movementsData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -42,7 +48,11 @@ export default function Returns() {
     setOrders(ordersData);
     setOrderLines(linesData);
     setStockMovements(movementsData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   const handleSearch = () => {
@@ -177,6 +187,7 @@ export default function Returns() {
           <h1 className="text-2xl font-bold text-slate-900">Returns</h1>
           <p className="text-slate-500">Process order returns and restore inventory</p>
         </div>
+        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
       </div>
 
       {/* Search Section */}

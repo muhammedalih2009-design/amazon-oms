@@ -13,6 +13,7 @@ import PaywallBanner from '@/components/ui/PaywallBanner';
 import { KPISkeleton, ChartSkeleton } from '@/components/ui/LoadingSkeleton';
 import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
 import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
+import RefreshButton from '@/components/shared/RefreshButton';
 
 export default function Dashboard() {
   const { tenantId, subscription, isActive, user } = useTenant();
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [currentStock, setCurrentStock] = useState([]);
   const [skus, setSkus] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [dateRange, setDateRange] = useState({
     from: subDays(new Date(), 30),
     to: new Date()
@@ -32,8 +34,12 @@ export default function Dashboard() {
     }
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [ordersData, linesData, stockData, skusData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -44,7 +50,11 @@ export default function Dashboard() {
     setOrderLines(linesData);
     setCurrentStock(stockData);
     setSkus(skusData);
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   const filteredOrders = useMemo(() => {
@@ -143,7 +153,10 @@ export default function Dashboard() {
       
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
+        </div>
       </div>
 
       {/* KPI Cards */}

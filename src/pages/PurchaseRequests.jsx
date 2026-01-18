@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
 import { ClipboardList, ShoppingCart, Check, Calculator } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -20,6 +21,7 @@ export default function PurchaseRequests() {
   const [skus, setSkus] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedSkus, setSelectedSkus] = useState([]);
   const [dateRange, setDateRange] = useState({
     from: new Date(),
@@ -30,8 +32,12 @@ export default function PurchaseRequests() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [ordersData, linesData, skusData, stockData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -42,7 +48,11 @@ export default function PurchaseRequests() {
     setOrderLines(linesData);
     setSkus(skusData);
     setCurrentStock(stockData);
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   // Auto-calculate needs when date range changes
@@ -213,6 +223,7 @@ export default function PurchaseRequests() {
           <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
           <p className="text-slate-500">Calculate inventory needs for pending orders</p>
         </div>
+        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
       </div>
 
       {/* Summary Cards */}
