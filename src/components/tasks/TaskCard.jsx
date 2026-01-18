@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, User, MessageCircle, CheckSquare } from 'lucide-react';
+import { Calendar, User, MessageCircle, CheckSquare, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,7 +21,7 @@ const PRIORITY_COLORS = {
   'High': 'border-red-400'
 };
 
-export default function TaskCard({ task, onClick, commentCount = 0, isAdmin = false, isSelected = false, onToggleSelect }) {
+export default function TaskCard({ task, onClick, commentCount = 0, isAdmin = false, isSelected = false, onToggleSelect, canEdit = false, onEdit }) {
   const [checklistProgress, setChecklistProgress] = useState({ completed: 0, total: 0 });
   const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'Completed';
 
@@ -73,9 +73,24 @@ export default function TaskCard({ task, onClick, commentCount = 0, isAdmin = fa
                 )}
               </div>
             </div>
-            <Badge className={STATUS_COLORS[task.status]} style={{ fontSize: '10px' }}>
-              {task.status}
-            </Badge>
+            <div className="flex items-start gap-1">
+              {canEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-slate-400 hover:text-indigo-600"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(task);
+                  }}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              )}
+              <Badge className={STATUS_COLORS[task.status]} style={{ fontSize: '10px' }}>
+                {task.status}
+              </Badge>
+            </div>
           </div>
 
           {/* Checklist Progress */}
