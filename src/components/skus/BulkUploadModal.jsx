@@ -33,12 +33,28 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
       setProgress(30);
       const uploadResult = await onUpload(file);
       setProgress(100);
-      setResult(uploadResult);
+      
+      // Ensure we have a valid result
+      if (!uploadResult || uploadResult.status === 'failed') {
+        setResult({
+          status: 'failed',
+          total_rows: uploadResult?.total_rows || 0,
+          success_rows: 0,
+          failed_rows: uploadResult?.failed_rows || uploadResult?.total_rows || 0,
+          error: uploadResult?.error || 'Upload failed',
+          error_file_url: uploadResult?.error_file_url
+        });
+      } else {
+        setResult(uploadResult);
+      }
       setFile(null);
     } catch (error) {
       setResult({
         status: 'failed',
-        error: error.message
+        total_rows: 0,
+        success_rows: 0,
+        failed_rows: 0,
+        error: error.message || 'Upload failed'
       });
     } finally {
       setUploading(false);
@@ -141,14 +157,14 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
           {/* Results */}
           {result && (
             <div className="space-y-4">
-              {result.status === 'success' && (
+              {result.status === 'success' && result.success_rows > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <CheckCircle className="w-5 h-5 text-green-600" />
                     <h4 className="font-semibold text-green-900">Upload Successful!</h4>
                   </div>
                   <div className="text-sm text-green-700 space-y-1">
-                    <p>✓ Total rows: <strong>{result.total_rows}</strong></p>
+                    <p>✓ Total rows found: <strong>{result.total_rows}</strong></p>
                     <p>✓ Successfully imported: <strong>{result.success_rows}</strong></p>
                   </div>
                 </div>
@@ -161,16 +177,16 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
                     <h4 className="font-semibold text-orange-900">Partial Success</h4>
                   </div>
                   <div className="text-sm text-orange-700 space-y-1">
-                    <p>• Total rows: <strong>{result.total_rows}</strong></p>
+                    <p>• Total rows found: <strong>{result.total_rows}</strong></p>
                     <p>• Successfully imported: <strong>{result.success_rows}</strong></p>
-                    <p>• Failed: <strong>{result.failed_rows}</strong></p>
+                    <p>• Failed rows: <strong>{result.failed_rows}</strong></p>
                   </div>
                   {result.error_file_url && (
                     <Button
                       onClick={downloadErrorCSV}
                       variant="outline"
                       size="sm"
-                      className="mt-3"
+                      className="mt-3 border-orange-300 text-orange-700 hover:bg-orange-100"
                     >
                       <Download className="w-4 h-4 mr-2" />
                       Download Error CSV
@@ -179,19 +195,30 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
                 </div>
               )}
 
-              {result.status === 'failed' && (
+              {(result.status === 'failed' || result.success_rows === 0) && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <XCircle className="w-5 h-5 text-red-600" />
                     <h4 className="font-semibold text-red-900">Upload Failed</h4>
                   </div>
-                  <p className="text-sm text-red-700">{result.error}</p>
+                  <div className="text-sm text-red-700 space-y-1">
+                    {result.error && <p className="mb-2">{result.error}</p>}
+                    {result.total_rows > 0 ? (
+                      <>
+                        <p>• Total rows found: <strong>{result.total_rows}</strong></p>
+                        <p>• Successfully imported: <strong>0</strong></p>
+                        <p>• Failed rows: <strong>{result.failed_rows || result.total_rows}</strong></p>
+                      </>
+                    ) : (
+                      <p>No valid data rows found in the CSV file.</p>
+                    )}
+                  </div>
                   {result.error_file_url && (
                     <Button
                       onClick={downloadErrorCSV}
                       variant="outline"
                       size="sm"
-                      className="mt-3"
+                      className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
                     >
                       <Download className="w-4 h-4 mr-2" />
                       Download Error CSV

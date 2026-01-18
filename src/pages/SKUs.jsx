@@ -151,6 +151,17 @@ export default function SKUsPage() {
 
       const rows = result.output?.data || [];
       
+      // Validate CSV is not empty
+      if (!rows || rows.length === 0) {
+        throw new Error('CSV file is empty or has no valid data rows');
+      }
+
+      // Validate required columns exist in first row
+      const firstRow = rows[0];
+      if (!firstRow.sku_code && !firstRow.product_name && !firstRow.cost) {
+        throw new Error('CSV file missing required columns. Expected: sku_code, product_name, cost');
+      }
+      
       // Create batch record
       const batch = await base44.entities.ImportBatch.create({
         tenant_id: tenantId,
@@ -272,8 +283,8 @@ export default function SKUsPage() {
       }
 
       // Update batch
-      const status = failedCount === 0 ? 'success' : 
-                     successCount === 0 ? 'failed' : 'partial';
+      const status = successCount === 0 ? 'failed' :
+                     failedCount === 0 ? 'success' : 'partial';
 
       await base44.entities.ImportBatch.update(batch.id, {
         status,
@@ -297,10 +308,7 @@ export default function SKUsPage() {
         description: error.message,
         variant: 'destructive'
       });
-      return {
-        status: 'failed',
-        error: error.message
-      };
+      throw error;
     }
   };
 
