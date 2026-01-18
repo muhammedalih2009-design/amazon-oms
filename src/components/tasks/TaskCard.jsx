@@ -6,6 +6,7 @@ import { Calendar, User, MessageCircle, CheckSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/ui/button';
 
 const STATUS_COLORS = {
   'New': 'bg-blue-100 text-blue-700 border-blue-300',

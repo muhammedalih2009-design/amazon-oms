@@ -26,7 +26,7 @@ import { base44 } from '@/api/base44Client';
 const TAGS = ['Returns', 'Shipping', 'Inventory', 'Orders', 'Suppliers', 'General'];
 const PRIORITIES = ['Low', 'Medium', 'High'];
 
-export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId }) {
+export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId, editTask = null }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [accountName, setAccountName] = useState('');
@@ -39,12 +39,19 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
   const checklistEndRef = useRef(null);
+  
+  const isEditMode = !!editTask;
 
   useEffect(() => {
     if (open) {
       loadMembers();
+      if (editTask) {
+        loadTaskData();
+      } else {
+        resetForm();
+      }
     }
-  }, [open]);
+  }, [open, editTask]);
 
   const loadMembers = async () => {
     try {
@@ -55,15 +62,56 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
     }
   };
 
+  const loadTaskData = async () => {
+    if (!editTask) return;
+    
+    setTitle(editTask.title || '');
+    setDescription(editTask.description || '');
+    setAccountName(editTask.account_name || '');
+    setAssignedTo(editTask.assigned_to || '');
+    setTag(editTask.tag || 'General');
+    setPriority(editTask.priority || 'Medium');
+    setDueDate(editTask.due_date ? new Date(editTask.due_date) : null);
+    
+    // Load checklist items
+    try {
+      const items = await base44.entities.TaskChecklistItem.filter(
+        { task_id: editTask.id },
+        'order_index'
+      );
+      setChecklistItems(items.map(item => ({ id: item.id, content: item.content, is_completed: item.is_completed })));
+    } catch (error) {
+      console.error('Error loading checklist:', error);
+    }
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setAccountName('');
+    setChecklistItems([]);
+    setNewChecklistItem('');
+    setAssignedTo('');
+    setTag('General');
+    setPriority('Medium');
+    setDueDate(null);
+  };
+
   const handleAddChecklistItem = () => {
     if (!newChecklistItem.trim()) return;
-    setChecklistItems([...checklistItems, newChecklistItem.trim()]);
+    setChecklistItems([...checklistItems, { content: newChecklistItem.trim() }]);
     setNewChecklistItem('');
     setTimeout(() => checklistEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const handleRemoveChecklistItem = (index) => {
     setChecklistItems(checklistItems.filter((_, i) => i !== index));
+  };
+
+  const handleEditChecklistItem = (index, newContent) => {
+    const updated = [...checklistItems];
+    updated[index] = { ...updated[index], content: newContent };
+    setChecklistItems(updated);
   };
 
   const handleSubmit = async (e) => {
@@ -74,46 +122,67 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
       const currentUser = await base44.auth.me();
       const selectedMember = members.find(m => m.user_id === assignedTo);
 
-      const task = await base44.entities.Task.create({
-        tenant_id: tenantId,
-        title,
-        description,
-        account_name: accountName || null,
-        assigned_to: assignedTo,
-        assigned_to_email: selectedMember?.user_email,
-        created_by: currentUser.id,
-        created_by_email: currentUser.email,
-        tag,
-        priority,
-        status: 'New',
-        due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null
-      });
-
-      // Create checklist items
-      for (let i = 0; i < checklistItems.length; i++) {
-        await base44.entities.TaskChecklistItem.create({
-          task_id: task.id,
-          content: checklistItems[i],
-          is_completed: false,
-          order_index: i
+      if (isEditMode) {
+        // Update existing task
+        await base44.entities.Task.update(editTask.id, {
+          title,
+          description,
+          account_name: accountName || null,
+          assigned_to: assignedTo,
+          assigned_to_email: selectedMember?.user_email,
+          tag,
+          priority,
+          due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null
         });
+
+        // Delete all existing checklist items
+        const existingItems = await base44.entities.TaskChecklistItem.filter({ task_id: editTask.id });
+        for (const item of existingItems) {
+          await base44.entities.TaskChecklistItem.delete(item.id);
+        }
+
+        // Create new checklist items
+        for (let i = 0; i < checklistItems.length; i++) {
+          await base44.entities.TaskChecklistItem.create({
+            task_id: editTask.id,
+            content: typeof checklistItems[i] === 'string' ? checklistItems[i] : checklistItems[i].content,
+            is_completed: checklistItems[i].is_completed || false,
+            order_index: i
+          });
+        }
+      } else {
+        // Create new task
+        const task = await base44.entities.Task.create({
+          tenant_id: tenantId,
+          title,
+          description,
+          account_name: accountName || null,
+          assigned_to: assignedTo,
+          assigned_to_email: selectedMember?.user_email,
+          created_by: currentUser.id,
+          created_by_email: currentUser.email,
+          tag,
+          priority,
+          status: 'New',
+          due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null
+        });
+
+        // Create checklist items
+        for (let i = 0; i < checklistItems.length; i++) {
+          await base44.entities.TaskChecklistItem.create({
+            task_id: task.id,
+            content: typeof checklistItems[i] === 'string' ? checklistItems[i] : checklistItems[i].content,
+            is_completed: false,
+            order_index: i
+          });
+        }
       }
 
-      // Reset form
-      setTitle('');
-      setDescription('');
-      setAccountName('');
-      setChecklistItems([]);
-      setNewChecklistItem('');
-      setAssignedTo('');
-      setTag('General');
-      setPriority('Medium');
-      setDueDate(null);
-
+      resetForm();
       onTaskCreated();
       onClose();
     } catch (error) {
-      console.error('Error creating task:', error);
+      console.error('Error saving task:', error);
     } finally {
       setLoading(false);
     }
@@ -123,7 +192,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[550px] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b sticky top-0 bg-white z-10">
-          <DialogTitle>Create New Task</DialogTitle>
+          <DialogTitle>{isEditMode ? `Edit Task: ${editTask.title}` : 'Create New Task'}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
@@ -179,8 +248,12 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
                 {checklistItems.length > 0 && (
                   <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 space-y-2">
                     {checklistItems.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="flex-1">{item}</span>
+                      <div key={index} className="flex items-center gap-2 text-sm">
+                        <Input
+                          value={typeof item === 'string' ? item : item.content}
+                          onChange={(e) => handleEditChecklistItem(index, e.target.value)}
+                          className="flex-1 h-8 text-sm"
+                        />
                         <Button
                           type="button"
                           variant="ghost"
@@ -271,7 +344,7 @@ export default function AddTaskModal({ open, onClose, onTaskCreated, tenantId })
               Cancel
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? 'Creating...' : 'Create Task'}
+              {loading ? (isEditMode ? 'Saving...' : 'Creating...') : (isEditMode ? 'Save Changes' : 'Create Task')}
             </Button>
           </DialogFooter>
         </form>

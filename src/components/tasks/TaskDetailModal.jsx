@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Calendar, User, Tag, AlertCircle, Send, Clock, CheckSquare, Square } from 'lucide-react';
+import { Calendar, User, Tag, AlertCircle, Send, Clock, CheckSquare, Square, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 import { useToast } from '@/components/ui/use-toast';
@@ -35,7 +35,7 @@ const PRIORITY_COLORS = {
   'High': 'bg-red-100 text-red-700'
 };
 
-export default function TaskDetailModal({ open, onClose, task, onUpdate, currentUser, isAdmin }) {
+export default function TaskDetailModal({ open, onClose, task, onUpdate, currentUser, isAdmin, onEdit }) {
   const [comments, setComments] = useState([]);
   const [checklistItems, setChecklistItems] = useState([]);
   const [newComment, setNewComment] = useState('');
@@ -179,6 +179,20 @@ export default function TaskDetailModal({ open, onClose, task, onUpdate, current
                 )}
               </div>
             </div>
+            {canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onEdit(task);
+                  onClose();
+                }}
+                className="flex items-center gap-2"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit Task
+              </Button>
+            )}
           </div>
         </DialogHeader>
 
