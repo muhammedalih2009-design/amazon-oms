@@ -41,10 +41,11 @@ export default function TasksPage() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
-  const [accountFilter, setAccountFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [uniqueAccounts, setUniqueAccounts] = useState([]);
 
   useEffect(() => {
     if (!tenantLoading && tenantId) {
@@ -80,6 +81,14 @@ export default function TasksPage() {
 
       setTasks(taskList);
 
+      // Extract unique account names
+      const accounts = [...new Set(
+        taskList
+          .map(t => t.account_name)
+          .filter(name => name && name.trim() !== '')
+      )].sort();
+      setUniqueAccounts(accounts);
+
       // Load comment counts
       const commentCounts = {};
       for (const task of taskList) {
@@ -107,7 +116,7 @@ export default function TasksPage() {
     }
 
     // Account filter
-    if (accountFilter.trim() && !task.account_name?.toLowerCase().includes(accountFilter.toLowerCase())) {
+    if (accountFilter !== 'all' && task.account_name !== accountFilter) {
       return false;
     }
 
@@ -253,11 +262,19 @@ export default function TasksPage() {
               <label className="text-sm font-medium text-slate-700 mb-2 block">
                 Filter by Account
               </label>
-              <Input
-                placeholder="Enter account name..."
-                value={accountFilter}
-                onChange={(e) => setAccountFilter(e.target.value)}
-              />
+              <Select value={accountFilter} onValueChange={setAccountFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Accounts</SelectItem>
+                  {uniqueAccounts.map((account) => (
+                    <SelectItem key={account} value={account}>
+                      {account}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Assignee Filter (Admin Only) */}
@@ -284,7 +301,7 @@ export default function TasksPage() {
           </div>
 
           {/* Active Filters Summary */}
-          {(searchQuery || accountFilter || (isAdmin && assigneeFilter !== 'all')) && (
+          {(searchQuery || accountFilter !== 'all' || (isAdmin && assigneeFilter !== 'all')) && (
             <div className="mt-3 pt-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-600">Active filters:</span>
               {searchQuery && (
@@ -297,11 +314,11 @@ export default function TasksPage() {
                   Search: "{searchQuery}" ×
                 </Button>
               )}
-              {accountFilter && (
+              {accountFilter !== 'all' && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setAccountFilter('')}
+                  onClick={() => setAccountFilter('all')}
                   className="h-7 text-xs"
                 >
                   Account: "{accountFilter}" ×
@@ -322,7 +339,7 @@ export default function TasksPage() {
                 size="sm"
                 onClick={() => {
                   setSearchQuery('');
-                  setAccountFilter('');
+                  setAccountFilter('all');
                   setAssigneeFilter('all');
                 }}
                 className="h-7 text-xs text-slate-600"
