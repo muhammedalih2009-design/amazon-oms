@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -50,6 +50,10 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [batchFilter, setBatchFilter] = useState('all');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedOrders, setSelectedOrders] = useState(new Set());
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(null);
   const [deleteBatch, setDeleteBatch] = useState(null);
@@ -543,10 +547,155 @@ export default function Orders() {
     const matchesSearch = order.amazon_order_id?.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
     const matchesBatch = batchFilter === 'all' || order.import_batch_id === batchFilter;
-    return matchesSearch && matchesStatus && matchesBatch;
+    
+    let matchesDate = true;
+    if (dateRange.start || dateRange.end) {
+      const orderDate = new Date(order.order_date);
+      if (dateRange.start) {
+        matchesDate = matchesDate && orderDate >= new Date(dateRange.start);
+      }
+      if (dateRange.end) {
+        matchesDate = matchesDate && orderDate <= new Date(dateRange.end);
+      }
+    }
+    
+    return matchesSearch && matchesStatus && matchesBatch && matchesDate;
   });
 
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      const newSelected = new Set(filteredOrders.map(o => o.id));
+      setSelectedOrders(newSelected);
+      setSelectAllFiltered(true);
+    } else {
+      setSelectedOrders(new Set());
+      setSelectAllFiltered(false);
+    }
+  };
+
+  const handleSelectOrder = (orderId, checked) => {
+    const newSelected = new Set(selectedOrders);
+    if (checked) {
+      newSelected.add(orderId);
+    } else {
+      newSelected.delete(orderId);
+      setSelectAllFiltered(false);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    const ordersToDelete = orders.filter(o => selectedOrders.has(o.id));
+    
+    for (const order of ordersToDelete) {
+      // Reverse stock movements if fulfilled
+      if (order.status === 'fulfilled') {
+        const lines = orderLines.filter(l => l.order_id === order.id);
+        for (const line of lines) {
+          // Restore stock
+          const stock = await base44.entities.CurrentStock.filter({ 
+            tenant_id: tenantId, 
+            sku_id: line.sku_id 
+          });
+          if (stock.length > 0) {
+            await base44.entities.CurrentStock.update(stock[0].id, {
+              quantity_available: (stock[0].quantity_available || 0) + line.quantity
+            });
+          }
+
+          // Create reversal stock movement
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'manual',
+            quantity: line.quantity,
+            reference_type: 'manual',
+            reference_id: order.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Stock restored from deleted order ${order.amazon_order_id}`
+          });
+        }
+      }
+      
+      // Delete order lines
+      const lines = orderLines.filter(l => l.order_id === order.id);
+      for (const line of lines) {
+        await base44.entities.OrderLine.delete(line.id);
+      }
+      
+      // Delete order
+      await base44.entities.Order.delete(order.id);
+    }
+
+    setShowBulkDeleteConfirm(false);
+    setSelectedOrders(new Set());
+    setSelectAllFiltered(false);
+    loadData();
+    toast({ 
+      title: `Successfully deleted ${ordersToDelete.length} orders`,
+      description: ordersToDelete.some(o => o.status === 'fulfilled') 
+        ? 'Stock has been restored for fulfilled orders'
+        : undefined
+    });
+  };
+
+  const setDatePreset = (preset) => {
+    const today = new Date();
+    const start = new Date(today);
+    const end = new Date(today);
+    
+    switch (preset) {
+      case 'today':
+        break;
+      case 'yesterday':
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+        break;
+      case 'thisMonth':
+        start.setDate(1);
+        end.setMonth(end.getMonth() + 1);
+        end.setDate(0);
+        break;
+      case 'lastMonth':
+        start.setMonth(start.getMonth() - 1);
+        start.setDate(1);
+        end.setDate(0);
+        break;
+      default:
+        setDateRange({ start: '', end: '' });
+        return;
+    }
+    
+    setDateRange({
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    });
+  };
+
+  const allFilteredSelected = filteredOrders.length > 0 && 
+    filteredOrders.every(o => selectedOrders.has(o.id));
+
   const columns = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={allFilteredSelected}
+          onChange={(e) => handleSelectAll(e.target.checked)}
+          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        />
+      ),
+      render: (_, row) => (
+        <input
+          type="checkbox"
+          checked={selectedOrders.has(row.id)}
+          onChange={(e) => handleSelectOrder(row.id, e.target.checked)}
+          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+        />
+      )
+    },
     { 
       key: 'amazon_order_id', 
       header: 'Order ID', 
@@ -681,6 +830,93 @@ export default function Orders() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Date Range Filter */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium text-slate-700">Date Range:</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                    className="w-40"
+                  />
+                  <span className="text-slate-500">to</span>
+                  <Input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                    className="w-40"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setDatePreset('today')}>
+                  Today
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDatePreset('yesterday')}>
+                  Yesterday
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDatePreset('thisMonth')}>
+                  This Month
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDatePreset('lastMonth')}>
+                  Last Month
+                </Button>
+                {(dateRange.start || dateRange.end) && (
+                  <Button variant="ghost" size="sm" onClick={() => setDateRange({ start: '', end: '' })}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Bulk Action Bar */}
+          {selectedOrders.size > 0 && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-semibold text-sm">{selectedOrders.size}</span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      {selectedOrders.size} order{selectedOrders.size !== 1 ? 's' : ''} selected
+                    </p>
+                    {selectAllFiltered && filteredOrders.length === selectedOrders.size && (
+                      <p className="text-xs text-slate-600">
+                        All orders on this page are selected
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      setSelectedOrders(new Set());
+                      setSelectAllFiltered(false);
+                    }}
+                  >
+                    Clear Selection
+                  </Button>
+                  <Button 
+                    variant="destructive" 
+                    size="sm"
+                    onClick={() => setShowBulkDeleteConfirm(true)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Selected
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <DataTable
             columns={columns}
@@ -869,6 +1105,24 @@ export default function Orders() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteBatch} className="bg-red-600 hover:bg-red-700">
               Delete Batch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedOrders.size} Orders?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the selected orders. For any fulfilled orders, stock will be automatically restored. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
+              Delete Orders
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
