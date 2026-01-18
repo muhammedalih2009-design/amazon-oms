@@ -195,12 +195,42 @@ export default function SKUsPage() {
       const existingSKUs = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const existingSKUCodesSet = new Set(existingSKUs.map(s => s.sku_code.toLowerCase().trim()));
 
+      // Collect unique supplier names and batch create them
+      const uniqueSupplierNames = new Set();
+      rows.forEach(row => {
+        if (row.supplier) {
+          uniqueSupplierNames.add(row.supplier.toLowerCase().trim());
+        }
+      });
+
+      // Fetch existing suppliers and create new ones in batch
+      const supplierMap = new Map();
+      if (uniqueSupplierNames.size > 0) {
+        const existingSuppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+        existingSuppliers.forEach(s => {
+          supplierMap.set(s.supplier_name.toLowerCase().trim(), s.id);
+        });
+
+        const newSupplierNames = Array.from(uniqueSupplierNames)
+          .filter(name => !supplierMap.has(name));
+
+        if (newSupplierNames.length > 0) {
+          const newSuppliers = await base44.entities.Supplier.bulkCreate(
+            newSupplierNames.map(name => ({
+              tenant_id: tenantId,
+              supplier_name: name
+            }))
+          );
+          newSuppliers.forEach(s => {
+            supplierMap.set(s.supplier_name.toLowerCase().trim(), s.id);
+          });
+        }
+      }
+
       let successCount = 0;
       let failedCount = 0;
       const errors = [];
       const validSKUs = [];
-      const validStockRecords = [];
-      const validStockMovements = [];
 
       // First pass: Validate all rows
       for (let i = 0; i < rows.length; i++) {
@@ -226,22 +256,10 @@ export default function SKUsPage() {
             throw new Error(`Duplicate SKU code: ${row.sku_code}`);
           }
 
-          // Handle supplier
+          // Get supplier ID from pre-built map
           let supplierId = null;
           if (row.supplier) {
-            let supplier = suppliers.find(s => 
-              s.supplier_name.toLowerCase() === row.supplier.toLowerCase()
-            );
-            
-            if (!supplier) {
-              // Auto-create supplier
-              supplier = await base44.entities.Supplier.create({
-                tenant_id: tenantId,
-                supplier_name: row.supplier
-              });
-              suppliers.push(supplier);
-            }
-            supplierId = supplier.id;
+            supplierId = supplierMap.get(row.supplier.toLowerCase().trim()) || null;
           }
 
           // Add to valid SKUs array for bulk insert
@@ -269,9 +287,12 @@ export default function SKUsPage() {
         }
       }
 
-      // Bulk insert SKUs in batches of 100
-      const BATCH_SIZE = 100;
+      // Bulk insert SKUs in batches of 400 for maximum performance
+      const BATCH_SIZE = 400;
+      const totalBatches = Math.ceil(validSKUs.length / BATCH_SIZE);
+      
       for (let i = 0; i < validSKUs.length; i += BATCH_SIZE) {
+        const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
         const batchToInsert = validSKUs.slice(i, i + BATCH_SIZE);
         
         // Remove temporary fields before insert
@@ -316,6 +337,9 @@ export default function SKUsPage() {
           }
           
           successCount += insertedSKUs.length;
+          
+          // Progress tracking: Log batch completion
+          console.log(`Batch ${currentBatch}/${totalBatches} complete - ${successCount} SKUs processed`);
         } catch (error) {
           // If batch insert fails, mark all rows in this batch as failed
           for (const sku of batchToInsert) {
@@ -331,7 +355,7 @@ export default function SKUsPage() {
         }
       }
 
-      // Save import errors
+      // Save import errors in batches
       if (errors.length > 0) {
         const errorRecords = errors.map(e => ({
           tenant_id: tenantId,
@@ -341,9 +365,9 @@ export default function SKUsPage() {
           error_reason: e.error_reason
         }));
         
-        // Insert errors in batches too
-        for (let i = 0; i < errorRecords.length; i += BATCH_SIZE) {
-          await base44.entities.ImportError.bulkCreate(errorRecords.slice(i, i + BATCH_SIZE));
+        const ERROR_BATCH_SIZE = 400;
+        for (let i = 0; i < errorRecords.length; i += ERROR_BATCH_SIZE) {
+          await base44.entities.ImportError.bulkCreate(errorRecords.slice(i, i + ERROR_BATCH_SIZE));
         }
       }
 

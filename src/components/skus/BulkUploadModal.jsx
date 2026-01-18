@@ -156,15 +156,25 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
 
           {/* Progress */}
           {uploading && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-600">{progressText}</p>
-                <p className="text-xs text-slate-500">{progress}%</p>
+                <p className="text-sm font-medium text-slate-700">{progressText}</p>
+                <p className="text-xs font-semibold text-indigo-600">{progress}%</p>
               </div>
-              <Progress value={progress} className="h-2" />
-              <p className="text-xs text-slate-500 italic">
-                Processing large files may take a few minutes...
-              </p>
+              <Progress value={progress} className="h-3" />
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mt-0.5" />
+                  <div>
+                    <p className="text-xs font-medium text-indigo-900">
+                      Processing in batches of 400 rows...
+                    </p>
+                    <p className="text-xs text-indigo-700 mt-1">
+                      Large files (1,000+ rows) complete in seconds with optimized batch processing.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
