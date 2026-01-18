@@ -490,15 +490,19 @@ export default function Orders() {
         failed_rows: failedCount
       });
 
+      // Get error file URL if there are errors
+      let errorFileUrl = null;
+      if (errors.length > 0) {
+        const updatedBatch = await base44.entities.ImportBatch.filter({ id: batch.id });
+        errorFileUrl = updatedBatch[0]?.error_file_url;
+      }
+
       setUploadResult({
         status,
         total_rows: rows.length,
         success_rows: successCount,
         failed_rows: failedCount,
-        error_file_url: errors.length > 0 ? await (async () => {
-          const updatedBatch = await base44.entities.ImportBatch.filter({ id: batch.id });
-          return updatedBatch[0]?.error_file_url;
-        })() : null
+        error_file_url: errorFileUrl
       });
 
       loadData();
