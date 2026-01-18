@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
 import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -47,6 +48,7 @@ export default function Orders() {
   const [batches, setBatches] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [batchFilter, setBatchFilter] = useState('all');
@@ -69,8 +71,12 @@ export default function Orders() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [ordersData, linesData, skusData, batchesData, purchasesData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -83,7 +89,11 @@ export default function Orders() {
     setSkus(skusData);
     setBatches(batchesData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     setPurchases(purchasesData);
-    setLoading(false);
+    if (isRefresh) {
+      setRefreshing(false);
+    } else {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -778,14 +788,17 @@ export default function Orders() {
           <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
           <p className="text-slate-500">Manage Amazon orders and fulfillment</p>
         </div>
-        <Button 
-          onClick={() => setShowForm(true)}
-          className="bg-indigo-600 hover:bg-indigo-700"
-          disabled={!isActive}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Order
-        </Button>
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          <Button 
+            onClick={() => setShowForm(true)}
+            className="bg-indigo-600 hover:bg-indigo-700"
+            disabled={!isActive}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Order
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="list" className="space-y-6">

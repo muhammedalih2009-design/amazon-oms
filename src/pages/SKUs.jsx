@@ -4,13 +4,13 @@ import { useTenant } from '@/components/hooks/useTenant';
 import { 
   Package, 
   Plus, 
-  RefreshCw, 
   Trash2, 
   Download, 
   Upload, 
   Image as ImageIcon,
   AlertCircle 
 } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
@@ -44,6 +44,7 @@ export default function SKUsPage() {
   const [suppliers, setSuppliers] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   
   const [selectedRows, setSelectedRows] = useState([]);
@@ -59,8 +60,12 @@ export default function SKUsPage() {
     if (tenantId) loadData();
   }, [tenantId]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const [skusData, suppliersData, stockData] = await Promise.all([
         base44.entities.SKU.filter({ tenant_id: tenantId }),
@@ -78,7 +83,11 @@ export default function SKUsPage() {
         variant: 'destructive'
       });
     } finally {
-      setLoading(false);
+      if (isRefresh) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -587,6 +596,7 @@ export default function SKUsPage() {
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           <Button 
             variant="outline" 
             onClick={downloadTemplate}
@@ -611,13 +621,6 @@ export default function SKUsPage() {
           >
             <Plus className="w-4 h-4 mr-2" />
             Add SKU
-          </Button>
-          <Button 
-            variant="outline" 
-            size="icon"
-            onClick={loadData}
-          >
-            <RefreshCw className="w-4 h-4" />
           </Button>
           <Button 
             variant="destructive"

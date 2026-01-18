@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, CheckSquare, Search, Filter, Trash2, CheckCircle } from 'lucide-react';
+import RefreshButton from '@/components/shared/RefreshButton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,7 @@ export default function TasksPage() {
   const [comments, setComments] = useState({});
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
@@ -67,8 +69,12 @@ export default function TasksPage() {
     }
   };
 
-  const loadTasks = async () => {
-    setLoading(true);
+  const loadTasks = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       let taskList;
       
@@ -103,7 +109,11 @@ export default function TasksPage() {
     } catch (error) {
       console.error('Error loading tasks:', error);
     } finally {
-      setLoading(false);
+      if (isRefresh) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -228,12 +238,15 @@ export default function TasksPage() {
               {isAdmin ? 'Manage and assign tasks to your team' : 'View and update your assigned tasks'}
             </p>
           </div>
-          {canEdit && (
-            <Button onClick={() => setShowAddModal(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Task
-            </Button>
-          )}
+          <div className="flex items-center gap-3">
+            <RefreshButton onRefresh={() => loadTasks(true)} loading={refreshing} />
+            {canEdit && (
+              <Button onClick={() => setShowAddModal(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Task
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Status Filter Tabs */}
