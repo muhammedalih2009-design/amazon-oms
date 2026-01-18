@@ -2,8 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
-import { ClipboardList, ShoppingCart, Check, Calculator } from 'lucide-react';
+import { ClipboardList, ShoppingCart, Check, Calculator, FileDown } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -152,6 +154,98 @@ export default function PurchaseRequests() {
 
   const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
   const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
+
+  const handleExportToPDF = async () => {
+    if (selectedSkus.length === 0) {
+      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
+      return;
+    }
+
+    toast({ title: 'Generating PDF...', description: 'Please wait' });
+
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Amazon OMS', 15, 20);
+      
+      doc.setFontSize(16);
+      doc.text('Purchase Order Request', 15, 30);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
+
+      // Get selected items with supplier info
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+      const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+      
+      // Prepare table data
+      const tableData = await Promise.all(selectedItems.map(async (item) => {
+        const supplier = suppliersData.find(s => s.id === item.supplier_id);
+        return [
+          item.sku_code,
+          item.product_name,
+          item.to_buy.toString(),
+          `$${item.cost_price.toFixed(2)}`,
+          `$${(item.to_buy * item.cost_price).toFixed(2)}`,
+          supplier?.supplier_name || '-'
+        ];
+      }));
+
+      // Generate table
+      doc.autoTable({
+        startY: 40,
+        head: [['SKU', 'Product Name', 'Qty', 'Unit Cost', 'Total', 'Supplier']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: 255,
+          fontSize: 10,
+          fontStyle: 'bold'
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 4
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 60 },
+          2: { cellWidth: 20, halign: 'center' },
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 35 }
+        }
+      });
+
+      // Footer with totals
+      const finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      
+      const selectedTotal = selectedItems.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
+      const selectedItemsCount = selectedItems.reduce((sum, item) => sum + item.to_buy, 0);
+      
+      doc.text(`Total Items: ${selectedItemsCount}`, 15, finalY);
+      doc.text(`Total Cost: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - 15, finalY, { align: 'right' });
+
+      // Save PDF
+      doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+      
+      toast({ title: 'PDF Generated', description: 'Purchase order exported successfully' });
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast({ 
+        title: 'Export failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    }
+  };
 
   const columns = [
     {
@@ -303,14 +397,24 @@ export default function PurchaseRequests() {
           <p className="text-indigo-700 font-medium">
             {selectedSkus.length} SKU(s) selected
           </p>
-          <Button 
-            onClick={handleAddToCart}
-            className="bg-indigo-600 hover:bg-indigo-700"
-            disabled={!isActive}
-          >
-            <ShoppingCart className="w-4 h-4 mr-2" />
-            Add to Purchase Cart
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button 
+              onClick={handleExportToPDF}
+              variant="outline"
+              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              Export to PDF
+            </Button>
+            <Button 
+              onClick={handleAddToCart}
+              className="bg-indigo-600 hover:bg-indigo-700"
+              disabled={!isActive}
+            >
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Add to Purchase Cart
+            </Button>
+          </div>
         </div>
       )}
 
