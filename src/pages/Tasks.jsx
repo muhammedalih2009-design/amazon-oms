@@ -19,6 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import AddTaskModal from '@/components/tasks/AddTaskModal';
 import TaskDetailModal from '@/components/tasks/TaskDetailModal';
 import TaskCard from '@/components/tasks/TaskCard';
+import AssigneeMultiSelect from '@/components/tasks/AssigneeMultiSelect';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -27,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
 
 const TAGS = ['Returns', 'Shipping', 'Inventory', 'Orders', 'Suppliers', 'General'];
@@ -42,7 +44,7 @@ export default function TasksPage() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [assigneeFilter, setAssigneeFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState([]);
   const [accountFilter, setAccountFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
@@ -112,8 +114,8 @@ export default function TasksPage() {
       if (statusFilter !== 'active' && task.status !== statusFilter) return false;
     }
 
-    // Assignee filter (admin only)
-    if (isAdmin && assigneeFilter !== 'all' && task.assigned_to !== assigneeFilter) {
+    // Assignee filter (admin only) - OR logic for multiple selections
+    if (isAdmin && assigneeFilter.length > 0 && !assigneeFilter.includes(task.assigned_to)) {
       return false;
     }
 
@@ -291,29 +293,16 @@ export default function TasksPage() {
 
             {/* Assignee Filter (Admin Only) */}
             {isAdmin && (
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">
-                  Filter by Assignee
-                </label>
-                <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Members" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Members</SelectItem>
-                    {members.map((member) => (
-                      <SelectItem key={member.user_id} value={member.user_id}>
-                        {member.user_email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <AssigneeMultiSelect
+                members={members}
+                selectedIds={assigneeFilter}
+                onChange={setAssigneeFilter}
+              />
             )}
           </div>
 
           {/* Active Filters Summary */}
-          {(searchQuery || accountFilter !== 'all' || (isAdmin && assigneeFilter !== 'all')) && (
+          {(searchQuery || accountFilter !== 'all' || (isAdmin && assigneeFilter.length > 0)) && (
             <div className="mt-3 pt-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-600">Active filters:</span>
               {searchQuery && (
@@ -336,14 +325,14 @@ export default function TasksPage() {
                   Account: "{accountFilter}" ×
                 </Button>
               )}
-              {isAdmin && assigneeFilter !== 'all' && (
+              {isAdmin && assigneeFilter.length > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setAssigneeFilter('all')}
+                  onClick={() => setAssigneeFilter([])}
                   className="h-7 text-xs"
                 >
-                  Assignee: {members.find(m => m.user_id === assigneeFilter)?.user_email} ×
+                  Assignees: {assigneeFilter.length} selected ×
                 </Button>
               )}
               <Button
@@ -352,7 +341,7 @@ export default function TasksPage() {
                 onClick={() => {
                   setSearchQuery('');
                   setAccountFilter('all');
-                  setAssigneeFilter('all');
+                  setAssigneeFilter([]);
                 }}
                 className="h-7 text-xs text-slate-600"
               >
