@@ -79,7 +79,14 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
 
   const downloadErrorCSV = () => {
     if (!result?.error_file_url) return;
-    window.open(result.error_file_url, '_blank');
+    
+    // Download from URL if available
+    const link = document.createElement('a');
+    link.href = result.error_file_url;
+    link.download = `sku_upload_errors_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (

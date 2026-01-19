@@ -101,11 +101,19 @@ export default function CSVUploader({
 
           <div className="flex items-center justify-center gap-3">
             {result.error_file_url && result.failed_rows > 0 && (
-              <Button variant="outline" asChild>
-                <a href={result.error_file_url} download="errors.csv">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Errors
-                </a>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.href = result.error_file_url;
+                  link.download = `import_errors_${new Date().toISOString().split('T')[0]}.csv`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Errors
               </Button>
             )}
             <Button onClick={handleReset}>
