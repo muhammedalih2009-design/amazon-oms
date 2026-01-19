@@ -543,6 +543,46 @@ export default function SKUsPage() {
     link.click();
   };
 
+  const handleExportCSV = () => {
+    // Prepare CSV data from filtered SKUs
+    const csvRows = filteredSkus.map(sku => {
+      const supplier = suppliers.find(s => s.id === sku.supplier_id);
+      const stock = currentStock.find(s => s.sku_id === sku.id);
+      
+      return [
+        `"${sku.sku_code || ''}"`,
+        `"${sku.product_name || ''}"`,
+        sku.cost_price || 0,
+        `"${supplier?.supplier_name || ''}"`,
+        stock?.quantity_available || 0,
+        `"${sku.image_url || ''}"`
+      ].join(',');
+    });
+
+    // Add header row
+    const csv = [
+      'sku_code,product_name,cost,supplier,stock,image_url',
+      ...csvRows
+    ].join('\n');
+
+    // Create blob with UTF-8 BOM for Arabic support in Excel
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    // Download with timestamp
+    const timestamp = new Date().toISOString().split('T')[0];
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `SKU_Export_${timestamp}.csv`;
+    link.click();
+    
+    toast({
+      title: 'Export successful',
+      description: `Exported ${filteredSkus.length} SKUs`
+    });
+  };
+
   const filteredSkus = skus.filter(sku =>
     sku.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
     sku.product_name?.toLowerCase().includes(search.toLowerCase())
@@ -602,6 +642,15 @@ export default function SKUsPage() {
           >
             <Download className="w-4 h-4 mr-2" />
             Template
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleExportCSV}
+            disabled={!canEdit || filteredSkus.length === 0}
+            className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
           </Button>
           <Button 
             variant="outline" 
