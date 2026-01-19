@@ -91,42 +91,40 @@ export default function SKUsPage() {
     }
   };
 
-  const handleAddSKU = async ({ createSKU, createSupplier }) => {
-    return {
-      createSKU: async (data) => {
-        try {
-          const newSKU = await base44.entities.SKU.create(data);
-          
-          // Create stock record if needed
-          const existingStock = currentStock.find(s => s.sku_id === newSKU.id);
-          if (!existingStock) {
-            await base44.entities.CurrentStock.create({
-              tenant_id: tenantId,
-              sku_id: newSKU.id,
-              sku_code: newSKU.sku_code,
-              quantity_available: 0
-            });
-          }
-          
-          toast({
-            title: 'SKU created successfully',
-            description: `${data.sku_code} has been added to your catalog`
-          });
-          loadData();
-        } catch (error) {
-          toast({
-            title: 'Error creating SKU',
-            description: error.message,
-            variant: 'destructive'
+  const handleAddSKU = {
+    createSKU: async (data) => {
+      try {
+        const newSKU = await base44.entities.SKU.create(data);
+        
+        // Create stock record if needed
+        const existingStock = currentStock.find(s => s.sku_id === newSKU.id);
+        if (!existingStock) {
+          await base44.entities.CurrentStock.create({
+            tenant_id: tenantId,
+            sku_id: newSKU.id,
+            sku_code: newSKU.sku_code,
+            quantity_available: 0
           });
         }
-      },
-      createSupplier: async (data) => {
-        const newSupplier = await base44.entities.Supplier.create(data);
-        setSuppliers([...suppliers, newSupplier]);
-        return newSupplier;
+        
+        toast({
+          title: 'SKU created successfully',
+          description: `${data.sku_code} has been added to your catalog`
+        });
+        loadData();
+      } catch (error) {
+        toast({
+          title: 'Error creating SKU',
+          description: error.message,
+          variant: 'destructive'
+        });
       }
-    };
+    },
+    createSupplier: async (data) => {
+      const newSupplier = await base44.entities.Supplier.create(data);
+      setSuppliers([...suppliers, newSupplier]);
+      return newSupplier;
+    }
   };
 
   const handleBulkUpload = async (file) => {
