@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package, DollarSign, AlertTriangle } from 'lucide-react';
+import { Package, DollarSign, AlertTriangle, Boxes } from 'lucide-react';
 import { KPISkeleton } from '@/components/ui/LoadingSkeleton';
 
 export default function SKUKPICards({ skus, currentStock, loading, lowStockThreshold = 5 }) {
@@ -21,6 +21,10 @@ export default function SKUKPICards({ skus, currentStock, loading, lowStockThres
     return qty <= lowStockThreshold && qty > 0;
   }).length;
 
+  const totalAvailableQty = currentStock.reduce((sum, stock) => {
+    return sum + (stock.quantity_available || 0);
+  }, 0);
+
   const cards = [
     {
       title: 'Total SKUs',
@@ -37,6 +41,13 @@ export default function SKUKPICards({ skus, currentStock, loading, lowStockThres
       iconColor: 'text-green-600'
     },
     {
+      title: 'Total Available Quantity',
+      value: totalAvailableQty.toLocaleString(),
+      icon: Boxes,
+      iconBg: 'bg-blue-100',
+      iconColor: 'text-blue-600'
+    },
+    {
       title: 'Low Stock Items',
       value: lowStockItems,
       icon: AlertTriangle,
@@ -46,7 +57,7 @@ export default function SKUKPICards({ skus, currentStock, loading, lowStockThres
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
       {cards.map((card, idx) => (
         <div
           key={idx}
