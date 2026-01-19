@@ -479,9 +479,9 @@ export default function Purchases() {
               </Select>
             </div>
 
-            <div className="border rounded-xl overflow-hidden">
+            <div className="border rounded-xl overflow-hidden max-h-96 overflow-y-auto">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-50 sticky top-0 z-10">
                   <tr>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">SKU</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">Product</th>
@@ -492,7 +492,7 @@ export default function Purchases() {
                 </thead>
                 <tbody>
                   {cartItems.map((item, i) => (
-                    <tr key={item.id} className="border-t">
+                    <tr key={item.id} className="border-t hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-medium">{item.sku_code}</td>
                       <td className="py-3 px-4 text-slate-600">{item.product_name}</td>
                       <td className="py-3 px-4">
@@ -520,13 +520,14 @@ export default function Purchases() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="bg-slate-50">
-                  <tr>
-                    <td colSpan="4" className="py-3 px-4 text-right font-semibold">Total:</td>
-                    <td className="py-3 px-4 text-right font-bold text-lg">${cartTotal.toFixed(2)}</td>
-                  </tr>
-                </tfoot>
               </table>
+            </div>
+            
+            <div className="bg-slate-50 rounded-lg p-4 flex justify-end">
+              <div className="text-right">
+                <p className="text-sm text-slate-500">Total Amount</p>
+                <p className="text-2xl font-bold text-slate-900">${cartTotal.toFixed(2)}</p>
+              </div>
             </div>
 
             <div className="flex justify-between pt-4">
