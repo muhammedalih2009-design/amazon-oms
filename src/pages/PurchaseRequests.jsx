@@ -230,12 +230,15 @@ export default function PurchaseRequests() {
         const imageData = sku?.image_url ? await loadImageAsBase64(sku.image_url) : null;
         
         return {
-          image: imageData,
-          productName: processArabicText(item.product_name),
-          skuCode: item.sku_code,
-          quantity: item.to_buy.toString(),
-          unitCost: `$${item.cost_price.toFixed(2)}`,
-          supplier: processArabicText(supplier?.supplier_name || '-')
+          imageData: imageData,
+          row: [
+            '', // Placeholder for image
+            processArabicText(item.product_name),
+            item.sku_code,
+            item.to_buy.toString(),
+            `$${item.cost_price.toFixed(2)}`,
+            processArabicText(supplier?.supplier_name || '-')
+          ]
         };
       }));
 
@@ -250,14 +253,7 @@ export default function PurchaseRequests() {
           processArabicText('سعر الوحدة'),
           processArabicText('المورد')
         ]],
-        body: tableData.map(item => [
-          '', // Placeholder for image
-          item.productName,
-          item.skuCode,
-          item.quantity,
-          item.unitCost,
-          item.supplier
-        ]),
+        body: tableData.map(item => item.row),
         theme: 'striped',
         headStyles: {
           fillColor: [79, 70, 229],
@@ -284,14 +280,14 @@ export default function PurchaseRequests() {
           // Add images in the first column
           if (data.column.index === 0 && data.cell.section === 'body') {
             const rowData = tableData[data.row.index];
-            if (rowData?.image) {
+            if (rowData?.imageData) {
               const imgWidth = 15;
               const imgHeight = 15;
               const x = data.cell.x + (data.cell.width - imgWidth) / 2;
               const y = data.cell.y + (data.cell.height - imgHeight) / 2;
               
               try {
-                doc.addImage(rowData.image, 'JPEG', x, y, imgWidth, imgHeight);
+                doc.addImage(rowData.imageData, 'JPEG', x, y, imgWidth, imgHeight);
               } catch (e) {
                 // Skip if image fails to render
               }
