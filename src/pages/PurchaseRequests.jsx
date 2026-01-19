@@ -6,6 +6,7 @@ import { ClipboardList, ShoppingCart, Check, Calculator, FileDown } from 'lucide
 import RefreshButton from '@/components/shared/RefreshButton';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import bidi from 'bidi-js';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -179,46 +180,123 @@ export default function PurchaseRequests() {
       doc.setFont('helvetica', 'normal');
       doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
 
-      // Get selected items with supplier info
+      // Get selected items with full SKU data and supplier info
       const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
       const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+      const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       
-      // Prepare table data
+      // Helper function to process Arabic text for RTL
+      const processArabicText = (text) => {
+        if (!text) return '';
+        // Check if text contains Arabic characters
+        const hasArabic = /[\u0600-\u06FF]/.test(text);
+        if (hasArabic) {
+          // Apply bidi algorithm for proper RTL rendering
+          return bidi(text);
+        }
+        return text;
+      };
+
+      // Helper function to load image as base64
+      const loadImageAsBase64 = (url) => {
+        return new Promise((resolve) => {
+          if (!url) {
+            resolve(null);
+            return;
+          }
+          const img = new Image();
+          img.crossOrigin = 'Anonymous';
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            try {
+              resolve(canvas.toDataURL('image/jpeg'));
+            } catch (e) {
+              resolve(null);
+            }
+          };
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      };
+
+      // Prepare table data with images
       const tableData = await Promise.all(selectedItems.map(async (item) => {
         const supplier = suppliersData.find(s => s.id === item.supplier_id);
-        return [
-          item.sku_code,
-          item.product_name,
-          item.to_buy.toString(),
-          `$${item.cost_price.toFixed(2)}`,
-          `$${(item.to_buy * item.cost_price).toFixed(2)}`,
-          supplier?.supplier_name || '-'
-        ];
+        const sku = skusData.find(s => s.id === item.sku_id);
+        const imageData = sku?.image_url ? await loadImageAsBase64(sku.image_url) : null;
+        
+        return {
+          image: imageData,
+          productName: processArabicText(item.product_name),
+          skuCode: item.sku_code,
+          quantity: item.to_buy.toString(),
+          unitCost: `$${item.cost_price.toFixed(2)}`,
+          supplier: processArabicText(supplier?.supplier_name || '-')
+        };
       }));
 
-      // Generate table
+      // Generate table with custom rendering for images
       doc.autoTable({
         startY: 40,
-        head: [['SKU', 'Product Name', 'Qty', 'Unit Cost', 'Total', 'Supplier']],
-        body: tableData,
+        head: [[
+          processArabicText('صورة المنتج'),
+          processArabicText('اسم المنتج'), 
+          'SKU',
+          processArabicText('الكمية'),
+          processArabicText('سعر الوحدة'),
+          processArabicText('المورد')
+        ]],
+        body: tableData.map(item => [
+          '', // Placeholder for image
+          item.productName,
+          item.skuCode,
+          item.quantity,
+          item.unitCost,
+          item.supplier
+        ]),
         theme: 'striped',
         headStyles: {
           fillColor: [79, 70, 229],
           textColor: 255,
           fontSize: 10,
-          fontStyle: 'bold'
+          fontStyle: 'bold',
+          halign: 'right'
         },
         styles: {
           fontSize: 9,
-          cellPadding: 4
+          cellPadding: 3,
+          halign: 'right',
+          font: 'helvetica'
         },
         columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 60 },
-          2: { cellWidth: 20, halign: 'center' },
-          3: { cellWidth: 25, halign: 'right' },
-          4: { cellWidth: 25, halign: 'right' },
-          5: { cellWidth: 35 }
+          0: { cellWidth: 20, halign: 'center' }, // Image column
+          1: { cellWidth: 50 }, // Product name (wider for Arabic)
+          2: { cellWidth: 25, halign: 'center' }, // SKU
+          3: { cellWidth: 20, halign: 'center' }, // Quantity
+          4: { cellWidth: 25, halign: 'right' }, // Unit cost
+          5: { cellWidth: 30 } // Supplier
+        },
+        didDrawCell: (data) => {
+          // Add images in the first column
+          if (data.column.index === 0 && data.cell.section === 'body') {
+            const rowData = tableData[data.row.index];
+            if (rowData?.image) {
+              const imgWidth = 15;
+              const imgHeight = 15;
+              const x = data.cell.x + (data.cell.width - imgWidth) / 2;
+              const y = data.cell.y + (data.cell.height - imgHeight) / 2;
+              
+              try {
+                doc.addImage(rowData.image, 'JPEG', x, y, imgWidth, imgHeight);
+              } catch (e) {
+                // Skip if image fails to render
+              }
+            }
+          }
         }
       });
 
@@ -230,8 +308,8 @@ export default function PurchaseRequests() {
       const selectedTotal = selectedItems.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
       const selectedItemsCount = selectedItems.reduce((sum, item) => sum + item.to_buy, 0);
       
-      doc.text(`Total Items: ${selectedItemsCount}`, 15, finalY);
-      doc.text(`Total Cost: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - 15, finalY, { align: 'right' });
+      doc.text(processArabicText(`إجمالي العناصر: ${selectedItemsCount}`), pageWidth - 15, finalY, { align: 'right' });
+      doc.text(processArabicText(`التكلفة الإجمالية: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`), pageWidth - 15, finalY + 7, { align: 'right' });
 
       // Save PDF
       doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
