@@ -86,7 +86,17 @@ export default function BatchHistory({
                   <Button 
                     variant="ghost" 
                     size="icon"
-                    onClick={() => onDownloadErrors?.(batch)}
+                    onClick={() => {
+                      if (batch.error_file_url) {
+                        const link = document.createElement('a');
+                        link.href = batch.error_file_url;
+                        link.download = `errors_${batch.batch_name || 'import'}_${new Date().toISOString().split('T')[0]}.csv`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }
+                      onDownloadErrors?.(batch);
+                    }}
                   >
                     <Download className="w-4 h-4" />
                   </Button>
