@@ -8,7 +8,8 @@ import {
   Download, 
   Upload, 
   Image as ImageIcon,
-  AlertCircle 
+  AlertCircle,
+  Eraser
 } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,7 @@ export default function SKUsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showClearStockDialog, setShowClearStockDialog] = useState(false);
   const [selectedSKU, setSelectedSKU] = useState(null);
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
 
@@ -441,6 +443,36 @@ export default function SKUsPage() {
     }
   };
 
+  const handleClearStock = async () => {
+    try {
+      let successCount = 0;
+      
+      for (const skuId of selectedRows) {
+        const stock = currentStock.find(s => s.sku_id === skuId);
+        if (stock) {
+          await base44.entities.CurrentStock.update(stock.id, {
+            quantity_available: 0
+          });
+          successCount++;
+        }
+      }
+
+      toast({
+        title: 'Stock cleared',
+        description: `Stock cleared for ${successCount} items`
+      });
+
+      loadData();
+      setShowClearStockDialog(false);
+    } catch (error) {
+      toast({
+        title: 'Error clearing stock',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
   const handleDeleteSelected = async () => {
     try {
       const deleteResults = [];
@@ -670,6 +702,15 @@ export default function SKUsPage() {
             Add SKU
           </Button>
           <Button 
+            variant="outline"
+            onClick={() => setShowClearStockDialog(true)}
+            disabled={selectedRows.length === 0 || !canEdit}
+            className="border-orange-200 text-orange-600 hover:bg-orange-50"
+          >
+            <Eraser className="w-4 h-4 mr-2" />
+            Clear Stock ({selectedRows.length})
+          </Button>
+          <Button 
             variant="destructive"
             onClick={() => setShowDeleteDialog(true)}
             disabled={selectedRows.length === 0 || !canEdit}
@@ -819,6 +860,35 @@ export default function SKUsPage() {
         currentStock={currentStock}
         onUpdate={handleUpdateSKU}
       />
+
+      {/* Clear Stock Confirmation */}
+      <AlertDialog open={showClearStockDialog} onOpenChange={setShowClearStockDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Stock for {selectedRows.length} Item(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-2">
+                <p>Are you sure you want to clear the stock for {selectedRows.length} selected items? This will set their quantity to 0 and cannot be undone.</p>
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-orange-800">
+                    <strong>Warning:</strong> This action will reset all stock levels to zero for the selected products.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleClearStock}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              Yes, Clear Stock
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
