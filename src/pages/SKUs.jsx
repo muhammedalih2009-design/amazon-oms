@@ -73,6 +73,25 @@ export default function SKUsPage() {
     if (tenantId) loadData();
   }, [tenantId]);
 
+  // Real-time stock updates
+  useEffect(() => {
+    if (!tenantId) return;
+    
+    const unsubscribe = base44.entities.CurrentStock.subscribe((event) => {
+      if (event.type === 'update') {
+        setCurrentStock(prev => prev.map(s => 
+          s.id === event.id ? event.data : s
+        ));
+      } else if (event.type === 'create') {
+        setCurrentStock(prev => [...prev, event.data]);
+      } else if (event.type === 'delete') {
+        setCurrentStock(prev => prev.filter(s => s.id !== event.id));
+      }
+    });
+
+    return unsubscribe;
+  }, [tenantId]);
+
   const loadData = async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
