@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
+import { useDebounce } from '@/components/hooks/useDebounce';
 import { format } from 'date-fns';
 import { RotateCcw, Search, Check, Package, Undo2 } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
@@ -37,6 +38,7 @@ export default function Returns() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [returnLines, setReturnLines] = useState([]);
   const [selectedReturns, setSelectedReturns] = useState([]);
@@ -71,8 +73,9 @@ export default function Returns() {
   };
 
   const handleSearch = () => {
+    const searchTerm = (debouncedSearch || search).trim();
     const order = orders.find(o => 
-      o.amazon_order_id?.toLowerCase() === search.toLowerCase()
+      o.amazon_order_id?.toLowerCase() === searchTerm.toLowerCase()
     );
     
     if (!order) {
