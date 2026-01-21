@@ -2,18 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload } from 'lucide-react';
+import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Select,
   SelectContent,
@@ -27,18 +38,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function Purchases() {
-  const { tenantId, subscription, isActive } = useTenant();
+  const { tenantId, subscription, isActive, isAdmin } = useTenant();
   const { toast } = useToast();
   const [purchases, setPurchases] = useState([]);
   const [skus, setSkus] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [cart, setCart] = useState([]);
+  const [currentStock, setCurrentStock] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showCartForm, setShowCartForm] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [selectedPurchases, setSelectedPurchases] = useState([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteWarning, setDeleteWarning] = useState(null);
   const [formData, setFormData] = useState({
     sku_id: '',
     quantity_purchased: '',
@@ -59,16 +74,19 @@ export default function Purchases() {
     } else {
       setLoading(true);
     }
-    const [purchasesData, skusData, suppliersData, cartData] = await Promise.all([
+    const [purchasesData, skusData, suppliersData, cartData, stockData] = await Promise.all([
       base44.entities.Purchase.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
       base44.entities.Supplier.filter({ tenant_id: tenantId }),
-      base44.entities.PurchaseCart.filter({ tenant_id: tenantId })
+      base44.entities.PurchaseCart.filter({ tenant_id: tenantId }),
+      base44.entities.CurrentStock.filter({ tenant_id: tenantId })
     ]);
     setPurchases(purchasesData.sort((a, b) => new Date(b.purchase_date) - new Date(a.purchase_date)));
     setSkus(skusData);
     setSuppliers(suppliersData);
     setCart(cartData);
+    setCurrentStock(stockData);
+    setSelectedPurchases([]);
     
     // Initialize cart items
     setCartItems(cartData.map(c => ({
@@ -212,10 +230,104 @@ export default function Purchases() {
     toast({ title: 'Purchases recorded and stock updated' });
   };
 
-  const handleDelete = async (purchase) => {
-    if (confirm('Delete this purchase? This will not reverse stock changes.')) {
-      await base44.entities.Purchase.delete(purchase.id);
+  const handleBulkDeleteClick = () => {
+    if (selectedPurchases.length === 0) {
+      toast({ title: 'No purchases selected', variant: 'destructive' });
+      return;
+    }
+
+    // Calculate total quantity and check for negative stock
+    let totalQty = 0;
+    let hasNegativeStock = false;
+    const warnings = [];
+
+    selectedPurchases.forEach(purchaseId => {
+      const purchase = purchases.find(p => p.id === purchaseId);
+      if (purchase) {
+        totalQty += purchase.quantity_purchased;
+        const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+        const currentQty = stock?.quantity_available || 0;
+        const newQty = currentQty - purchase.quantity_purchased;
+        
+        if (newQty < 0) {
+          hasNegativeStock = true;
+          warnings.push({
+            sku_code: purchase.sku_code,
+            current: currentQty,
+            deduct: purchase.quantity_purchased,
+            result: newQty
+          });
+        }
+      }
+    });
+
+    setDeleteWarning(hasNegativeStock ? warnings : null);
+    setShowDeleteDialog(true);
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      // Process deletions and stock reversals
+      for (const purchaseId of selectedPurchases) {
+        const purchase = purchases.find(p => p.id === purchaseId);
+        if (!purchase) continue;
+
+        // Update stock
+        const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+        if (stock) {
+          const newQty = (stock.quantity_available || 0) - purchase.quantity_purchased;
+          await base44.entities.CurrentStock.update(stock.id, {
+            quantity_available: newQty
+          });
+        }
+
+        // Create stock movement
+        await base44.entities.StockMovement.create({
+          tenant_id: tenantId,
+          sku_id: purchase.sku_id,
+          sku_code: purchase.sku_code,
+          movement_type: 'batch_delete',
+          quantity: -purchase.quantity_purchased,
+          reference_type: 'purchase',
+          reference_id: purchase.id,
+          movement_date: format(new Date(), 'yyyy-MM-dd'),
+          notes: 'Purchase deletion - stock reversed'
+        });
+
+        // Delete purchase
+        await base44.entities.Purchase.delete(purchase.id);
+      }
+
+      toast({
+        title: 'Purchases deleted',
+        description: `Successfully deleted ${selectedPurchases.length} records and updated inventory`
+      });
+
+      setShowDeleteDialog(false);
+      setDeleteWarning(null);
       loadData();
+    } catch (error) {
+      toast({
+        title: 'Error deleting purchases',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedPurchases.length === filteredPurchases.length) {
+      setSelectedPurchases([]);
+    } else {
+      setSelectedPurchases(filteredPurchases.map(p => p.id));
+    }
+  };
+
+  const toggleSelectPurchase = (purchaseId) => {
+    if (selectedPurchases.includes(purchaseId)) {
+      setSelectedPurchases(selectedPurchases.filter(id => id !== purchaseId));
+    } else {
+      setSelectedPurchases([...selectedPurchases, purchaseId]);
     }
   };
 
@@ -238,7 +350,32 @@ export default function Purchases() {
     p.supplier_name?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const filteredPurchases = purchases.filter(p =>
+    p.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
+    p.supplier_name?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const totalSelectedQty = selectedPurchases.reduce((sum, id) => {
+    const purchase = purchases.find(p => p.id === id);
+    return sum + (purchase?.quantity_purchased || 0);
+  }, 0);
+
   const columns = [
+    {
+      key: 'select',
+      header: isAdmin ? (
+        <Checkbox
+          checked={selectedPurchases.length === filteredPurchases.length && filteredPurchases.length > 0}
+          onCheckedChange={toggleSelectAll}
+        />
+      ) : null,
+      render: (_, row) => isAdmin ? (
+        <Checkbox
+          checked={selectedPurchases.includes(row.id)}
+          onCheckedChange={() => toggleSelectPurchase(row.id)}
+        />
+      ) : null
+    },
     {
       key: 'purchase_date',
       header: 'Date',
@@ -280,21 +417,6 @@ export default function Purchases() {
       render: (val) => (
         <span className={val > 0 ? 'text-emerald-600' : 'text-slate-400'}>{val || 0}</span>
       )
-    },
-    {
-      key: 'actions',
-      header: '',
-      align: 'right',
-      render: (_, row) => (
-        <Button 
-          variant="ghost" 
-          size="icon"
-          onClick={() => handleDelete(row)}
-          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
-      )
     }
   ];
 
@@ -309,8 +431,17 @@ export default function Purchases() {
           <h1 className="text-2xl font-bold text-slate-900">Purchases</h1>
           <p className="text-slate-500">Record inventory purchases</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          {isAdmin && selectedPurchases.length > 0 && (
+            <Button 
+              variant="destructive"
+              onClick={handleBulkDeleteClick}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Selected ({selectedPurchases.length})
+            </Button>
+          )}
           {cart.length > 0 && (
             <Button 
               onClick={() => setShowCartForm(true)}
@@ -554,6 +685,59 @@ export default function Purchases() {
         tenantId={tenantId}
         onSuccess={() => loadData()}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedPurchases.length} Purchase(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-3">
+                <p>
+                  You are about to delete {selectedPurchases.length} purchase record(s). 
+                  This will deduct <span className="font-semibold">{totalSelectedQty} units</span> from your inventory.
+                </p>
+                
+                {deleteWarning && deleteWarning.length > 0 && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
+                      <div className="space-y-2">
+                        <p className="text-sm text-orange-800 font-semibold">
+                          Warning: This will result in negative stock for the following SKUs:
+                        </p>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {deleteWarning.map((w, idx) => (
+                            <div key={idx} className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1">
+                              <strong>{w.sku_code}:</strong> {w.current} - {w.deduct} = <strong className="text-red-700">{w.result}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-sm text-orange-800">
+                          Do you want to proceed anyway?
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-sm text-slate-600">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteWarning ? 'Yes, Delete Anyway' : 'Confirm Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
