@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle, ChevronRight, Package, Download } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle, ChevronRight, Package, Download, CheckCircle2, XCircle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,14 @@ export default function Orders() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showBulkFulfillConfirm, setShowBulkFulfillConfirm] = useState(false);
   const [bulkFulfillValidation, setBulkFulfillValidation] = useState(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressState, setProgressState] = useState({
+    current: 0,
+    total: 0,
+    successCount: 0,
+    failCount: 0,
+    completed: false
+  });
   const [currentStock, setCurrentStock] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(null);
@@ -854,10 +862,24 @@ export default function Orders() {
   const handleBulkFulfill = async () => {
     if (!bulkFulfillValidation || bulkFulfillValidation.validOrders.length === 0) return;
 
+    const ordersToProcess = bulkFulfillValidation.validOrders;
+    
+    // Close confirmation dialog and show progress modal
+    setShowBulkFulfillConfirm(false);
+    setShowProgressModal(true);
+    setProgressState({
+      current: 0,
+      total: ordersToProcess.length,
+      successCount: 0,
+      failCount: 0,
+      completed: false
+    });
+
     let successCount = 0;
     let failCount = 0;
 
-    for (const order of bulkFulfillValidation.validOrders) {
+    for (let i = 0; i < ordersToProcess.length; i++) {
+      const order = ordersToProcess[i];
       try {
         await handleFulfillOrder(order);
         successCount++;
@@ -865,26 +887,37 @@ export default function Orders() {
         failCount++;
         console.error('Error fulfilling order:', order.amazon_order_id, error);
       }
-    }
 
-    setShowBulkFulfillConfirm(false);
-    setBulkFulfillValidation(null);
-    setSelectedOrders(new Set());
-    setSelectAllFiltered(false);
-    loadData();
-
-    if (failCount === 0) {
-      toast({ 
-        title: `Successfully fulfilled ${successCount} orders`,
-        description: 'Stock levels have been updated'
-      });
-    } else {
-      toast({ 
-        title: `Fulfilled ${successCount} orders, ${failCount} failed`,
-        description: 'Please check the failed orders',
-        variant: 'destructive'
+      // Update progress after each order
+      setProgressState({
+        current: i + 1,
+        total: ordersToProcess.length,
+        successCount,
+        failCount,
+        completed: i + 1 === ordersToProcess.length
       });
     }
+
+    // Refresh data
+    await loadData();
+
+    // Keep modal open briefly to show completion
+    setTimeout(() => {
+      setBulkFulfillValidation(null);
+      setSelectedOrders(new Set());
+      setSelectAllFiltered(false);
+    }, 500);
+  };
+
+  const handleCloseProgressModal = () => {
+    setShowProgressModal(false);
+    setProgressState({
+      current: 0,
+      total: 0,
+      successCount: 0,
+      failCount: 0,
+      completed: false
+    });
   };
 
   const handleBulkDelete = async () => {
@@ -1815,6 +1848,73 @@ export default function Orders() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Progress Modal */}
+      <Dialog open={showProgressModal} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md" hideClose={!progressState.completed}>
+          <DialogHeader>
+            <DialogTitle>
+              {progressState.completed ? 'Fulfillment Complete!' : 'Processing Orders...'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Status Label */}
+            <div className="text-center">
+              <p className="text-lg font-semibold text-slate-900">
+                {progressState.current} of {progressState.total} Orders
+              </p>
+              <p className="text-sm text-slate-500 mt-1">
+                {Math.round((progressState.current / progressState.total) * 100)}% Complete
+              </p>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="relative w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+              <div 
+                className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300 ease-out"
+                style={{ 
+                  width: `${(progressState.current / progressState.total) * 100}%`
+                }}
+              />
+            </div>
+
+            {/* Stats Breakdown */}
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <div>
+                    <p className="text-xs text-emerald-700 font-medium">Success</p>
+                    <p className="text-2xl font-bold text-emerald-900">{progressState.successCount}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-red-600" />
+                  <div>
+                    <p className="text-xs text-red-700 font-medium">Failed</p>
+                    <p className="text-2xl font-bold text-red-900">{progressState.failCount}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Completion Actions */}
+            {progressState.completed && (
+              <div className="pt-2">
+                <Button 
+                  onClick={handleCloseProgressModal}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Close
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Fulfill Confirmation */}
       <AlertDialog open={showBulkFulfillConfirm} onOpenChange={setShowBulkFulfillConfirm}>
