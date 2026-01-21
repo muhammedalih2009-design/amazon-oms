@@ -54,6 +54,8 @@ export default function Purchases() {
   const [selectedPurchases, setSelectedPurchases] = useState([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteWarning, setDeleteWarning] = useState(null);
+  const [deleteMode, setDeleteMode] = useState(null); // 'deduct' or 'keep'
+  const [deletingPurchase, setDeletingPurchase] = useState(null);
   const [formData, setFormData] = useState({
     sku_id: '',
     quantity_purchased: '',
@@ -230,21 +232,45 @@ export default function Purchases() {
     toast({ title: 'Purchases recorded and stock updated' });
   };
 
+  const handleDeleteClick = (purchase) => {
+    setDeletingPurchase(purchase);
+    setSelectedPurchases([purchase.id]);
+    
+    // Check for negative stock warning
+    const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+    const currentQty = stock?.quantity_available || 0;
+    const newQty = currentQty - purchase.quantity_purchased;
+    
+    if (newQty < 0) {
+      setDeleteWarning([{
+        sku_code: purchase.sku_code,
+        current: currentQty,
+        deduct: purchase.quantity_purchased,
+        result: newQty
+      }]);
+    } else {
+      setDeleteWarning(null);
+    }
+    
+    setDeleteMode(null);
+    setShowDeleteDialog(true);
+  };
+
   const handleBulkDeleteClick = () => {
     if (selectedPurchases.length === 0) {
       toast({ title: 'No purchases selected', variant: 'destructive' });
       return;
     }
 
+    setDeletingPurchase(null);
+    
     // Calculate total quantity and check for negative stock
-    let totalQty = 0;
     let hasNegativeStock = false;
     const warnings = [];
 
     selectedPurchases.forEach(purchaseId => {
       const purchase = purchases.find(p => p.id === purchaseId);
       if (purchase) {
-        totalQty += purchase.quantity_purchased;
         const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
         const currentQty = stock?.quantity_available || 0;
         const newQty = currentQty - purchase.quantity_purchased;
@@ -262,49 +288,61 @@ export default function Purchases() {
     });
 
     setDeleteWarning(hasNegativeStock ? warnings : null);
+    setDeleteMode(null);
     setShowDeleteDialog(true);
   };
 
-  const handleBulkDelete = async () => {
+  const handleConfirmDelete = async () => {
+    if (!deleteMode) return;
+
     try {
-      // Process deletions and stock reversals
+      const shouldDeductStock = deleteMode === 'deduct';
+      
+      // Process deletions
       for (const purchaseId of selectedPurchases) {
         const purchase = purchases.find(p => p.id === purchaseId);
         if (!purchase) continue;
 
-        // Update stock
-        const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
-        if (stock) {
-          const newQty = (stock.quantity_available || 0) - purchase.quantity_purchased;
-          await base44.entities.CurrentStock.update(stock.id, {
-            quantity_available: newQty
+        // Update stock if user chose to deduct
+        if (shouldDeductStock) {
+          const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+          if (stock) {
+            const newQty = (stock.quantity_available || 0) - purchase.quantity_purchased;
+            await base44.entities.CurrentStock.update(stock.id, {
+              quantity_available: newQty
+            });
+          }
+
+          // Create stock movement
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: purchase.sku_id,
+            sku_code: purchase.sku_code,
+            movement_type: 'batch_delete',
+            quantity: -purchase.quantity_purchased,
+            reference_type: 'purchase',
+            reference_id: purchase.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: shouldDeductStock 
+              ? 'Purchase deletion - stock deducted (mistake/return)'
+              : 'Purchase deletion - stock kept'
           });
         }
 
-        // Create stock movement
-        await base44.entities.StockMovement.create({
-          tenant_id: tenantId,
-          sku_id: purchase.sku_id,
-          sku_code: purchase.sku_code,
-          movement_type: 'batch_delete',
-          quantity: -purchase.quantity_purchased,
-          reference_type: 'purchase',
-          reference_id: purchase.id,
-          movement_date: format(new Date(), 'yyyy-MM-dd'),
-          notes: 'Purchase deletion - stock reversed'
-        });
-
-        // Delete purchase
+        // Delete purchase record
         await base44.entities.Purchase.delete(purchase.id);
       }
 
+      const action = shouldDeductStock ? 'deleted and stock deducted' : 'deleted (stock kept)';
       toast({
-        title: 'Purchases deleted',
-        description: `Successfully deleted ${selectedPurchases.length} records and updated inventory`
+        title: 'Purchase(s) ' + action,
+        description: `Successfully deleted ${selectedPurchases.length} record(s)`
       });
 
       setShowDeleteDialog(false);
       setDeleteWarning(null);
+      setDeleteMode(null);
+      setDeletingPurchase(null);
       loadData();
     } catch (error) {
       toast({
@@ -411,6 +449,21 @@ export default function Purchases() {
       align: 'right',
       render: (val) => (
         <span className={val > 0 ? 'text-emerald-600' : 'text-slate-400'}>{val || 0}</span>
+      )
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (_, row) => (
+        <Button 
+          variant="ghost" 
+          size="icon"
+          onClick={() => handleDeleteClick(row)}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
       )
     }
   ];
@@ -683,54 +736,86 @@ export default function Purchases() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selectedPurchases.length} Purchase(s)?</AlertDialogTitle>
-            <AlertDialogDescription>
-              <div className="space-y-3">
-                <p>
-                  You are about to delete {selectedPurchases.length} purchase record(s). 
-                  This will deduct <span className="font-semibold">{totalSelectedQty} units</span> from your inventory.
+            <AlertDialogTitle>
+              Delete {deletingPurchase ? 'Purchase' : `${selectedPurchases.length} Purchase(s)`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p className="text-slate-600">
+                  {deletingPurchase ? (
+                    <>Deleting purchase of <strong>{deletingPurchase.quantity_purchased} units</strong> of <strong>{deletingPurchase.sku_code}</strong></>
+                  ) : (
+                    <>Deleting <strong>{selectedPurchases.length} purchase record(s)</strong> totaling <strong>{totalSelectedQty} units</strong></>
+                  )}
                 </p>
-                
-                {deleteWarning && deleteWarning.length > 0 && (
+
+                {deleteWarning && deleteWarning.length > 0 && deleteMode === 'deduct' && (
                   <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
                       <div className="space-y-2">
                         <p className="text-sm text-orange-800 font-semibold">
-                          Warning: This will result in negative stock for the following SKUs:
+                          Warning: Deducting stock will result in negative quantities:
                         </p>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                        <div className="space-y-1 max-h-24 overflow-y-auto">
                           {deleteWarning.map((w, idx) => (
                             <div key={idx} className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1">
                               <strong>{w.sku_code}:</strong> {w.current} - {w.deduct} = <strong className="text-red-700">{w.result}</strong>
                             </div>
                           ))}
                         </div>
-                        <p className="text-sm text-orange-800">
-                          Do you want to proceed anyway?
-                        </p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                <p className="text-sm text-slate-600">
-                  This action cannot be undone.
-                </p>
+                {!deleteMode && (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-sm font-medium text-slate-700">
+                      Choose how to handle stock:
+                    </p>
+                    <div className="grid gap-2">
+                      <button
+                        onClick={() => setDeleteMode('deduct')}
+                        className="flex flex-col items-start gap-1 p-3 rounded-lg border-2 border-red-200 hover:border-red-400 hover:bg-red-50 transition-all text-left"
+                      >
+                        <span className="font-semibold text-red-700">Delete & Deduct from Stock</span>
+                        <span className="text-xs text-red-600">مسح وخصم من المخزن</span>
+                        <span className="text-xs text-slate-600 mt-1">
+                          Use if purchase was a mistake or goods returned to supplier
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => setDeleteMode('keep')}
+                        className="flex flex-col items-start gap-1 p-3 rounded-lg border-2 border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-all text-left"
+                      >
+                        <span className="font-semibold text-slate-700">Delete Record Only</span>
+                        <span className="text-xs text-slate-600">مسح السجل فقط</span>
+                        <span className="text-xs text-slate-600 mt-1">
+                          Use if stock should remain (e.g., fixing pricing error)
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {deleteWarning ? 'Yes, Delete Anyway' : 'Confirm Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {deleteMode && (
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeleteMode(null)}>
+                {deleteMode ? 'Back' : 'Cancel'}
+              </AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleConfirmDelete}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Confirm Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </div>
