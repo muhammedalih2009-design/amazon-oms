@@ -67,7 +67,8 @@ export default function Orders() {
     total: 0,
     successCount: 0,
     failCount: 0,
-    completed: false
+    completed: false,
+    log: []
   });
   const [currentStock, setCurrentStock] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -874,7 +875,8 @@ export default function Orders() {
       total: ordersToProcess.length,
       successCount: 0,
       failCount: 0,
-      completed: false
+      completed: false,
+      log: []
     });
 
     let successCount = 0;
@@ -888,6 +890,9 @@ export default function Orders() {
 
     for (let i = 0; i < ordersToProcess.length; i++) {
       const order = ordersToProcess[i];
+      let orderSuccess = false;
+      let orderError = '';
+      
       try {
         const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
         let totalCost = 0;
@@ -954,19 +959,33 @@ export default function Orders() {
         });
 
         successCount++;
+        orderSuccess = true;
       } catch (error) {
         failCount++;
+        orderSuccess = false;
+        orderError = error.message || 'Unknown error';
         console.error('Error processing order:', order.amazon_order_id, error);
       }
 
-      // Update progress after each order processed
-      setProgressState({
+      // Update progress after each order processed with log entry
+      setProgressState(prev => ({
         current: i + 1,
         total: ordersToProcess.length,
         successCount,
         failCount,
-        completed: false
-      });
+        completed: false,
+        log: [
+          {
+            orderId: order.amazon_order_id,
+            success: orderSuccess,
+            error: orderError
+          },
+          ...prev.log
+        ].slice(0, 50) // Keep last 50 entries
+      }));
+
+      // Small delay to ensure UI updates smoothly
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     // Batch database operations
@@ -1071,7 +1090,8 @@ export default function Orders() {
       total: 0,
       successCount: 0,
       failCount: 0,
-      completed: false
+      completed: false,
+      log: []
     });
   };
 
@@ -2035,13 +2055,22 @@ export default function Orders() {
 
       {/* Progress Modal */}
       <Dialog open={showProgressModal} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-md" hideClose={!progressState.completed}>
+        <DialogContent className="sm:max-w-2xl" hideClose={!progressState.completed}>
           <DialogHeader>
             <DialogTitle>
-              {progressState.completed ? 'Fulfillment Complete!' : 'Processing Orders...'}
+              {progressState.completed ? 'Fulfillment Complete!' : 'Processing Bulk Fulfillment...'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Live Counter */}
+            {!progressState.completed && progressState.current > 0 && (
+              <div className="text-center">
+                <p className="text-sm text-indigo-600 font-medium animate-pulse">
+                  Fulfilling order {progressState.current} of {progressState.total}...
+                </p>
+              </div>
+            )}
+
             {/* Status Label */}
             <div className="text-center">
               <p className="text-lg font-semibold text-slate-900">
@@ -2085,6 +2114,50 @@ export default function Orders() {
               </div>
             </div>
 
+            {/* Status Log */}
+            {progressState.log.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Recent Activity</p>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
+                  <div className="p-3 space-y-2">
+                    {progressState.log.map((entry, idx) => (
+                      <div 
+                        key={idx}
+                        className={`flex items-start gap-2 text-sm ${
+                          entry.success ? 'text-emerald-700' : 'text-red-700'
+                        }`}
+                      >
+                        {entry.success ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        ) : (
+                          <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium">Order {entry.orderId}</span>
+                          <span className="text-slate-600 ml-2">
+                            {entry.success ? 'Success' : `Failed${entry.error ? `: ${entry.error}` : ''}`}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Completion Summary */}
+            {progressState.completed && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                <p className="font-semibold text-indigo-900 mb-1">Summary</p>
+                <p className="text-sm text-indigo-700">
+                  Successfully fulfilled <strong>{progressState.successCount}</strong> orders.
+                  {progressState.failCount > 0 && (
+                    <> <strong>{progressState.failCount}</strong> failed.</>
+                  )}
+                </p>
+              </div>
+            )}
+
             {/* Completion Actions */}
             {progressState.completed && (
               <div className="pt-2">
@@ -2092,7 +2165,7 @@ export default function Orders() {
                   onClick={handleCloseProgressModal}
                   className="w-full bg-indigo-600 hover:bg-indigo-700"
                 >
-                  Close
+                  Done
                 </Button>
               </div>
             )}
