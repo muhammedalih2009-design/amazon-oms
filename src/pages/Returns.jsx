@@ -41,6 +41,7 @@ export default function Returns() {
   const [returnLines, setReturnLines] = useState([]);
   const [selectedReturns, setSelectedReturns] = useState([]);
   const [showUndoDialog, setShowUndoDialog] = useState(false);
+  const [skus, setSkus] = useState([]);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -52,14 +53,16 @@ export default function Returns() {
     } else {
       setLoading(true);
     }
-    const [ordersData, linesData, movementsData] = await Promise.all([
+    const [ordersData, linesData, movementsData, skusData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-      base44.entities.StockMovement.filter({ tenant_id: tenantId, movement_type: 'return' })
+      base44.entities.StockMovement.filter({ tenant_id: tenantId, movement_type: 'return' }),
+      base44.entities.SKU.filter({ tenant_id: tenantId })
     ]);
     setOrders(ordersData);
     setOrderLines(linesData);
     setStockMovements(movementsData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
+    setSkus(skusData);
     if (isRefresh) {
       setRefreshing(false);
     } else {
@@ -84,7 +87,7 @@ export default function Returns() {
 
     setSelectedOrder(order);
     const lines = orderLines.filter(l => l.order_id === order.id);
-    setReturnLines(lines.map(l => ({ ...l, selected: false })));
+    setReturnLines(lines.map(l => ({ ...l, selected: false, condition: 'sound' })));
   };
 
   const handleProcessReturn = async () => {
@@ -96,32 +99,55 @@ export default function Returns() {
     }
 
     for (const line of toReturn) {
+      const condition = line.condition || 'sound';
+      
       // Mark line as returned
       await base44.entities.OrderLine.update(line.id, {
         is_returned: true,
         return_date: format(new Date(), 'yyyy-MM-dd')
       });
 
-      // Update stock
-      const stock = await base44.entities.CurrentStock.filter({ 
-        tenant_id: tenantId, 
-        sku_id: line.sku_id 
-      });
-      
-      if (stock.length > 0) {
-        await base44.entities.CurrentStock.update(stock[0].id, {
-          quantity_available: (stock[0].quantity_available || 0) + line.quantity
+      // Update stock based on condition
+      if (condition === 'sound') {
+        // Add to main stock
+        const stock = await base44.entities.CurrentStock.filter({ 
+          tenant_id: tenantId, 
+          sku_id: line.sku_id 
         });
-      } else {
-        await base44.entities.CurrentStock.create({
-          tenant_id: tenantId,
-          sku_id: line.sku_id,
-          sku_code: line.sku_code,
-          quantity_available: line.quantity
+        
+        if (stock.length > 0) {
+          await base44.entities.CurrentStock.update(stock[0].id, {
+            quantity_available: (stock[0].quantity_available || 0) + line.quantity
+          });
+        } else {
+          await base44.entities.CurrentStock.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            quantity_available: line.quantity
+          });
+        }
+      } else if (condition === 'damaged') {
+        // Add to damaged stock in SKU table
+        const skuRecords = await base44.entities.SKU.filter({ 
+          tenant_id: tenantId, 
+          id: line.sku_id 
         });
+        
+        if (skuRecords.length > 0) {
+          const sku = skuRecords[0];
+          await base44.entities.SKU.update(sku.id, {
+            damaged_stock: (sku.damaged_stock || 0) + line.quantity
+          });
+        }
       }
+      // If 'missing', no stock update (total loss)
 
-      // Create stock movement
+      // Create stock movement with condition noted
+      const conditionLabel = condition === 'sound' ? 'Sound (سليم)' :
+                            condition === 'damaged' ? 'Damaged (هالك)' :
+                            'Missing (مفقود)';
+      
       await base44.entities.StockMovement.create({
         tenant_id: tenantId,
         sku_id: line.sku_id,
@@ -131,7 +157,7 @@ export default function Returns() {
         reference_type: 'order_line',
         reference_id: line.id,
         movement_date: format(new Date(), 'yyyy-MM-dd'),
-        notes: `Return for order ${selectedOrder.amazon_order_id}`
+        notes: `Return for order ${selectedOrder.amazon_order_id} - Condition: ${conditionLabel}`
       });
     }
 
@@ -154,6 +180,28 @@ export default function Returns() {
     const newLines = [...returnLines];
     newLines[index].selected = !newLines[index].selected;
     setReturnLines(newLines);
+  };
+
+  const updateLineCondition = (index, condition) => {
+    const newLines = [...returnLines];
+    newLines[index].condition = condition;
+    setReturnLines(newLines);
+  };
+
+  const getReturnSummary = () => {
+    const selected = returnLines.filter(l => l.selected && !l.is_returned);
+    const counts = {
+      sound: 0,
+      damaged: 0,
+      missing: 0
+    };
+    
+    selected.forEach(line => {
+      const condition = line.condition || 'sound';
+      counts[condition] += line.quantity;
+    });
+    
+    return counts;
   };
 
   const handleUndoReturn = async () => {
@@ -435,34 +483,124 @@ export default function Returns() {
               </div>
 
               <div>
-                <p className="text-sm font-medium text-slate-700 mb-2">Select items to return:</p>
-                <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-700 mb-2">Select items to return and specify condition:</p>
+                <div className="space-y-3">
                   {returnLines.map((line, i) => (
                     <div 
                       key={line.id}
                       className={`
-                        flex items-center justify-between p-3 rounded-lg border
-                        ${line.is_returned ? 'bg-slate-50 opacity-60' : 'bg-white hover:bg-slate-50'}
+                        rounded-lg border
+                        ${line.is_returned ? 'bg-slate-50 opacity-60' : 'bg-white'}
                       `}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 p-3">
                         <Checkbox
                           checked={line.selected}
                           onCheckedChange={() => toggleLine(i)}
                           disabled={line.is_returned}
                         />
-                        <div>
+                        <div className="flex-1">
                           <p className="font-medium">{line.sku_code}</p>
                           <p className="text-sm text-slate-500">Qty: {line.quantity}</p>
                         </div>
+                        {line.is_returned && (
+                          <StatusBadge status="fully_returned" />
+                        )}
                       </div>
-                      {line.is_returned && (
-                        <StatusBadge status="fully_returned" />
+                      
+                      {line.selected && !line.is_returned && (
+                        <div className="px-3 pb-3 pt-0">
+                          <p className="text-xs text-slate-500 mb-2">Return Condition:</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => updateLineCondition(i, 'sound')}
+                              className={`
+                                flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-left
+                                ${line.condition === 'sound' 
+                                  ? 'border-emerald-500 bg-emerald-50' 
+                                  : 'border-slate-200 hover:border-slate-300'}
+                              `}
+                            >
+                              <span className={`text-xs font-semibold ${line.condition === 'sound' ? 'text-emerald-700' : 'text-slate-700'}`}>
+                                Sound
+                              </span>
+                              <span className={`text-xs ${line.condition === 'sound' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                سليم
+                              </span>
+                              <span className="text-[10px] text-slate-500 text-center mt-1">
+                                → Main Stock
+                              </span>
+                            </button>
+                            
+                            <button
+                              type="button"
+                              onClick={() => updateLineCondition(i, 'damaged')}
+                              className={`
+                                flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-left
+                                ${line.condition === 'damaged' 
+                                  ? 'border-orange-500 bg-orange-50' 
+                                  : 'border-slate-200 hover:border-slate-300'}
+                              `}
+                            >
+                              <span className={`text-xs font-semibold ${line.condition === 'damaged' ? 'text-orange-700' : 'text-slate-700'}`}>
+                                Damaged
+                              </span>
+                              <span className={`text-xs ${line.condition === 'damaged' ? 'text-orange-600' : 'text-slate-500'}`}>
+                                هالك
+                              </span>
+                              <span className="text-[10px] text-slate-500 text-center mt-1">
+                                → Damaged Stock
+                              </span>
+                            </button>
+                            
+                            <button
+                              type="button"
+                              onClick={() => updateLineCondition(i, 'missing')}
+                              className={`
+                                flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-left
+                                ${line.condition === 'missing' 
+                                  ? 'border-red-500 bg-red-50' 
+                                  : 'border-slate-200 hover:border-slate-300'}
+                              `}
+                            >
+                              <span className={`text-xs font-semibold ${line.condition === 'missing' ? 'text-red-700' : 'text-slate-700'}`}>
+                                Missing
+                              </span>
+                              <span className={`text-xs ${line.condition === 'missing' ? 'text-red-600' : 'text-slate-500'}`}>
+                                مفقود
+                              </span>
+                              <span className="text-[10px] text-slate-500 text-center mt-1">
+                                → No Stock
+                              </span>
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
                 </div>
               </div>
+
+              {returnLines.some(l => l.selected && !l.is_returned) && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-indigo-900 mb-1">Return Summary:</p>
+                  <div className="flex gap-4 text-xs text-indigo-700">
+                    {getReturnSummary().sound > 0 && (
+                      <span>✓ {getReturnSummary().sound} Sound</span>
+                    )}
+                    {getReturnSummary().damaged > 0 && (
+                      <span>⚠ {getReturnSummary().damaged} Damaged</span>
+                    )}
+                    {getReturnSummary().missing > 0 && (
+                      <span>✗ {getReturnSummary().missing} Missing</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-indigo-600 mt-1">
+                    Confirm to process return with these conditions
+                  </p>
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4">
                 <Button variant="outline" onClick={() => setSelectedOrder(null)}>
