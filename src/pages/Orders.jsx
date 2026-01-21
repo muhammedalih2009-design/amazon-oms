@@ -862,6 +862,124 @@ export default function Orders() {
     setShowBulkFulfillConfirm(true);
   };
 
+  const performDatabaseOperations = async (
+    lineUpdates,
+    ordersToProcess,
+    orderUpdates,
+    stockUpdates,
+    allStockMovements,
+    tenantId
+  ) => {
+    let actualSuccessCount = 0;
+    
+    try {
+      // Update all order lines in batches
+      for (const lineUpdate of lineUpdates) {
+        try {
+          await base44.entities.OrderLine.update(lineUpdate.id, {
+            unit_cost: lineUpdate.unit_cost,
+            line_total_cost: lineUpdate.line_total_cost
+          });
+        } catch (error) {
+          console.error('Failed to update order line:', lineUpdate.id, error);
+          throw error;
+        }
+      }
+
+      // Update purchase quantities (FIFO) - must be sequential for accuracy
+      for (const order of ordersToProcess) {
+        if (!orderUpdates.find(u => u.id === order.id)) continue;
+        
+        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+        for (const line of lines) {
+          const skuPurchases = purchases
+            .filter(p => {
+              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
+              const lineSkuCode = line.sku_code?.trim().toLowerCase();
+              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
+                     (p.quantity_remaining || 0) > 0 &&
+                     p.tenant_id === tenantId;
+            })
+            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
+
+          let remaining = line.quantity;
+          for (const purchase of skuPurchases) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, purchase.quantity_remaining || 0);
+            
+            try {
+              await base44.entities.Purchase.update(purchase.id, {
+                quantity_remaining: (purchase.quantity_remaining || 0) - take
+              });
+            } catch (error) {
+              console.error('Failed to update purchase:', purchase.id, error);
+              throw error;
+            }
+            
+            remaining -= take;
+          }
+        }
+      }
+
+      // Batch update current stock
+      for (const [skuId, qtyToDeduct] of stockUpdates) {
+        try {
+          const stockRecords = await base44.entities.CurrentStock.filter({ 
+            tenant_id: tenantId, 
+            sku_id: skuId 
+          });
+          
+          if (stockRecords.length > 0) {
+            const currentQty = stockRecords[0].quantity_available || 0;
+            await base44.entities.CurrentStock.update(stockRecords[0].id, {
+              quantity_available: currentQty - qtyToDeduct
+            });
+          }
+        } catch (error) {
+          console.error('Failed to update stock for SKU:', skuId, error);
+          throw error;
+        }
+      }
+
+      // Batch create stock movements
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < allStockMovements.length; i += BATCH_SIZE) {
+        const batch = allStockMovements.slice(i, i + BATCH_SIZE);
+        try {
+          await base44.entities.StockMovement.bulkCreate(batch);
+        } catch (error) {
+          console.error('Failed to create stock movements batch:', error);
+          throw error;
+        }
+      }
+
+      // Update all orders - CRITICAL: Only after all other operations succeed
+      for (const orderUpdate of orderUpdates) {
+        try {
+          await base44.entities.Order.update(orderUpdate.id, {
+            status: orderUpdate.status,
+            total_cost: orderUpdate.total_cost,
+            profit_loss: orderUpdate.profit_loss,
+            profit_margin_percent: orderUpdate.profit_margin_percent
+          });
+          actualSuccessCount++; // Only increment on successful DB update
+        } catch (error) {
+          console.error('Failed to update order:', orderUpdate.id, error);
+          // Continue with other orders even if one fails
+        }
+      }
+    } catch (error) {
+      console.error('Critical error in batch operations:', error);
+      toast({
+        title: 'Batch operation failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+    
+    return actualSuccessCount;
+  };
+
   const handleBulkFulfill = async () => {
     if (!bulkFulfillValidation || bulkFulfillValidation.validOrders.length === 0) return;
 
@@ -878,9 +996,6 @@ export default function Orders() {
       completed: false,
       log: []
     });
-
-    let successCount = 0;
-    let failCount = 0;
 
     // Collect all stock movements and stock updates for batch processing
     const allStockMovements = [];
@@ -958,10 +1073,8 @@ export default function Orders() {
           profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
         });
 
-        successCount++;
-        orderSuccess = true;
+        // Don't increment success here - will be done after DB operations
       } catch (error) {
-        failCount++;
         orderSuccess = false;
         orderError = error.message || 'Unknown error';
         console.error('Error processing order:', order.amazon_order_id, error);
@@ -971,8 +1084,8 @@ export default function Orders() {
       setProgressState(prev => ({
         current: i + 1,
         total: ordersToProcess.length,
-        successCount,
-        failCount,
+        successCount: 0, // Will be updated after DB operations
+        failCount: 0,
         completed: false,
         log: [
           {
@@ -981,96 +1094,32 @@ export default function Orders() {
             error: orderError
           },
           ...prev.log
-        ].slice(0, 50) // Keep last 50 entries
+        ].slice(0, 50)
       }));
 
       // Small delay to ensure UI updates smoothly
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    // Batch database operations
-    try {
-      // Update all order lines in batches
-      for (const lineUpdate of lineUpdates) {
-        await base44.entities.OrderLine.update(lineUpdate.id, {
-          unit_cost: lineUpdate.unit_cost,
-          line_total_cost: lineUpdate.line_total_cost
-        });
-      }
+    // Batch database operations with proper error handling
+    const actualSuccessCount = await performDatabaseOperations(
+      lineUpdates,
+      ordersToProcess,
+      orderUpdates,
+      stockUpdates,
+      allStockMovements,
+      tenantId
+    );
 
-      // Update purchase quantities (FIFO) - must be sequential for accuracy
-      for (const order of ordersToProcess) {
-        if (!orderUpdates.find(u => u.id === order.id)) continue; // Skip failed orders
-        
-        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
-        for (const line of lines) {
-          const skuPurchases = purchases
-            .filter(p => {
-              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
-              const lineSkuCode = line.sku_code?.trim().toLowerCase();
-              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
-                     (p.quantity_remaining || 0) > 0 &&
-                     p.tenant_id === tenantId;
-            })
-            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
-
-          let remaining = line.quantity;
-          for (const purchase of skuPurchases) {
-            if (remaining <= 0) break;
-            const take = Math.min(remaining, purchase.quantity_remaining || 0);
-            
-            await base44.entities.Purchase.update(purchase.id, {
-              quantity_remaining: (purchase.quantity_remaining || 0) - take
-            });
-            
-            remaining -= take;
-          }
-        }
-      }
-
-      // Batch update current stock
-      for (const [skuId, qtyToDeduct] of stockUpdates) {
-        const stockRecords = await base44.entities.CurrentStock.filter({ 
-          tenant_id: tenantId, 
-          sku_id: skuId 
-        });
-        
-        if (stockRecords.length > 0) {
-          const currentQty = stockRecords[0].quantity_available || 0;
-          await base44.entities.CurrentStock.update(stockRecords[0].id, {
-            quantity_available: currentQty - qtyToDeduct
-          });
-        }
-      }
-
-      // Batch create stock movements
-      const BATCH_SIZE = 400;
-      for (let i = 0; i < allStockMovements.length; i += BATCH_SIZE) {
-        const batch = allStockMovements.slice(i, i + BATCH_SIZE);
-        await base44.entities.StockMovement.bulkCreate(batch);
-      }
-
-      // Update all orders
-      for (const orderUpdate of orderUpdates) {
-        await base44.entities.Order.update(orderUpdate.id, {
-          status: orderUpdate.status,
-          total_cost: orderUpdate.total_cost,
-          profit_loss: orderUpdate.profit_loss,
-          profit_margin_percent: orderUpdate.profit_margin_percent
-        });
-      }
-    } catch (error) {
-      console.error('Error in batch operations:', error);
-    }
-
-    // Mark as completed
-    setProgressState({
+    // Mark as completed with actual results
+    setProgressState(prev => ({
+      ...prev,
       current: ordersToProcess.length,
       total: ordersToProcess.length,
-      successCount,
-      failCount,
+      successCount: actualSuccessCount,
+      failCount: ordersToProcess.length - actualSuccessCount,
       completed: true
-    });
+    }));
 
     // Refresh data
     await loadData();
