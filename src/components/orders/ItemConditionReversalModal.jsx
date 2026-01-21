@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +44,7 @@ export default function ItemConditionReversalModal({
 
   const soundCount = Object.values(itemConditions).filter(c => c === 'sound').length;
   const damagedCount = Object.values(itemConditions).filter(c => c === 'damaged').length;
+  const lostCount = Object.values(itemConditions).filter(c => c === 'lost').length;
 
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => {
@@ -83,7 +84,7 @@ export default function ItemConditionReversalModal({
                       </p>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         variant={selectedCondition === 'sound' ? 'default' : 'outline'}
                         size="sm"
@@ -95,7 +96,7 @@ export default function ItemConditionReversalModal({
                         }
                       >
                         <CheckCircle2 className="w-4 h-4 mr-1" />
-                        Sound/Sellable
+                        Sound
                       </Button>
                       <Button
                         variant={selectedCondition === 'damaged' ? 'destructive' : 'outline'}
@@ -105,6 +106,19 @@ export default function ItemConditionReversalModal({
                         <AlertCircle className="w-4 h-4 mr-1" />
                         Damaged
                       </Button>
+                      <Button
+                        variant={selectedCondition === 'lost' ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => handleConditionChange(line.id, 'lost')}
+                        className={
+                          selectedCondition === 'lost'
+                            ? 'bg-slate-600 hover:bg-slate-700 text-white'
+                            : ''
+                        }
+                      >
+                        <XCircle className="w-4 h-4 mr-1" />
+                        Lost/Missing
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -113,21 +127,25 @@ export default function ItemConditionReversalModal({
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-4">
+          <div className="grid grid-cols-3 gap-3 bg-slate-50 rounded-lg p-4">
             <div>
-              <p className="text-xs text-emerald-700 font-medium">Returned as Sound</p>
+              <p className="text-xs text-emerald-700 font-medium">Sound</p>
               <p className="text-2xl font-bold text-emerald-900">{soundCount}</p>
             </div>
             <div>
-              <p className="text-xs text-red-700 font-medium">Marked as Damaged</p>
+              <p className="text-xs text-red-700 font-medium">Damaged</p>
               <p className="text-2xl font-bold text-red-900">{damagedCount}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-700 font-medium">Lost</p>
+              <p className="text-2xl font-bold text-slate-900">{lostCount}</p>
             </div>
           </div>
 
           {/* Warning */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">
-              <strong>Note:</strong> Sound items will be added back to main inventory. Damaged items will be logged separately and not returned to sellable stock.
+              <strong>Note:</strong> Sound items return to sellable inventory. Damaged items are logged separately. Lost items are written off with no stock change.
             </p>
           </div>
         </div>

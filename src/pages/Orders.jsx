@@ -304,6 +304,7 @@ export default function Orders() {
     const lines = orderLines.filter(l => l.order_id === order.id);
     setEditFormData({
       ...order,
+      status: order.status,
       lines: lines.map(l => ({
         id: l.id,
         sku_id: l.sku_id,
@@ -375,7 +376,6 @@ export default function Orders() {
     try {
       // Update order lines with item conditions
       for (const line of reversalContext.lines) {
-        const condition = itemConditions[line.id];
         await base44.entities.OrderLine.update(line.id, {
           is_returned: true,
           return_date: format(new Date(), 'yyyy-MM-dd')
@@ -409,7 +409,7 @@ export default function Orders() {
             reference_type: 'order_line',
             reference_id: line.id,
             movement_date: format(new Date(), 'yyyy-MM-dd'),
-            notes: `Item returned as sound (sellable) from order status change to ${reversalContext.newStatus}`
+            notes: `Returned as sound (sellable) - Order status changed to ${reversalContext.newStatus}`
           });
         } else if (condition === 'damaged') {
           // Mark as damaged stock - update SKU's damaged_stock
@@ -429,7 +429,20 @@ export default function Orders() {
             reference_type: 'order_line',
             reference_id: line.id,
             movement_date: format(new Date(), 'yyyy-MM-dd'),
-            notes: `Item returned as damaged (scrapped) from order status change to ${reversalContext.newStatus}`
+            notes: `Returned as damaged (scrapped) - Order status changed to ${reversalContext.newStatus}`
+          });
+        } else if (condition === 'lost') {
+          // Lost/Missing - No stock change, just log it
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'manual',
+            quantity: 0,
+            reference_type: 'order_line',
+            reference_id: line.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Marked as lost/missing (no stock change) - Order status changed to ${reversalContext.newStatus}`
           });
         }
       }
@@ -457,9 +470,14 @@ export default function Orders() {
       setEditFormData(null);
       setShowDetails(null);
       loadData();
+      
+      const soundCount = Object.values(itemConditions).filter(c => c === 'sound').length;
+      const damagedCount = Object.values(itemConditions).filter(c => c === 'damaged').length;
+      const lostCount = Object.values(itemConditions).filter(c => c === 'lost').length;
+      
       toast({ 
-        title: 'Order updated successfully',
-        description: `Status changed to ${reversalContext.newStatus}. Stock reversed based on item conditions.`
+        title: 'Order status updated',
+        description: `Status: ${reversalContext.newStatus} | Sound: ${soundCount}, Damaged: ${damagedCount}, Lost: ${lostCount}`
       });
     } catch (error) {
       console.error('Error processing reversal:', error);
@@ -1898,20 +1916,44 @@ export default function Orders() {
                   </div>
                 </>
               ) : (
-                <>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <p className="text-sm text-blue-800">
-                      Editing Order: {editFormData.amazon_order_id}
-                    </p>
-                  </div>
+               <>
+                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                   <p className="text-sm text-blue-800">
+                     Editing Order: {editFormData.amazon_order_id}
+                   </p>
+                 </div>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label>Order Lines</Label>
-                      <Button type="button" variant="outline" size="sm" onClick={addEditLine}>
-                        <Plus className="w-4 h-4 mr-1" /> Add Line
-                      </Button>
-                    </div>
+                 {/* Status Selector */}
+                 <div className="space-y-2">
+                   <Label>Order Status</Label>
+                   <Select 
+                     value={editFormData.status} 
+                     onValueChange={(value) => setEditFormData({...editFormData, status: value})}
+                   >
+                     <SelectTrigger>
+                       <SelectValue />
+                     </SelectTrigger>
+                     <SelectContent>
+                       <SelectItem value="pending">Pending</SelectItem>
+                       <SelectItem value="fulfilled">Fulfilled</SelectItem>
+                       <SelectItem value="partially_returned">Partially Returned</SelectItem>
+                       <SelectItem value="fully_returned">Fully Returned</SelectItem>
+                     </SelectContent>
+                   </Select>
+                   {showDetails.status === 'fulfilled' && editFormData.status !== 'fulfilled' && (
+                     <p className="text-xs text-amber-600">
+                       ⚠ Changing from fulfilled will prompt you to specify stock return destination
+                     </p>
+                   )}
+                 </div>
+
+                 <div className="space-y-3">
+                   <div className="flex items-center justify-between">
+                     <Label>Order Lines</Label>
+                     <Button type="button" variant="outline" size="sm" onClick={addEditLine}>
+                       <Plus className="w-4 h-4 mr-1" /> Add Line
+                     </Button>
+                   </div>
                     {editFormData.lines.map((line, i) => (
                       <div key={i} className="flex gap-2">
                         <div className="flex-1">
