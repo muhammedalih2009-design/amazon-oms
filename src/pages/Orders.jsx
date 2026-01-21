@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle, ChevronRight, Package, Download } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +55,7 @@ export default function Orders() {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [expandedBatches, setExpandedBatches] = useState(new Set());
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showBulkFulfillConfirm, setShowBulkFulfillConfirm] = useState(false);
   const [bulkFulfillValidation, setBulkFulfillValidation] = useState(null);
@@ -75,6 +76,13 @@ export default function Orders() {
   useEffect(() => {
     if (tenantId) loadData();
   }, [tenantId]);
+
+  // Auto-expand newest batch on load
+  useEffect(() => {
+    if (batches.length > 0 && expandedBatches.size === 0) {
+      setExpandedBatches(new Set([batches[0].id]));
+    }
+  }, [batches]);
 
   const loadData = async (isRefresh = false) => {
     if (isRefresh) {
@@ -360,10 +368,17 @@ export default function Orders() {
     });
   };
 
+  const handleDeleteBatchClick = (batch) => {
+    setDeleteBatch(batch);
+  };
+
   const handleDeleteBatch = async () => {
     if (!deleteBatch) return;
     
     const batchOrders = orders.filter(o => o.import_batch_id === deleteBatch.id);
+    
+    // Check if any orders are fulfilled
+    const fulfilledOrders = batchOrders.filter(o => o.status === 'fulfilled');
     
     for (const order of batchOrders) {
       // Reverse stock movements if fulfilled
@@ -380,6 +395,19 @@ export default function Orders() {
               quantity_available: (stock[0].quantity_available || 0) + line.quantity
             });
           }
+
+          // Create stock movement record
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'batch_delete',
+            quantity: line.quantity,
+            reference_type: 'order_line',
+            reference_id: line.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Stock restored from batch deletion (${deleteBatch.batch_name})`
+          });
         }
       }
       
@@ -394,7 +422,52 @@ export default function Orders() {
     await base44.entities.ImportBatch.delete(deleteBatch.id);
     setDeleteBatch(null);
     loadData();
-    toast({ title: 'Batch deleted and stock restored' });
+    toast({ 
+      title: 'Batch deleted successfully',
+      description: fulfilledOrders.length > 0 
+        ? `Stock restored for ${fulfilledOrders.length} fulfilled order(s)` 
+        : undefined
+    });
+  };
+
+  const toggleBatch = (batchId) => {
+    const newExpanded = new Set(expandedBatches);
+    if (newExpanded.has(batchId)) {
+      newExpanded.delete(batchId);
+    } else {
+      newExpanded.add(batchId);
+    }
+    setExpandedBatches(newExpanded);
+  };
+
+  const exportBatchCSV = (batch) => {
+    const batchOrders = orders.filter(o => o.import_batch_id === batch.id);
+    
+    const headers = ['Order ID', 'Order Date', 'Status', 'Revenue', 'Cost', 'Profit'];
+    const rows = batchOrders.map(o => [
+      o.amazon_order_id,
+      o.order_date,
+      o.status,
+      o.net_revenue?.toFixed(2) || '0.00',
+      o.total_cost?.toFixed(2) || '0.00',
+      o.profit_loss?.toFixed(2) || '0.00'
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => {
+        const str = String(cell);
+        return str.includes(',') ? `"${str}"` : str;
+      }).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders_batch_${batch.id}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const handleCSVUpload = async (file) => {
@@ -906,6 +979,27 @@ export default function Orders() {
   const allFilteredSelected = filteredOrders.length > 0 && 
     filteredOrders.every(o => selectedOrders.has(o.id));
 
+  // Group orders by batch
+  const groupedOrders = React.useMemo(() => {
+    const grouped = {
+      batched: {},
+      unbatched: []
+    };
+
+    orders.forEach(order => {
+      if (order.import_batch_id) {
+        if (!grouped.batched[order.import_batch_id]) {
+          grouped.batched[order.import_batch_id] = [];
+        }
+        grouped.batched[order.import_batch_id].push(order);
+      } else {
+        grouped.unbatched.push(order);
+      }
+    });
+
+    return grouped;
+  }, [orders]);
+
   const columns = [
     {
       key: 'select',
@@ -1023,10 +1117,245 @@ export default function Orders() {
 
       <Tabs defaultValue="list" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="list">Orders List</TabsTrigger>
+          <TabsTrigger value="batched">Batched View</TabsTrigger>
+          <TabsTrigger value="list">All Orders</TabsTrigger>
           <TabsTrigger value="import">Import CSV</TabsTrigger>
           <TabsTrigger value="batches">Batch History</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="batched" className="space-y-4">
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* Batches */}
+              {batches.map(batch => {
+                const batchOrders = groupedOrders.batched[batch.id] || [];
+                const statusCounts = batchOrders.reduce((acc, o) => {
+                  acc[o.status] = (acc[o.status] || 0) + 1;
+                  return acc;
+                }, {});
+                
+                const statusSummary = Object.entries(statusCounts)
+                  .map(([status, count]) => {
+                    const label = status === 'pending' ? 'Pending' :
+                                status === 'fulfilled' ? 'Fulfilled' :
+                                status === 'partially_returned' ? 'Partial Return' :
+                                status === 'fully_returned' ? 'Full Return' : status;
+                    return `${count} ${label}`;
+                  })
+                  .join(', ');
+
+                const totalRevenue = batchOrders.reduce((sum, o) => sum + (o.net_revenue || 0), 0);
+                const isExpanded = expandedBatches.has(batch.id);
+
+                return (
+                  <div key={batch.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    {/* Batch Header */}
+                    <div 
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-all duration-200"
+                      onClick={() => toggleBatch(batch.id)}
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-90' : 'rotate-0'}`} />
+                        <Package className="w-5 h-5 text-indigo-600" />
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-slate-900">{batch.batch_name || `Batch #${batch.id}`}</h3>
+                          <p className="text-sm text-slate-500">
+                            {format(new Date(batch.created_date), 'MMM d, yyyy h:mm a')} • {batchOrders.length} orders • {statusSummary} • ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => exportBatchCSV(batch)}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleDeleteBatchClick(batch)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Batch Items */}
+                    <div 
+                      className={`border-t border-slate-200 transition-all duration-300 ease-in-out ${
+                        isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
+                      }`}
+                    >
+                      {isExpanded && (
+                        <div>
+                          <table className="w-full">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Order ID</th>
+                                <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Date</th>
+                                <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Status</th>
+                                <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Revenue</th>
+                                <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Cost</th>
+                                <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Profit</th>
+                                <th className="w-32"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {batchOrders.map(order => (
+                                <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                  <td className="py-3 px-4 font-medium text-slate-900">{order.amazon_order_id}</td>
+                                  <td className="py-3 px-4 text-slate-600">
+                                    {order.order_date ? format(new Date(order.order_date), 'MMM d, yyyy') : '-'}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <StatusBadge status={order.status} />
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    {order.net_revenue ? `$${order.net_revenue.toFixed(2)}` : '-'}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    {order.total_cost ? `$${order.total_cost.toFixed(2)}` : '-'}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    {order.profit_loss !== null ? (
+                                      <span className={order.profit_loss >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                        ${order.profit_loss.toFixed(2)}
+                                      </span>
+                                    ) : '-'}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <Button variant="ghost" size="icon" onClick={() => setShowDetails(order)}>
+                                        <Eye className="w-4 h-4" />
+                                      </Button>
+                                      {order.status === 'pending' && (
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          onClick={() => handleFulfillOrder(order)}
+                                          className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                        >
+                                          <Play className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={() => handleDeleteOrder(order)}
+                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Unbatched Orders */}
+              {groupedOrders.unbatched.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between p-4 bg-slate-50">
+                    <div className="flex items-center gap-3">
+                      <Package className="w-5 h-5 text-slate-400" />
+                      <h3 className="font-semibold text-slate-700">Manual Entries ({groupedOrders.unbatched.length})</h3>
+                    </div>
+                  </div>
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-t border-slate-200">
+                      <tr>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Order ID</th>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Date</th>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Status</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Revenue</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Cost</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Profit</th>
+                        <th className="w-32"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupedOrders.unbatched.map(order => (
+                        <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="py-3 px-4 font-medium text-slate-900">{order.amazon_order_id}</td>
+                          <td className="py-3 px-4 text-slate-600">
+                            {order.order_date ? format(new Date(order.order_date), 'MMM d, yyyy') : '-'}
+                          </td>
+                          <td className="py-3 px-4">
+                            <StatusBadge status={order.status} />
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {order.net_revenue ? `$${order.net_revenue.toFixed(2)}` : '-'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {order.total_cost ? `$${order.total_cost.toFixed(2)}` : '-'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {order.profit_loss !== null ? (
+                              <span className={order.profit_loss >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                                ${order.profit_loss.toFixed(2)}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="ghost" size="icon" onClick={() => setShowDetails(order)}>
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              {order.status === 'pending' && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => handleFulfillOrder(order)}
+                                  className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                >
+                                  <Play className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => handleDeleteOrder(order)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {batches.length === 0 && groupedOrders.unbatched.length === 0 && (
+                <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
+                  <ShoppingCart className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-lg font-medium text-slate-900 mb-1">No orders yet</h3>
+                  <p className="text-slate-500 mb-4">Import orders or add them manually</p>
+                  <Button onClick={() => setShowForm(true)} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Order
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
 
         <TabsContent value="list" className="space-y-6">
           <div className="flex flex-wrap gap-4">
@@ -1433,9 +1762,31 @@ export default function Orders() {
       <AlertDialog open={!!deleteBatch} onOpenChange={() => setDeleteBatch(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Batch?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will delete all orders in this batch and reverse any stock movements. This action cannot be undone.
+            <AlertDialogTitle>Delete Entire Batch?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  This will delete all <strong>{orders.filter(o => o.import_batch_id === deleteBatch?.id).length}</strong> orders in this batch.
+                </p>
+                {deleteBatch && orders.filter(o => o.import_batch_id === deleteBatch.id && o.status === 'fulfilled').length > 0 && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm text-orange-800 font-semibold">
+                          Warning: This batch contains fulfilled orders
+                        </p>
+                        <p className="text-xs text-orange-700 mt-1">
+                          Deleting it will restore the stock for these items. This action cannot be undone.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <p className="text-sm text-slate-600">
+                  Proceed with deletion?
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
