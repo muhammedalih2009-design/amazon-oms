@@ -2139,12 +2139,25 @@ export default function Orders() {
       </AlertDialog>
 
       {/* Progress Modal */}
-      <Dialog open={showProgressModal} onOpenChange={() => {}}>
+      <Dialog open={showProgressModal} onOpenChange={(open) => {
+        if (!open && progressState.completed) {
+          handleCloseProgressModal();
+        }
+      }}>
         <DialogContent className="sm:max-w-2xl" hideClose={!progressState.completed}>
-          <DialogHeader>
+          <DialogHeader className="flex items-center justify-between">
             <DialogTitle>
               {progressState.completed ? 'Fulfillment Complete!' : 'Processing Bulk Fulfillment...'}
             </DialogTitle>
+            {progressState.completed && (
+              <button
+                onClick={handleCloseProgressModal}
+                className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </button>
+            )}
           </DialogHeader>
           <div className="space-y-4 py-4">
             {/* Live Counter */}
