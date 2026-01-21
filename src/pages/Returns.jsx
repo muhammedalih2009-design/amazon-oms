@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { RotateCcw, Search, Check, Package } from 'lucide-react';
+import { RotateCcw, Search, Check, Package, Undo2 } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 
 export default function Returns() {
@@ -29,6 +39,8 @@ export default function Returns() {
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [returnLines, setReturnLines] = useState([]);
+  const [selectedReturns, setSelectedReturns] = useState([]);
+  const [showUndoDialog, setShowUndoDialog] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -144,16 +156,150 @@ export default function Returns() {
     setReturnLines(newLines);
   };
 
+  const handleUndoReturn = async () => {
+    if (selectedReturns.length === 0) {
+      toast({ title: 'No returns selected', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      for (const movementId of selectedReturns) {
+        const movement = stockMovements.find(m => m.id === movementId);
+        if (!movement) continue;
+
+        // Find the order line
+        const orderLine = orderLines.find(l => l.id === movement.reference_id);
+        if (!orderLine) continue;
+
+        // Mark line as not returned
+        await base44.entities.OrderLine.update(orderLine.id, {
+          is_returned: false,
+          return_date: null
+        });
+
+        // Reverse stock change based on return condition
+        const returnCondition = movement.notes?.includes('Sound') ? 'sound' :
+                               movement.notes?.includes('Damaged') ? 'damaged' :
+                               movement.notes?.includes('Lost') ? 'lost' : 'sound';
+
+        if (returnCondition === 'sound') {
+          // Deduct from main stock
+          const stock = await base44.entities.CurrentStock.filter({ 
+            tenant_id: tenantId, 
+            sku_id: orderLine.sku_id 
+          });
+          
+          if (stock.length > 0) {
+            await base44.entities.CurrentStock.update(stock[0].id, {
+              quantity_available: (stock[0].quantity_available || 0) - movement.quantity
+            });
+          }
+        } else if (returnCondition === 'damaged') {
+          // Deduct from damaged stock (if you have that field in SKU entity)
+          const skus = await base44.entities.SKU.filter({ 
+            tenant_id: tenantId, 
+            id: orderLine.sku_id 
+          });
+          
+          if (skus.length > 0) {
+            const sku = skus[0];
+            await base44.entities.SKU.update(sku.id, {
+              damaged_stock: (sku.damaged_stock || 0) - movement.quantity
+            });
+          }
+        }
+        // If lost, no stock change needed
+
+        // Delete the stock movement record
+        await base44.entities.StockMovement.delete(movement.id);
+
+        // Update order status
+        const order = orders.find(o => o.id === orderLine.order_id);
+        if (order) {
+          const allLines = orderLines.filter(l => l.order_id === order.id);
+          const stillReturnedCount = allLines.filter(l => 
+            l.is_returned && l.id !== orderLine.id
+          ).length;
+          
+          let newStatus = 'fulfilled';
+          if (stillReturnedCount === allLines.length) {
+            newStatus = 'fully_returned';
+          } else if (stillReturnedCount > 0) {
+            newStatus = 'partially_returned';
+          }
+          
+          await base44.entities.Order.update(order.id, { status: newStatus });
+        }
+      }
+
+      toast({ 
+        title: 'Returns undone successfully',
+        description: `Reversed ${selectedReturns.length} return(s)` 
+      });
+      setSelectedReturns([]);
+      setShowUndoDialog(false);
+      loadData();
+    } catch (error) {
+      toast({
+        title: 'Error undoing returns',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const toggleSelectReturn = (movementId) => {
+    if (selectedReturns.includes(movementId)) {
+      setSelectedReturns(selectedReturns.filter(id => id !== movementId));
+    } else {
+      setSelectedReturns([...selectedReturns, movementId]);
+    }
+  };
+
+  const toggleSelectAllReturns = () => {
+    if (selectedReturns.length === returnHistory.length) {
+      setSelectedReturns([]);
+    } else {
+      setSelectedReturns(returnHistory.map(r => r.id));
+    }
+  };
+
   // Return history from stock movements
-  const returnHistory = stockMovements.map(m => ({
-    id: m.id,
-    date: m.movement_date || m.created_date,
-    sku_code: m.sku_code,
-    quantity: m.quantity,
-    notes: m.notes
-  }));
+  const returnHistory = stockMovements.map(m => {
+    const orderLine = orderLines.find(l => l.id === m.reference_id);
+    const order = orderLine ? orders.find(o => o.id === orderLine.order_id) : null;
+    
+    return {
+      id: m.id,
+      date: m.movement_date || m.created_date,
+      order_number: order?.amazon_order_id || '-',
+      sku_code: m.sku_code,
+      quantity: m.quantity,
+      notes: m.notes
+    };
+  });
 
   const historyColumns = [
+    {
+      key: 'select',
+      header: (
+        <Checkbox
+          checked={selectedReturns.length === returnHistory.length && returnHistory.length > 0}
+          onCheckedChange={toggleSelectAllReturns}
+        />
+      ),
+      render: (_, row) => (
+        <Checkbox
+          checked={selectedReturns.includes(row.id)}
+          onCheckedChange={() => toggleSelectReturn(row.id)}
+        />
+      )
+    },
+    {
+      key: 'order_number',
+      header: 'Order Number (رقم الأوردر)',
+      render: (val) => <span className="font-semibold text-indigo-600">{val}</span>
+    },
     {
       key: 'date',
       header: 'Date',
@@ -187,7 +333,19 @@ export default function Returns() {
           <h1 className="text-2xl font-bold text-slate-900">Returns</h1>
           <p className="text-slate-500">Process order returns and restore inventory</p>
         </div>
-        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+        <div className="flex gap-3">
+          {selectedReturns.length > 0 && (
+            <Button 
+              onClick={() => setShowUndoDialog(true)}
+              variant="outline"
+              className="border-orange-200 text-orange-600 hover:bg-orange-50"
+            >
+              <Undo2 className="w-4 h-4 mr-2" />
+              Undo Selected ({selectedReturns.length})
+            </Button>
+          )}
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+        </div>
       </div>
 
       {/* Search Section */}
@@ -222,6 +380,37 @@ export default function Returns() {
           emptyDescription="Process your first return by searching for an order above"
         />
       </div>
+
+      {/* Undo Confirmation Dialog */}
+      <AlertDialog open={showUndoDialog} onOpenChange={setShowUndoDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Undo Returns?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to undo <strong>{selectedReturns.length}</strong> return(s). 
+              This will reverse the stock updates and set the orders back to 'Fulfilled'. 
+              <br /><br />
+              Stock changes will be reversed based on the original return condition:
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li><strong>Sound (سليم):</strong> Deduct from main stock</li>
+                <li><strong>Damaged (هالك):</strong> Deduct from damaged stock</li>
+                <li><strong>Lost (مفقود):</strong> No stock change</li>
+              </ul>
+              <br />
+              Proceed?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleUndoReturn}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              Yes, Undo Return
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Return Dialog */}
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
