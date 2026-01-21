@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,6 +56,9 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showBulkFulfillConfirm, setShowBulkFulfillConfirm] = useState(false);
+  const [bulkFulfillValidation, setBulkFulfillValidation] = useState(null);
+  const [currentStock, setCurrentStock] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(null);
   const [editingOrder, setEditingOrder] = useState(false);
@@ -79,18 +82,20 @@ export default function Orders() {
     } else {
       setLoading(true);
     }
-    const [ordersData, linesData, skusData, batchesData, purchasesData] = await Promise.all([
+    const [ordersData, linesData, skusData, batchesData, purchasesData, stockData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
       base44.entities.ImportBatch.filter({ tenant_id: tenantId, batch_type: 'orders' }),
-      base44.entities.Purchase.filter({ tenant_id: tenantId })
+      base44.entities.Purchase.filter({ tenant_id: tenantId }),
+      base44.entities.CurrentStock.filter({ tenant_id: tenantId })
     ]);
     setOrders(ordersData);
     setOrderLines(linesData);
     setSkus(skusData);
     setBatches(batchesData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     setPurchases(purchasesData);
+    setCurrentStock(stockData);
     if (isRefresh) {
       setRefreshing(false);
     } else {
@@ -680,6 +685,97 @@ export default function Orders() {
     setSelectedOrders(newSelected);
   };
 
+  const handleBulkFulfillClick = () => {
+    const ordersToFulfill = orders.filter(o => selectedOrders.has(o.id) && o.status === 'pending');
+    
+    if (ordersToFulfill.length === 0) {
+      toast({ 
+        title: 'No pending orders selected', 
+        description: 'Only pending orders can be fulfilled',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    // Validate stock availability
+    const validOrders = [];
+    const failedOrders = [];
+    const stockIssues = [];
+
+    ordersToFulfill.forEach(order => {
+      const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+      let canFulfill = true;
+      const orderStockIssues = [];
+
+      lines.forEach(line => {
+        const stock = currentStock.find(s => s.sku_id === line.sku_id);
+        const available = stock?.quantity_available || 0;
+        
+        if (available < line.quantity) {
+          canFulfill = false;
+          orderStockIssues.push({
+            sku_code: line.sku_code,
+            required: line.quantity,
+            available: available,
+            shortage: line.quantity - available
+          });
+        }
+      });
+
+      if (canFulfill) {
+        validOrders.push(order);
+      } else {
+        failedOrders.push({
+          order_id: order.amazon_order_id,
+          issues: orderStockIssues
+        });
+      }
+    });
+
+    setBulkFulfillValidation({
+      validOrders,
+      failedOrders,
+      totalSelected: ordersToFulfill.length
+    });
+    setShowBulkFulfillConfirm(true);
+  };
+
+  const handleBulkFulfill = async () => {
+    if (!bulkFulfillValidation || bulkFulfillValidation.validOrders.length === 0) return;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const order of bulkFulfillValidation.validOrders) {
+      try {
+        await handleFulfillOrder(order);
+        successCount++;
+      } catch (error) {
+        failCount++;
+        console.error('Error fulfilling order:', order.amazon_order_id, error);
+      }
+    }
+
+    setShowBulkFulfillConfirm(false);
+    setBulkFulfillValidation(null);
+    setSelectedOrders(new Set());
+    setSelectAllFiltered(false);
+    loadData();
+
+    if (failCount === 0) {
+      toast({ 
+        title: `Successfully fulfilled ${successCount} orders`,
+        description: 'Stock levels have been updated'
+      });
+    } else {
+      toast({ 
+        title: `Fulfilled ${successCount} orders, ${failCount} failed`,
+        description: 'Please check the failed orders',
+        variant: 'destructive'
+      });
+    }
+  };
+
   const handleBulkDelete = async () => {
     const ordersToDelete = orders.filter(o => selectedOrders.has(o.id));
     
@@ -1005,6 +1101,14 @@ export default function Orders() {
                     Clear Selection
                   </Button>
                   <Button 
+                    size="sm"
+                    onClick={handleBulkFulfillClick}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <PackageCheck className="w-4 h-4 mr-2" />
+                    Fulfill Selected
+                  </Button>
+                  <Button 
                     variant="destructive" 
                     size="sm"
                     onClick={() => setShowBulkDeleteConfirm(true)}
@@ -1319,6 +1423,94 @@ export default function Orders() {
             <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
               Delete Orders
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Fulfill Confirmation */}
+      <AlertDialog open={showBulkFulfillConfirm} onOpenChange={setShowBulkFulfillConfirm}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fulfill Selected Orders</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                {bulkFulfillValidation && (
+                  <>
+                    <p className="text-slate-600">
+                      You are about to fulfill <strong>{bulkFulfillValidation.validOrders.length}</strong> order(s). 
+                      This will automatically deduct the required quantities from your main inventory.
+                    </p>
+
+                    {bulkFulfillValidation.validOrders.length > 0 && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                        <p className="text-sm font-semibold text-emerald-800 mb-1">
+                          ✓ {bulkFulfillValidation.validOrders.length} order(s) ready to fulfill
+                        </p>
+                        <p className="text-xs text-emerald-700">
+                          Sufficient stock available for all items
+                        </p>
+                      </div>
+                    )}
+
+                    {bulkFulfillValidation.failedOrders.length > 0 && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div className="flex items-start gap-2 mb-2">
+                          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-red-800 mb-2">
+                              ⚠ {bulkFulfillValidation.failedOrders.length} order(s) cannot be fulfilled due to insufficient stock:
+                            </p>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {bulkFulfillValidation.failedOrders.map((failed, idx) => (
+                                <div key={idx} className="bg-red-100 rounded p-2">
+                                  <p className="text-xs font-semibold text-red-900 mb-1">
+                                    Order: {failed.order_id}
+                                  </p>
+                                  <div className="space-y-1">
+                                    {failed.issues.map((issue, i) => (
+                                      <p key={i} className="text-xs text-red-700">
+                                        • <strong>{issue.sku_code}:</strong> Need {issue.required}, have {issue.available} 
+                                        <span className="text-red-900 font-semibold"> (short {issue.shortage})</span>
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-xs text-red-700 mt-2">
+                              These orders will be skipped.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {bulkFulfillValidation.validOrders.length === 0 && (
+                      <p className="text-sm text-red-600 font-semibold">
+                        No orders can be fulfilled. Please check stock availability.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowBulkFulfillConfirm(false);
+              setBulkFulfillValidation(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            {bulkFulfillValidation?.validOrders.length > 0 && (
+              <AlertDialogAction 
+                onClick={handleBulkFulfill}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                <PackageCheck className="w-4 h-4 mr-2" />
+                Confirm & Fulfill {bulkFulfillValidation.validOrders.length} Order(s)
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
