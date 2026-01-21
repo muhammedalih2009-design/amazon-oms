@@ -2,27 +2,31 @@ import React from 'react';
 import { Package, DollarSign, AlertTriangle, Boxes } from 'lucide-react';
 import { KPISkeleton } from '@/components/ui/LoadingSkeleton';
 
-export default function SKUKPICards({ skus, currentStock, loading, lowStockThreshold = 5 }) {
+export default function SKUKPICards({ skus, currentStock, loading, lowStockThreshold = 5, filteredSkus }) {
   if (loading) {
     return <KPISkeleton />;
   }
 
-  const totalSKUs = skus.length;
+  // Use filtered SKUs if provided, otherwise use all SKUs
+  const displaySkus = filteredSkus || skus;
 
-  const stockValue = skus.reduce((sum, sku) => {
+  const totalSKUs = displaySkus.length;
+
+  const stockValue = displaySkus.reduce((sum, sku) => {
     const stock = currentStock.find(s => s.sku_id === sku.id);
     const qty = stock?.quantity_available || 0;
     return sum + (qty * sku.cost_price);
   }, 0);
 
-  const lowStockItems = skus.filter(sku => {
+  const lowStockItems = displaySkus.filter(sku => {
     const stock = currentStock.find(s => s.sku_id === sku.id);
     const qty = stock?.quantity_available || 0;
     return qty <= lowStockThreshold && qty > 0;
   }).length;
 
-  const totalAvailableQty = currentStock.reduce((sum, stock) => {
-    return sum + (stock.quantity_available || 0);
+  const totalAvailableQty = displaySkus.reduce((sum, sku) => {
+    const stock = currentStock.find(s => s.sku_id === sku.id);
+    return sum + (stock?.quantity_available || 0);
   }, 0);
 
   const cards = [
