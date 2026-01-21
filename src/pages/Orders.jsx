@@ -447,10 +447,19 @@ export default function Orders() {
         }
       }
 
-      // Update order status
-      await base44.entities.Order.update(editFormData.id, {
+      // Update order status with financial reset for pending orders
+      const orderUpdate = {
         status: reversalContext.newStatus
-      });
+      };
+      
+      // Reset financial metrics for pending orders
+      if (reversalContext.newStatus === 'pending') {
+        orderUpdate.total_cost = 0;
+        orderUpdate.profit_loss = 0;
+        orderUpdate.profit_margin_percent = null;
+      }
+      
+      await base44.entities.Order.update(editFormData.id, orderUpdate);
 
       // Also update the edited form data lines
       for (const line of editFormData.lines) {
