@@ -873,10 +873,9 @@ export default function Orders() {
   ) => {
     let dbSuccessCount = 0;
     let dbFailCount = 0;
-    const failedOrderDetails = [];
     
     try {
-      // Update all order lines in batches
+      // Step 1: Update all order lines
       for (const lineUpdate of lineUpdates) {
         try {
           await base44.entities.OrderLine.update(lineUpdate.id, {
@@ -884,13 +883,11 @@ export default function Orders() {
             line_total_cost: lineUpdate.line_total_cost
           });
         } catch (error) {
-          const errorMsg = `Line update failed: ${error.message}`;
-          console.error('Failed to update order line:', lineUpdate.id, error);
-          throw new Error(errorMsg);
+          throw new Error(`Order line update failed: ${error.message}`);
         }
       }
 
-      // Update purchase quantities (FIFO) - must be sequential for accuracy
+      // Step 2: Update purchase quantities (FIFO)
       for (const order of ordersToProcess) {
         if (!orderUpdates.find(u => u.id === order.id)) continue;
         
@@ -916,9 +913,7 @@ export default function Orders() {
                 quantity_remaining: (purchase.quantity_remaining || 0) - take
               });
             } catch (error) {
-              const errorMsg = `Purchase update failed: ${error.message}`;
-              console.error('Failed to update purchase:', purchase.id, error);
-              throw new Error(errorMsg);
+              throw new Error(`Purchase quantity update failed: ${error.message}`);
             }
             
             remaining -= take;
@@ -926,9 +921,10 @@ export default function Orders() {
         }
       }
 
-      // Batch update current stock
+      // Step 3: Update current stock with fresh read
       for (const [skuId, qtyToDeduct] of stockUpdates) {
         try {
+          // CRITICAL: Fresh read before update to prevent stale data
           const stockRecords = await base44.entities.CurrentStock.filter({ 
             tenant_id: tenantId, 
             sku_id: skuId 
@@ -936,60 +932,72 @@ export default function Orders() {
           
           if (stockRecords.length > 0) {
             const currentQty = stockRecords[0].quantity_available || 0;
+            const newQty = currentQty - qtyToDeduct;
+            
+            if (newQty < 0) {
+              throw new Error(`Insufficient stock: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
+            }
+            
             await base44.entities.CurrentStock.update(stockRecords[0].id, {
-              quantity_available: currentQty - qtyToDeduct
+              quantity_available: newQty
             });
+          } else {
+            throw new Error(`Stock record not found for SKU ${skuId}`);
           }
         } catch (error) {
-          const errorMsg = `Stock update failed: ${error.message}`;
-          console.error('Failed to update stock for SKU:', skuId, error);
-          throw new Error(errorMsg);
+          throw new Error(`Stock update failed: ${error.message}`);
         }
       }
 
-      // Batch create stock movements
+      // Step 4: Create stock movements
       const BATCH_SIZE = 400;
       for (let i = 0; i < allStockMovements.length; i += BATCH_SIZE) {
         const batch = allStockMovements.slice(i, i + BATCH_SIZE);
         try {
           await base44.entities.StockMovement.bulkCreate(batch);
         } catch (error) {
-          const errorMsg = `Stock movement creation failed: ${error.message}`;
-          console.error('Failed to create stock movements batch:', error);
-          throw new Error(errorMsg);
+          throw new Error(`Stock movement creation failed: ${error.message}`);
         }
       }
 
-      // Update all orders - CRITICAL: Only after all other operations succeed
+      // Step 5: Update orders ONE BY ONE with verification
       for (const orderUpdate of orderUpdates) {
         const order = ordersToProcess.find(o => o.id === orderUpdate.id);
         try {
+          // Update the order
           await base44.entities.Order.update(orderUpdate.id, {
             status: orderUpdate.status,
             total_cost: orderUpdate.total_cost,
             profit_loss: orderUpdate.profit_loss,
             profit_margin_percent: orderUpdate.profit_margin_percent
           });
-          dbSuccessCount++;
           
-          // Update progress log with success
-          setProgressState(prev => ({
-            ...prev,
-            successCount: dbSuccessCount,
-            failCount: dbFailCount,
-            log: prev.log.map(entry => 
-              entry.orderId === order?.amazon_order_id 
-                ? { ...entry, success: true, error: '' }
-                : entry
-            )
-          }));
+          // CRITICAL: Verify the update by reading it back from DB
+          const verifyRecords = await base44.entities.Order.filter({ id: orderUpdate.id });
+          const updatedOrder = verifyRecords[0];
+          
+          if (updatedOrder && updatedOrder.status === 'fulfilled') {
+            // SUCCESS: Database confirms the status is now 'fulfilled'
+            dbSuccessCount++;
+            
+            setProgressState(prev => ({
+              ...prev,
+              successCount: dbSuccessCount,
+              failCount: dbFailCount,
+              log: prev.log.map(entry => 
+                entry.orderId === order?.amazon_order_id 
+                  ? { ...entry, success: true, error: '' }
+                  : entry
+              )
+            }));
+          } else {
+            throw new Error(`Verification failed: Order status is ${updatedOrder?.status}, not 'fulfilled'`);
+          }
         } catch (error) {
           dbFailCount++;
-          const errorMsg = `Database update failed: ${error.message}`;
-          console.error('Failed to update order:', orderUpdate.id, error);
-          failedOrderDetails.push({ orderId: order?.amazon_order_id, error: errorMsg });
+          const errorMsg = `Failed to fulfill: ${error.message}`;
+          console.error('Order fulfillment failed:', order?.amazon_order_id, error);
           
-          // Update progress log with failure
           setProgressState(prev => ({
             ...prev,
             successCount: dbSuccessCount,
@@ -1009,12 +1017,10 @@ export default function Orders() {
         description: error.message,
         variant: 'destructive'
       });
-      
-      // Mark all remaining orders as failed
       dbFailCount = orderUpdates.length - dbSuccessCount;
     }
     
-    return { dbSuccessCount, dbFailCount, failedOrderDetails };
+    return { dbSuccessCount, dbFailCount };
   };
 
   const handleBulkFulfill = async () => {
@@ -1143,7 +1149,7 @@ export default function Orders() {
     }
 
     // Batch database operations with proper error handling
-    const { dbSuccessCount, dbFailCount, failedOrderDetails } = await performDatabaseOperations(
+    const { dbSuccessCount, dbFailCount } = await performDatabaseOperations(
       lineUpdates,
       ordersToProcess,
       orderUpdates,
@@ -1162,8 +1168,9 @@ export default function Orders() {
       completed: true
     }));
 
-    // Refresh data
-    await loadData();
+    // CRITICAL: Force complete data refresh from server to verify all changes persisted
+    console.log(`Fulfillment complete: ${dbSuccessCount} verified successful, ${dbFailCount} failed. Refreshing all data...`);
+    await loadData(true); // Force refresh with true flag
 
     // Keep modal open briefly to show completion
     setTimeout(() => {
