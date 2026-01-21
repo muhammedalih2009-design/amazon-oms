@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
+import { useDebounce } from '@/components/hooks/useDebounce';
 import { 
   Package, 
   Plus, 
@@ -56,6 +57,7 @@ export default function SKUsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [stockFilter, setStockFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   
@@ -650,9 +652,9 @@ export default function SKUsPage() {
 
   const filteredSkus = skus
     .filter(sku => {
-      // Text search
-      const matchesSearch = sku.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
-        sku.product_name?.toLowerCase().includes(search.toLowerCase());
+      // Text search with debounced value
+      const matchesSearch = sku.sku_code?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        sku.product_name?.toLowerCase().includes(debouncedSearch.toLowerCase());
       
       // Stock filter
       const stock = currentStock.find(s => s.sku_id === sku.id);
