@@ -39,6 +39,7 @@ import PaywallBanner from '@/components/ui/PaywallBanner';
 import UploadRequirementsBanner from '@/components/skus/UploadRequirementsBanner';
 import SearchableSKUSelect from '@/components/orders/SearchableSKUSelect';
 import ItemConditionReversalModal from '@/components/orders/ItemConditionReversalModal';
+import { BulkFulfillmentProcessor } from '@/components/orders/BulkFulfillmentProcessor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -915,7 +916,7 @@ export default function Orders() {
     setSelectedOrders(newSelected);
   };
 
-  const handleBulkFulfillClick = () => {
+  const handleBulkFulfillClick = async () => {
     const ordersToFulfill = orders.filter(o => selectedOrders.has(o.id) && o.status === 'pending');
     
     if (ordersToFulfill.length === 0) {
@@ -927,211 +928,73 @@ export default function Orders() {
       return;
     }
 
-    // Validate stock availability using CurrentStock (source of truth)
-    const validOrders = [];
-    const failedOrders = [];
+    // Pre-fulfillment bulk validation
+    const processor = new BulkFulfillmentProcessor(base44, tenantId);
+    const validation = await processor.validateBulkStock(
+      ordersToFulfill,
+      orderLines,
+      purchases,
+      currentStock,
+      skus
+    );
 
-    ordersToFulfill.forEach(order => {
-      const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
-      let canFulfill = true;
-      const orderStockIssues = [];
+    if (!validation.valid && validation.shortages.length > 0) {
+      // Show shortages but allow partial fulfillment
+      const validOrders = [];
+      const failedOrders = [];
 
-      lines.forEach(line => {
-        // Normalize SKU matching
-        const stock = currentStock.find(s => 
-          s.sku_id === line.sku_id || 
-          s.sku_code?.trim().toLowerCase() === line.sku_code?.trim().toLowerCase()
-        );
-        const available = stock?.quantity_available || 0;
-        
-        if (available < line.quantity) {
-          canFulfill = false;
-          orderStockIssues.push({
-            sku_code: line.sku_code,
-            required: line.quantity,
-            available: available,
-            shortage: line.quantity - available
+      ordersToFulfill.forEach(order => {
+        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+        let canFulfill = true;
+        const orderStockIssues = [];
+
+        lines.forEach(line => {
+          const stock = currentStock.find(s => 
+            s.sku_id === line.sku_id || 
+            s.sku_code?.trim().toLowerCase() === line.sku_code?.trim().toLowerCase()
+          );
+          const available = stock?.quantity_available || 0;
+          
+          if (available < line.quantity) {
+            canFulfill = false;
+            orderStockIssues.push({
+              sku_code: line.sku_code,
+              required: line.quantity,
+              available: available,
+              shortage: line.quantity - available
+            });
+          }
+        });
+
+        if (canFulfill) {
+          validOrders.push(order);
+        } else {
+          failedOrders.push({
+            order_id: order.amazon_order_id,
+            issues: orderStockIssues
           });
         }
       });
 
-      if (canFulfill) {
-        validOrders.push(order);
-      } else {
-        failedOrders.push({
-          order_id: order.amazon_order_id,
-          issues: orderStockIssues
-        });
-      }
-    });
-
-    setBulkFulfillValidation({
-      validOrders,
-      failedOrders,
-      totalSelected: ordersToFulfill.length
-    });
+      setBulkFulfillValidation({
+        validOrders,
+        failedOrders,
+        totalSelected: ordersToFulfill.length,
+        bulkShortages: validation.shortages
+      });
+    } else {
+      setBulkFulfillValidation({
+        validOrders: ordersToFulfill,
+        failedOrders: [],
+        totalSelected: ordersToFulfill.length,
+        bulkShortages: []
+      });
+    }
+    
     setShowBulkFulfillConfirm(true);
   };
 
-  const performDatabaseOperations = async (
-    lineUpdates,
-    ordersToProcess,
-    orderUpdates,
-    stockUpdates,
-    allStockMovements,
-    tenantId
-  ) => {
-    let dbSuccessCount = 0;
-    let dbFailCount = 0;
-    
-    try {
-      // Step 1: Update all order lines
-      for (const lineUpdate of lineUpdates) {
-        try {
-          await base44.entities.OrderLine.update(lineUpdate.id, {
-            unit_cost: lineUpdate.unit_cost,
-            line_total_cost: lineUpdate.line_total_cost
-          });
-        } catch (error) {
-          throw new Error(`Order line update failed: ${error.message}`);
-        }
-      }
 
-      // Step 2: Update purchase quantities (FIFO)
-      for (const order of ordersToProcess) {
-        if (!orderUpdates.find(u => u.id === order.id)) continue;
-        
-        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
-        for (const line of lines) {
-          const skuPurchases = purchases
-            .filter(p => {
-              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
-              const lineSkuCode = line.sku_code?.trim().toLowerCase();
-              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
-                     (p.quantity_remaining || 0) > 0 &&
-                     p.tenant_id === tenantId;
-            })
-            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
-
-          let remaining = line.quantity;
-          for (const purchase of skuPurchases) {
-            if (remaining <= 0) break;
-            const take = Math.min(remaining, purchase.quantity_remaining || 0);
-            
-            try {
-              await base44.entities.Purchase.update(purchase.id, {
-                quantity_remaining: (purchase.quantity_remaining || 0) - take
-              });
-            } catch (error) {
-              throw new Error(`Purchase quantity update failed: ${error.message}`);
-            }
-            
-            remaining -= take;
-          }
-        }
-      }
-
-      // Step 3: Update current stock with fresh read
-      for (const [skuId, qtyToDeduct] of stockUpdates) {
-        try {
-          // CRITICAL: Fresh read before update to prevent stale data
-          const stockRecords = await base44.entities.CurrentStock.filter({ 
-            tenant_id: tenantId, 
-            sku_id: skuId 
-          });
-          
-          if (stockRecords.length > 0) {
-            const currentQty = stockRecords[0].quantity_available || 0;
-            const newQty = currentQty - qtyToDeduct;
-            
-            if (newQty < 0) {
-              throw new Error(`Insufficient stock: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
-            }
-            
-            await base44.entities.CurrentStock.update(stockRecords[0].id, {
-              quantity_available: newQty
-            });
-          } else {
-            throw new Error(`Stock record not found for SKU ${skuId}`);
-          }
-        } catch (error) {
-          throw new Error(`Stock update failed: ${error.message}`);
-        }
-      }
-
-      // Step 4: Create stock movements
-      const BATCH_SIZE = 400;
-      for (let i = 0; i < allStockMovements.length; i += BATCH_SIZE) {
-        const batch = allStockMovements.slice(i, i + BATCH_SIZE);
-        try {
-          await base44.entities.StockMovement.bulkCreate(batch);
-        } catch (error) {
-          throw new Error(`Stock movement creation failed: ${error.message}`);
-        }
-      }
-
-      // Step 5: Update orders ONE BY ONE with verification
-      for (const orderUpdate of orderUpdates) {
-        const order = ordersToProcess.find(o => o.id === orderUpdate.id);
-        try {
-          // Update the order
-          await base44.entities.Order.update(orderUpdate.id, {
-            status: orderUpdate.status,
-            total_cost: orderUpdate.total_cost,
-            profit_loss: orderUpdate.profit_loss,
-            profit_margin_percent: orderUpdate.profit_margin_percent
-          });
-          
-          // CRITICAL: Verify the update by reading it back from DB
-          const verifyRecords = await base44.entities.Order.filter({ id: orderUpdate.id });
-          const updatedOrder = verifyRecords[0];
-          
-          if (updatedOrder && updatedOrder.status === 'fulfilled') {
-            // SUCCESS: Database confirms the status is now 'fulfilled'
-            dbSuccessCount++;
-            
-            setProgressState(prev => ({
-              ...prev,
-              successCount: dbSuccessCount,
-              failCount: dbFailCount,
-              log: prev.log.map(entry => 
-                entry.orderId === order?.amazon_order_id 
-                  ? { ...entry, success: true, error: '' }
-                  : entry
-              )
-            }));
-          } else {
-            throw new Error(`Verification failed: Order status is ${updatedOrder?.status}, not 'fulfilled'`);
-          }
-        } catch (error) {
-          dbFailCount++;
-          const errorMsg = `Failed to fulfill: ${error.message}`;
-          console.error('Order fulfillment failed:', order?.amazon_order_id, error);
-          
-          setProgressState(prev => ({
-            ...prev,
-            successCount: dbSuccessCount,
-            failCount: dbFailCount,
-            log: prev.log.map(entry => 
-              entry.orderId === order?.amazon_order_id 
-                ? { ...entry, success: false, error: errorMsg }
-                : entry
-            )
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Critical error in batch operations:', error);
-      toast({
-        title: 'Batch operation failed',
-        description: error.message,
-        variant: 'destructive'
-      });
-      dbFailCount = orderUpdates.length - dbSuccessCount;
-    }
-    
-    return { dbSuccessCount, dbFailCount };
-  };
 
   const handleBulkFulfill = async () => {
     if (!bulkFulfillValidation || bulkFulfillValidation.validOrders.length === 0) return;
@@ -1150,139 +1013,60 @@ export default function Orders() {
       log: []
     });
 
-    // Collect all stock movements and stock updates for batch processing
-    const allStockMovements = [];
-    const stockUpdates = new Map(); // sku_id -> quantity to deduct
-    const orderUpdates = [];
-    const lineUpdates = [];
+    // Initialize processor
+    const processor = new BulkFulfillmentProcessor(base44, tenantId);
 
-    let preparedCount = 0;
-    let prepFailCount = 0;
-
-    for (let i = 0; i < ordersToProcess.length; i++) {
-      const order = ordersToProcess[i];
-      let orderSuccess = false;
-      let orderError = '';
-      
-      try {
-        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
-        let totalCost = 0;
-
-        // Calculate costs and prepare updates
-        for (const line of lines) {
-          const skuPurchases = purchases
-            .filter(p => {
-              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
-              const lineSkuCode = line.sku_code?.trim().toLowerCase();
-              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
-                     (p.quantity_remaining || 0) > 0;
-            })
-            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
-
-          let remaining = line.quantity;
-          let lineCost = 0;
-
-          for (const purchase of skuPurchases) {
-            if (remaining <= 0) break;
-            const take = Math.min(remaining, purchase.quantity_remaining || 0);
-            lineCost += take * purchase.cost_per_unit;
-            remaining -= take;
-          }
-
-          if (remaining > 0) {
-            const sku = skus.find(s => s.id === line.sku_id);
-            lineCost += remaining * (sku?.cost_price || 0);
-          }
-
-          totalCost += lineCost;
-
-          // Store line update
-          lineUpdates.push({
-            id: line.id,
-            unit_cost: lineCost / line.quantity,
-            line_total_cost: lineCost
-          });
-
-          // Accumulate stock deductions
-          const currentDeduction = stockUpdates.get(line.sku_id) || 0;
-          stockUpdates.set(line.sku_id, currentDeduction + line.quantity);
-
-          // Prepare stock movement
-          allStockMovements.push({
-            tenant_id: tenantId,
-            sku_id: line.sku_id,
-            sku_code: line.sku_code,
-            movement_type: 'order_fulfillment',
-            quantity: -line.quantity,
-            reference_type: 'order_line',
-            reference_id: line.id,
-            movement_date: format(new Date(), 'yyyy-MM-dd')
-          });
-        }
-
-        // Store order update
-        orderUpdates.push({
-          id: order.id,
-          status: 'fulfilled',
-          total_cost: totalCost,
-          profit_loss: (order.net_revenue || 0) - totalCost,
-          profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
-        });
-
-        orderSuccess = true;
-        preparedCount++;
-      } catch (error) {
-        orderSuccess = false;
-        orderError = error.message || 'Unknown error';
-        prepFailCount++;
-        console.error('Error preparing order:', order.amazon_order_id, error);
-      }
-
-      // Update progress with functional state update
-      setProgressState(prev => ({
-        ...prev,
-        current: i + 1,
-        successCount: preparedCount,
-        failCount: prepFailCount,
-        log: [
-          {
-            orderId: order.amazon_order_id,
-            success: orderSuccess,
-            error: orderError
-          },
-          ...prev.log
-        ].slice(0, 50)
-      }));
-
-      // Small delay to ensure UI updates smoothly
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    // Batch database operations with proper error handling
-    const { dbSuccessCount, dbFailCount } = await performDatabaseOperations(
-      lineUpdates,
+    // Process in chunks with real-time progress updates
+    const results = await processor.processOrdersInChunks(
       ordersToProcess,
-      orderUpdates,
-      stockUpdates,
-      allStockMovements,
-      tenantId
+      orderLines,
+      purchases,
+      currentStock,
+      skus,
+      format,
+      (processed, allResults) => {
+        const successCount = allResults.filter(r => r.success).length;
+        const failCount = allResults.filter(r => !r.success).length;
+
+        setProgressState(prev => ({
+          ...prev,
+          current: processed,
+          successCount,
+          failCount,
+          log: allResults.slice(-50).reverse().map(r => ({
+            orderId: r.orderId,
+            success: r.success,
+            error: r.error || '',
+            details: r.details || ''
+          }))
+        }));
+      }
     );
 
-    // Mark as completed with actual DB results
+    // Final update
+    const finalSuccessCount = results.filter(r => r.success).length;
+    const finalFailCount = results.filter(r => !r.success).length;
+
     setProgressState(prev => ({
       ...prev,
       current: ordersToProcess.length,
       total: ordersToProcess.length,
-      successCount: dbSuccessCount,
-      failCount: dbFailCount,
-      completed: true
+      successCount: finalSuccessCount,
+      failCount: finalFailCount,
+      completed: true,
+      log: results.slice(-50).reverse().map(r => ({
+        orderId: r.orderId,
+        success: r.success,
+        error: r.error || '',
+        details: r.details || ''
+      }))
     }));
 
-    // CRITICAL: Force complete data refresh from server to verify all changes persisted
-    console.log(`Fulfillment complete: ${dbSuccessCount} verified successful, ${dbFailCount} failed. Refreshing all data...`);
-    await loadData(true); // Force refresh with true flag
+    // Force complete data refresh
+    console.log(`Fulfillment complete: ${finalSuccessCount} successful, ${finalFailCount} failed. Refreshing data...`);
+    await loadData(true);
 
-    // Keep modal open briefly to show completion
+    // Clear selections
     setTimeout(() => {
       setBulkFulfillValidation(null);
       setSelectedOrders(new Set());
@@ -2331,10 +2115,16 @@ export default function Orders() {
                           <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
                         )}
                         <div className="flex-1 min-w-0">
-                          <span className="font-medium">Order {entry.orderId}</span>
-                          <span className="text-slate-600 ml-2">
-                            {entry.success ? 'Success' : `Failed${entry.error ? `: ${entry.error}` : ''}`}
-                          </span>
+                         <span className="font-medium">Order {entry.orderId}</span>
+                         {entry.success ? (
+                           <span className="text-emerald-600 ml-2 text-xs block">
+                             {entry.details || 'Success'}
+                           </span>
+                         ) : (
+                           <span className="text-red-600 ml-2 text-xs block">
+                             {entry.error || 'Failed'}
+                           </span>
+                         )}
                         </div>
                       </div>
                     ))}
@@ -2411,37 +2201,60 @@ export default function Orders() {
                       </div>
                     )}
 
+                    {bulkFulfillValidation.bulkShortages && bulkFulfillValidation.bulkShortages.length > 0 && (
+                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                       <div className="flex items-start gap-2">
+                         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                         <div className="flex-1">
+                           <p className="text-sm font-semibold text-amber-800 mb-2">
+                             ⚠ Pre-Fulfillment Warning: Insufficient Stock Detected
+                           </p>
+                           <div className="space-y-1 max-h-32 overflow-y-auto">
+                             {bulkFulfillValidation.bulkShortages.map((shortage, idx) => (
+                               <p key={idx} className="text-xs text-amber-700">
+                                 • <strong>{shortage.sku_code}</strong> ({shortage.product_name}): Need {shortage.required}, Have {shortage.available}, Short {shortage.shortage}
+                               </p>
+                             ))}
+                           </div>
+                           <p className="text-xs text-amber-700 mt-2 font-medium">
+                             Orders requiring these SKUs will fail. Proceeding with available stock...
+                           </p>
+                         </div>
+                       </div>
+                     </div>
+                    )}
+
                     {bulkFulfillValidation.failedOrders.length > 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                        <div className="flex items-start gap-2 mb-2">
-                          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-red-800 mb-2">
-                              ⚠ {bulkFulfillValidation.failedOrders.length} order(s) cannot be fulfilled due to insufficient stock:
-                            </p>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                              {bulkFulfillValidation.failedOrders.map((failed, idx) => (
-                                <div key={idx} className="bg-red-100 rounded p-2">
-                                  <p className="text-xs font-semibold text-red-900 mb-1">
-                                    Order: {failed.order_id}
-                                  </p>
-                                  <div className="space-y-1">
-                                    {failed.issues.map((issue, i) => (
-                                      <p key={i} className="text-xs text-red-700">
-                                        • <strong>{issue.sku_code}:</strong> Need {issue.required}, have {issue.available} 
-                                        <span className="text-red-900 font-semibold"> (short {issue.shortage})</span>
-                                      </p>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <p className="text-xs text-red-700 mt-2">
-                              These orders will be skipped.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                     <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                       <div className="flex items-start gap-2 mb-2">
+                         <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                         <div className="flex-1">
+                           <p className="text-sm font-semibold text-red-800 mb-2">
+                             ⚠ {bulkFulfillValidation.failedOrders.length} order(s) cannot be fulfilled due to insufficient stock:
+                           </p>
+                           <div className="space-y-2 max-h-48 overflow-y-auto">
+                             {bulkFulfillValidation.failedOrders.map((failed, idx) => (
+                               <div key={idx} className="bg-red-100 rounded p-2">
+                                 <p className="text-xs font-semibold text-red-900 mb-1">
+                                   Order: {failed.order_id}
+                                 </p>
+                                 <div className="space-y-1">
+                                   {failed.issues.map((issue, i) => (
+                                     <p key={i} className="text-xs text-red-700">
+                                       • <strong>{issue.sku_code}:</strong> Need {issue.required}, have {issue.available} 
+                                       <span className="text-red-900 font-semibold"> (short {issue.shortage})</span>
+                                     </p>
+                                   ))}
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                           <p className="text-xs text-red-700 mt-2">
+                             These orders will be skipped.
+                           </p>
+                         </div>
+                       </div>
+                     </div>
                     )}
 
                     {bulkFulfillValidation.validOrders.length === 0 && (
