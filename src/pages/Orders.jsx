@@ -37,6 +37,7 @@ import BatchHistory from '@/components/shared/BatchHistory';
 import StatusBadge from '@/components/ui/StatusBadge';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import UploadRequirementsBanner from '@/components/skus/UploadRequirementsBanner';
+import SearchableSKUSelect from '@/components/orders/SearchableSKUSelect';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -1852,21 +1853,15 @@ export default function Orders() {
               </div>
               {formData.lines.map((line, i) => (
                 <div key={i} className="flex gap-2">
-                  <Select
-                    value={line.sku_id}
-                    onValueChange={(val) => updateLine(i, 'sku_id', val)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Select SKU" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {skus.map(s => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.sku_code} - {s.product_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex-1">
+                    <SearchableSKUSelect
+                      skus={skus}
+                      currentStock={currentStock}
+                      value={line.sku_id}
+                      onChange={(val) => updateLine(i, 'sku_id', val)}
+                      placeholder="Search SKU or product name..."
+                    />
+                  </div>
                   <Input
                     type="number"
                     min="1"
@@ -1988,21 +1983,15 @@ export default function Orders() {
                     </div>
                     {editFormData.lines.map((line, i) => (
                       <div key={i} className="flex gap-2">
-                        <Select
-                          value={line.sku_id}
-                          onValueChange={(val) => updateEditLine(i, 'sku_id', val)}
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Select SKU" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {skus.map(s => (
-                              <SelectItem key={s.id} value={s.id}>
-                                {s.sku_code} - {s.product_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex-1">
+                          <SearchableSKUSelect
+                            skus={skus}
+                            currentStock={currentStock}
+                            value={line.sku_id}
+                            onChange={(val) => updateEditLine(i, 'sku_id', val)}
+                            placeholder="Search SKU or product name..."
+                          />
+                        </div>
                         <Input
                           type="number"
                           min="1"
