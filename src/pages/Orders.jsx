@@ -871,7 +871,9 @@ export default function Orders() {
     allStockMovements,
     tenantId
   ) => {
-    let actualSuccessCount = 0;
+    let dbSuccessCount = 0;
+    let dbFailCount = 0;
+    const failedOrderDetails = [];
     
     try {
       // Update all order lines in batches
@@ -882,8 +884,9 @@ export default function Orders() {
             line_total_cost: lineUpdate.line_total_cost
           });
         } catch (error) {
+          const errorMsg = `Line update failed: ${error.message}`;
           console.error('Failed to update order line:', lineUpdate.id, error);
-          throw error;
+          throw new Error(errorMsg);
         }
       }
 
@@ -913,8 +916,9 @@ export default function Orders() {
                 quantity_remaining: (purchase.quantity_remaining || 0) - take
               });
             } catch (error) {
+              const errorMsg = `Purchase update failed: ${error.message}`;
               console.error('Failed to update purchase:', purchase.id, error);
-              throw error;
+              throw new Error(errorMsg);
             }
             
             remaining -= take;
@@ -937,8 +941,9 @@ export default function Orders() {
             });
           }
         } catch (error) {
+          const errorMsg = `Stock update failed: ${error.message}`;
           console.error('Failed to update stock for SKU:', skuId, error);
-          throw error;
+          throw new Error(errorMsg);
         }
       }
 
@@ -949,13 +954,15 @@ export default function Orders() {
         try {
           await base44.entities.StockMovement.bulkCreate(batch);
         } catch (error) {
+          const errorMsg = `Stock movement creation failed: ${error.message}`;
           console.error('Failed to create stock movements batch:', error);
-          throw error;
+          throw new Error(errorMsg);
         }
       }
 
       // Update all orders - CRITICAL: Only after all other operations succeed
       for (const orderUpdate of orderUpdates) {
+        const order = ordersToProcess.find(o => o.id === orderUpdate.id);
         try {
           await base44.entities.Order.update(orderUpdate.id, {
             status: orderUpdate.status,
@@ -963,10 +970,36 @@ export default function Orders() {
             profit_loss: orderUpdate.profit_loss,
             profit_margin_percent: orderUpdate.profit_margin_percent
           });
-          actualSuccessCount++; // Only increment on successful DB update
+          dbSuccessCount++;
+          
+          // Update progress log with success
+          setProgressState(prev => ({
+            ...prev,
+            successCount: dbSuccessCount,
+            failCount: dbFailCount,
+            log: prev.log.map(entry => 
+              entry.orderId === order?.amazon_order_id 
+                ? { ...entry, success: true, error: '' }
+                : entry
+            )
+          }));
         } catch (error) {
+          dbFailCount++;
+          const errorMsg = `Database update failed: ${error.message}`;
           console.error('Failed to update order:', orderUpdate.id, error);
-          // Continue with other orders even if one fails
+          failedOrderDetails.push({ orderId: order?.amazon_order_id, error: errorMsg });
+          
+          // Update progress log with failure
+          setProgressState(prev => ({
+            ...prev,
+            successCount: dbSuccessCount,
+            failCount: dbFailCount,
+            log: prev.log.map(entry => 
+              entry.orderId === order?.amazon_order_id 
+                ? { ...entry, success: false, error: errorMsg }
+                : entry
+            )
+          }));
         }
       }
     } catch (error) {
@@ -976,9 +1009,12 @@ export default function Orders() {
         description: error.message,
         variant: 'destructive'
       });
+      
+      // Mark all remaining orders as failed
+      dbFailCount = orderUpdates.length - dbSuccessCount;
     }
     
-    return actualSuccessCount;
+    return { dbSuccessCount, dbFailCount, failedOrderDetails };
   };
 
   const handleBulkFulfill = async () => {
@@ -1003,6 +1039,9 @@ export default function Orders() {
     const stockUpdates = new Map(); // sku_id -> quantity to deduct
     const orderUpdates = [];
     const lineUpdates = [];
+
+    let preparedCount = 0;
+    let prepFailCount = 0;
 
     for (let i = 0; i < ordersToProcess.length; i++) {
       const order = ordersToProcess[i];
@@ -1074,20 +1113,21 @@ export default function Orders() {
           profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
         });
 
-        // Don't increment success here - will be done after DB operations
+        orderSuccess = true;
+        preparedCount++;
       } catch (error) {
         orderSuccess = false;
         orderError = error.message || 'Unknown error';
-        console.error('Error processing order:', order.amazon_order_id, error);
+        prepFailCount++;
+        console.error('Error preparing order:', order.amazon_order_id, error);
       }
 
-      // Update progress after each order processed with log entry
+      // Update progress with functional state update
       setProgressState(prev => ({
+        ...prev,
         current: i + 1,
-        total: ordersToProcess.length,
-        successCount: 0, // Will be updated after DB operations
-        failCount: 0,
-        completed: false,
+        successCount: preparedCount,
+        failCount: prepFailCount,
         log: [
           {
             orderId: order.amazon_order_id,
@@ -1103,7 +1143,7 @@ export default function Orders() {
     }
 
     // Batch database operations with proper error handling
-    const actualSuccessCount = await performDatabaseOperations(
+    const { dbSuccessCount, dbFailCount, failedOrderDetails } = await performDatabaseOperations(
       lineUpdates,
       ordersToProcess,
       orderUpdates,
@@ -1112,13 +1152,13 @@ export default function Orders() {
       tenantId
     );
 
-    // Mark as completed with actual results
+    // Mark as completed with actual DB results
     setProgressState(prev => ({
       ...prev,
       current: ordersToProcess.length,
       total: ordersToProcess.length,
-      successCount: actualSuccessCount,
-      failCount: ordersToProcess.length - actualSuccessCount,
+      successCount: dbSuccessCount,
+      failCount: dbFailCount,
       completed: true
     }));
 
