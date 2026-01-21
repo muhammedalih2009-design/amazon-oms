@@ -450,20 +450,14 @@ export default function SKUsPage() {
         .map(skuId => currentStock.find(s => s.sku_id === skuId))
         .filter(stock => stock !== undefined);
 
-      // Update all in parallel batches of 50 to avoid rate limits
-      const BATCH_SIZE = 50;
+      // Update sequentially to avoid rate limits
       let successCount = 0;
       
-      for (let i = 0; i < stocksToUpdate.length; i += BATCH_SIZE) {
-        const batch = stocksToUpdate.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(stock => 
-            base44.entities.CurrentStock.update(stock.id, {
-              quantity_available: 0
-            })
-          )
-        );
-        successCount += batch.length;
+      for (const stock of stocksToUpdate) {
+        await base44.entities.CurrentStock.update(stock.id, {
+          quantity_available: 0
+        });
+        successCount++;
       }
 
       toast({
