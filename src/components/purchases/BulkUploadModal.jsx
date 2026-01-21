@@ -98,7 +98,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
 
           const quantity = parseFloat(row.quantity);
           const unitPrice = parseFloat(row.unit_price);
-          const totalCost = quantity * unitPrice;
+          const lineTotalCost = quantity * unitPrice;
 
           // Handle supplier
           let supplierId = null;
@@ -133,7 +133,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
             sku_id: sku.id,
             sku_code: sku.sku_code,
             quantity_purchased: quantity,
-            total_cost: totalCost,
+            total_cost: lineTotalCost,
             cost_per_unit: unitPrice,
             purchase_date: purchaseDate,
             supplier_id: supplierId,
@@ -143,7 +143,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
           });
 
           totalQuantity += quantity;
-          totalCost += totalCost;
+          totalCost += lineTotalCost;
 
           // Update CurrentStock
           let stock = currentStocks.find(s => s.sku_id === sku.id);
