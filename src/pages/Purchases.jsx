@@ -350,11 +350,6 @@ export default function Purchases() {
     p.supplier_name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const filteredPurchases = purchases.filter(p =>
-    p.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
-    p.supplier_name?.toLowerCase().includes(search.toLowerCase())
-  );
-
   const totalSelectedQty = selectedPurchases.reduce((sum, id) => {
     const purchase = purchases.find(p => p.id === id);
     return sum + (purchase?.quantity_purchased || 0);
