@@ -137,10 +137,35 @@ export default function Orders() {
     let totalCost = 0;
     let canFulfill = true;
 
-    // Check stock and allocate FIFO
+    // Check stock availability using CurrentStock (source of truth)
     for (const line of lines) {
+      // Find current stock - normalize SKU codes for comparison
+      const stock = currentStock.find(s => 
+        s.sku_id === line.sku_id || 
+        s.sku_code?.trim().toLowerCase() === line.sku_code?.trim().toLowerCase()
+      );
+      
+      const availableStock = stock?.quantity_available || 0;
+      
+      if (availableStock < line.quantity) {
+        canFulfill = false;
+        toast({ 
+          title: 'Cannot fulfill order', 
+          description: `SKU ${line.sku_code} has ${availableStock} units in stock, but order requires ${line.quantity} units.`,
+          variant: 'destructive'
+        });
+        break;
+      }
+
+      // Calculate cost using FIFO from purchases
       const skuPurchases = purchases
-        .filter(p => p.sku_id === line.sku_id && (p.quantity_remaining || 0) > 0)
+        .filter(p => {
+          // Normalize SKU matching with trim and toLowerCase
+          const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
+          const lineSkuCode = line.sku_code?.trim().toLowerCase();
+          return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
+                 (p.quantity_remaining || 0) > 0;
+        })
         .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
 
       let remaining = line.quantity;
@@ -153,14 +178,10 @@ export default function Orders() {
         remaining -= take;
       }
 
+      // If no purchase history, use default SKU cost
       if (remaining > 0) {
-        canFulfill = false;
-        toast({ 
-          title: 'Cannot fulfill order', 
-          description: `Insufficient stock for SKU: ${line.sku_code}`,
-          variant: 'destructive'
-        });
-        break;
+        const sku = skus.find(s => s.id === line.sku_id);
+        lineCost += remaining * (sku?.cost_price || 0);
       }
 
       totalCost += lineCost;
@@ -168,10 +189,17 @@ export default function Orders() {
 
     if (!canFulfill) return;
 
-    // Deduct stock using FIFO
+    // Deduct stock using FIFO and update CurrentStock
     for (const line of lines) {
+      // Update purchase quantities (FIFO)
       const skuPurchases = purchases
-        .filter(p => p.sku_id === line.sku_id && (p.quantity_remaining || 0) > 0)
+        .filter(p => {
+          const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
+          const lineSkuCode = line.sku_code?.trim().toLowerCase();
+          return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
+                 (p.quantity_remaining || 0) > 0 &&
+                 p.tenant_id === tenantId; // Ensure tenant isolation
+        })
         .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
 
       let remaining = line.quantity;
@@ -189,24 +217,31 @@ export default function Orders() {
         remaining -= take;
       }
 
+      // If no purchase history covered all quantity, use SKU cost price
+      if (remaining > 0) {
+        const sku = skus.find(s => s.id === line.sku_id);
+        lineCost += remaining * (sku?.cost_price || 0);
+      }
+
       await base44.entities.OrderLine.update(line.id, {
         unit_cost: lineCost / line.quantity,
         line_total_cost: lineCost
       });
 
-      // Update current stock
-      const stock = await base44.entities.CurrentStock.filter({ 
+      // Update CurrentStock (source of truth) with strict tenant filtering
+      const stockRecords = await base44.entities.CurrentStock.filter({ 
         tenant_id: tenantId, 
         sku_id: line.sku_id 
       });
       
-      if (stock.length > 0) {
-        await base44.entities.CurrentStock.update(stock[0].id, {
-          quantity_available: (stock[0].quantity_available || 0) - line.quantity
+      if (stockRecords.length > 0) {
+        const currentQty = stockRecords[0].quantity_available || 0;
+        await base44.entities.CurrentStock.update(stockRecords[0].id, {
+          quantity_available: currentQty - line.quantity
         });
       }
 
-      // Create stock movement
+      // Create stock movement record
       await base44.entities.StockMovement.create({
         tenant_id: tenantId,
         sku_id: line.sku_id,
@@ -697,10 +732,9 @@ export default function Orders() {
       return;
     }
 
-    // Validate stock availability
+    // Validate stock availability using CurrentStock (source of truth)
     const validOrders = [];
     const failedOrders = [];
-    const stockIssues = [];
 
     ordersToFulfill.forEach(order => {
       const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
@@ -708,7 +742,11 @@ export default function Orders() {
       const orderStockIssues = [];
 
       lines.forEach(line => {
-        const stock = currentStock.find(s => s.sku_id === line.sku_id);
+        // Normalize SKU matching
+        const stock = currentStock.find(s => 
+          s.sku_id === line.sku_id || 
+          s.sku_code?.trim().toLowerCase() === line.sku_code?.trim().toLowerCase()
+        );
         const available = stock?.quantity_available || 0;
         
         if (available < line.quantity) {
