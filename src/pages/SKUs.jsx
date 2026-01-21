@@ -9,12 +9,21 @@ import {
   Upload, 
   Image as ImageIcon,
   AlertCircle,
-  Eraser
+  Eraser,
+  Filter,
+  ArrowUpDown
 } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +56,8 @@ export default function SKUsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   
   const [selectedRows, setSelectedRows] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -618,10 +629,45 @@ export default function SKUsPage() {
     });
   };
 
-  const filteredSkus = skus.filter(sku =>
-    sku.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
-    sku.product_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredSkus = skus
+    .filter(sku => {
+      // Text search
+      const matchesSearch = sku.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
+        sku.product_name?.toLowerCase().includes(search.toLowerCase());
+      
+      // Stock filter
+      const stock = currentStock.find(s => s.sku_id === sku.id);
+      const qty = stock?.quantity_available || 0;
+      let matchesStock = true;
+      
+      if (stockFilter === 'in_stock') {
+        matchesStock = qty > 0;
+      } else if (stockFilter === 'out_of_stock') {
+        matchesStock = qty === 0;
+      }
+      
+      return matchesSearch && matchesStock;
+    })
+    .sort((a, b) => {
+      const stockA = currentStock.find(s => s.sku_id === a.id);
+      const stockB = currentStock.find(s => s.sku_id === b.id);
+      const qtyA = stockA?.quantity_available || 0;
+      const qtyB = stockB?.quantity_available || 0;
+      
+      switch (sortBy) {
+        case 'stock_high':
+          return qtyB - qtyA;
+        case 'stock_low':
+          return qtyA - qtyB;
+        case 'name_az':
+          return (a.product_name || '').localeCompare(b.product_name || '');
+        case 'cost_high':
+          return (b.cost_price || 0) - (a.cost_price || 0);
+        case 'newest':
+        default:
+          return new Date(b.created_date) - new Date(a.created_date);
+      }
+    });
 
   const toggleSelectAll = () => {
     if (selectedRows.length === filteredSkus.length) {
@@ -733,10 +779,55 @@ export default function SKUsPage() {
         currentStock={currentStock} 
         loading={loading}
         lowStockThreshold={lowStockThreshold}
+        filteredSkus={filteredSkus}
       />
 
-      {/* Search Bar */}
-      <SKUSearchBar value={search} onChange={setSearch} />
+      {/* Search Bar & Filters */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex-1">
+          <SKUSearchBar value={search} onChange={setSearch} />
+        </div>
+        
+        <div className="flex gap-3">
+          {/* Stock Status Filter */}
+          <Select value={stockFilter} onValueChange={setStockFilter}>
+            <SelectTrigger className="w-48">
+              <Filter className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Stock Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Products</SelectItem>
+              <SelectItem value="in_stock">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  In Stock
+                </div>
+              </SelectItem>
+              <SelectItem value="out_of_stock">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  Out of Stock
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Sort By */}
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-52">
+              <ArrowUpDown className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Sort By" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest First</SelectItem>
+              <SelectItem value="stock_high">Stock: High to Low</SelectItem>
+              <SelectItem value="stock_low">Stock: Low to High</SelectItem>
+              <SelectItem value="name_az">Name: A-Z</SelectItem>
+              <SelectItem value="cost_high">Cost: High to Low</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       {/* Table */}
       {loading ? (
