@@ -38,6 +38,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import UploadRequirementsBanner from '@/components/skus/UploadRequirementsBanner';
 import SearchableSKUSelect from '@/components/orders/SearchableSKUSelect';
+import ItemConditionReversalModal from '@/components/orders/ItemConditionReversalModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -71,6 +72,8 @@ export default function Orders() {
     completed: false,
     log: []
   });
+  const [showReversalModal, setShowReversalModal] = useState(false);
+  const [reversalContext, setReversalContext] = useState(null);
   const [currentStock, setCurrentStock] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(null);
@@ -312,14 +315,19 @@ export default function Orders() {
   const handleUpdateOrder = async () => {
     if (!editFormData) return;
 
-    // Verify order status hasn't changed
     const currentOrder = orders.find(o => o.id === editFormData.id);
-    if (currentOrder?.status === 'fulfilled') {
-      toast({ 
-        title: 'Cannot edit order', 
-        description: 'This order has been fulfilled',
-        variant: 'destructive' 
+    
+    // Check if status is changing FROM fulfilled to something else
+    if (currentOrder?.status === 'fulfilled' && editFormData.status && editFormData.status !== 'fulfilled') {
+      // Show reversal modal
+      const orderLinesToReverse = orderLines.filter(l => l.order_id === editFormData.id && !l.is_returned);
+      setReversalContext({
+        order: editFormData,
+        currentStatus: currentOrder.status,
+        newStatus: editFormData.status,
+        lines: orderLinesToReverse
       });
+      setShowReversalModal(true);
       return;
     }
 
@@ -358,6 +366,108 @@ export default function Orders() {
     setShowDetails(null);
     loadData();
     toast({ title: 'Order updated successfully' });
+  };
+
+  const handleReversalConfirm = async (itemConditions) => {
+    if (!reversalContext || !editFormData) return;
+
+    try {
+      // Update order lines with item conditions
+      for (const line of reversalContext.lines) {
+        const condition = itemConditions[line.id];
+        await base44.entities.OrderLine.update(line.id, {
+          is_returned: true,
+          return_date: format(new Date(), 'yyyy-MM-dd')
+        });
+      }
+
+      // Process stock reversals
+      for (const line of reversalContext.lines) {
+        const condition = itemConditions[line.id];
+        const sku = skus.find(s => s.id === line.sku_id);
+
+        if (condition === 'sound') {
+          // Return to sellable inventory
+          const stockRecords = await base44.entities.CurrentStock.filter({ 
+            tenant_id: tenantId, 
+            sku_id: line.sku_id 
+          });
+          if (stockRecords.length > 0) {
+            await base44.entities.CurrentStock.update(stockRecords[0].id, {
+              quantity_available: (stockRecords[0].quantity_available || 0) + line.quantity
+            });
+          }
+
+          // Create stock movement for sound return
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'return',
+            quantity: line.quantity,
+            reference_type: 'order_line',
+            reference_id: line.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Item returned as sound (sellable) from order status change to ${reversalContext.newStatus}`
+          });
+        } else if (condition === 'damaged') {
+          // Mark as damaged stock - update SKU's damaged_stock
+          if (sku) {
+            await base44.entities.SKU.update(sku.id, {
+              damaged_stock: (sku.damaged_stock || 0) + line.quantity
+            });
+          }
+
+          // Create stock movement for damaged return
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'return',
+            quantity: line.quantity,
+            reference_type: 'order_line',
+            reference_id: line.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Item returned as damaged (scrapped) from order status change to ${reversalContext.newStatus}`
+          });
+        }
+      }
+
+      // Update order status
+      await base44.entities.Order.update(editFormData.id, {
+        status: reversalContext.newStatus
+      });
+
+      // Also update the edited form data lines
+      for (const line of editFormData.lines) {
+        const orderLine = reversalContext.lines.find(ol => ol.id === line.id);
+        if (orderLine) {
+          await base44.entities.OrderLine.update(line.id, {
+            sku_id: line.sku_id,
+            sku_code: line.sku_code || skus.find(s => s.id === line.sku_id)?.sku_code,
+            quantity: parseInt(line.quantity)
+          });
+        }
+      }
+
+      setShowReversalModal(false);
+      setReversalContext(null);
+      setEditingOrder(false);
+      setEditFormData(null);
+      setShowDetails(null);
+      loadData();
+      toast({ 
+        title: 'Order updated successfully',
+        description: `Status changed to ${reversalContext.newStatus}. Stock reversed based on item conditions.`
+      });
+    } catch (error) {
+      console.error('Error processing reversal:', error);
+      toast({
+        title: 'Error updating order',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
   };
 
   const addEditLine = () => {
@@ -1948,15 +2058,7 @@ export default function Orders() {
             <DialogTitle>Order Details</DialogTitle>
           </DialogHeader>
           {showDetails && (
-            <div className="space-y-4">
-              {/* Warning message if fulfilled */}
-              {showDetails.status === 'fulfilled' && !editingOrder && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-sm text-amber-800">
-                    This order is fulfilled and cannot be edited.
-                  </p>
-                </div>
-              )}
+           <div className="space-y-4">
 
               {!editingOrder ? (
                 <>
@@ -2001,17 +2103,15 @@ export default function Orders() {
                     </div>
                   </div>
 
-                  {showDetails.status !== 'fulfilled' && (
-                    <div className="flex justify-end pt-2">
-                      <Button 
-                        onClick={() => handleEditOrder(showDetails)}
-                        className="bg-indigo-600 hover:bg-indigo-700"
-                      >
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit Order
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex justify-end pt-2">
+                   <Button 
+                     onClick={() => handleEditOrder(showDetails)}
+                     className="bg-indigo-600 hover:bg-indigo-700"
+                   >
+                     <Edit className="w-4 h-4 mr-2" />
+                     Edit Order
+                   </Button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -2270,6 +2370,21 @@ export default function Orders() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Item Condition Reversal Modal */}
+      {reversalContext && (
+        <ItemConditionReversalModal
+          open={showReversalModal}
+          orderLines={reversalContext.lines}
+          skus={skus}
+          newStatus={reversalContext.newStatus}
+          onConfirm={handleReversalConfirm}
+          onCancel={() => {
+            setShowReversalModal(false);
+            setReversalContext(null);
+          }}
+        />
+      )}
 
       {/* Bulk Fulfill Confirmation */}
       <AlertDialog open={showBulkFulfillConfirm} onOpenChange={setShowBulkFulfillConfirm}>
