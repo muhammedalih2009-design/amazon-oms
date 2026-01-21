@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle } from 'lucide-react';
+import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle, ChevronDown, ChevronRight, Download, Package } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,7 @@ export default function Purchases() {
   const { tenantId, subscription, isActive, isAdmin } = useTenant();
   const { toast } = useToast();
   const [purchases, setPurchases] = useState([]);
+  const [batches, setBatches] = useState([]);
   const [skus, setSkus] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [cart, setCart] = useState([]);
@@ -48,6 +49,8 @@ export default function Purchases() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const [expandedBatches, setExpandedBatches] = useState(new Set());
+  const [deletingBatch, setDeletingBatch] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showCartForm, setShowCartForm] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
@@ -76,18 +79,20 @@ export default function Purchases() {
     } else {
       setLoading(true);
     }
-    const [purchasesData, skusData, suppliersData, cartData, stockData] = await Promise.all([
+    const [purchasesData, skusData, suppliersData, cartData, stockData, batchesData] = await Promise.all([
       base44.entities.Purchase.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
       base44.entities.Supplier.filter({ tenant_id: tenantId }),
       base44.entities.PurchaseCart.filter({ tenant_id: tenantId }),
-      base44.entities.CurrentStock.filter({ tenant_id: tenantId })
+      base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
+      base44.entities.ImportBatch.filter({ tenant_id: tenantId, batch_type: 'purchases' })
     ]);
-    setPurchases(purchasesData.sort((a, b) => new Date(b.purchase_date) - new Date(a.purchase_date)));
+    setPurchases(purchasesData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     setSkus(skusData);
     setSuppliers(suppliersData);
     setCart(cartData);
     setCurrentStock(stockData);
+    setBatches(batchesData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     setSelectedPurchases([]);
     
     // Initialize cart items
@@ -383,6 +388,98 @@ export default function Purchases() {
     toast({ title: 'Cart cleared' });
   };
 
+  const toggleBatch = (batchId) => {
+    const newExpanded = new Set(expandedBatches);
+    if (newExpanded.has(batchId)) {
+      newExpanded.delete(batchId);
+    } else {
+      newExpanded.add(batchId);
+    }
+    setExpandedBatches(newExpanded);
+  };
+
+  const handleDeleteBatch = async (batch) => {
+    setDeletingBatch(batch);
+    const batchPurchases = purchases.filter(p => p.import_batch_id === batch.id);
+    setSelectedPurchases(batchPurchases.map(p => p.id));
+    
+    // Check for negative stock warning
+    let hasNegativeStock = false;
+    const warnings = [];
+
+    batchPurchases.forEach(purchase => {
+      const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+      const currentQty = stock?.quantity_available || 0;
+      const newQty = currentQty - purchase.quantity_purchased;
+      
+      if (newQty < 0) {
+        hasNegativeStock = true;
+        warnings.push({
+          sku_code: purchase.sku_code,
+          current: currentQty,
+          deduct: purchase.quantity_purchased,
+          result: newQty
+        });
+      }
+    });
+
+    setDeleteWarning(hasNegativeStock ? warnings : null);
+    setDeleteMode(null);
+    setShowDeleteDialog(true);
+  };
+
+  const exportBatchCSV = (batch) => {
+    const batchPurchases = purchases.filter(p => p.import_batch_id === batch.id);
+    
+    const headers = ['SKU Code', 'Product Name', 'Quantity', 'Unit Cost', 'Total Cost', 'Supplier', 'Purchase Date'];
+    const rows = batchPurchases.map(p => [
+      p.sku_code,
+      skus.find(s => s.id === p.sku_id)?.product_name || '',
+      p.quantity_purchased,
+      p.cost_per_unit?.toFixed(2) || '0.00',
+      p.total_cost?.toFixed(2) || '0.00',
+      p.supplier_name || '',
+      p.purchase_date
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => {
+        const str = String(cell);
+        return str.includes(',') ? `"${str}"` : str;
+      }).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_${batch.id}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Group purchases by batch
+  const groupedPurchases = React.useMemo(() => {
+    const grouped = {
+      batched: {},
+      unbatched: []
+    };
+
+    purchases.forEach(purchase => {
+      if (purchase.import_batch_id) {
+        if (!grouped.batched[purchase.import_batch_id]) {
+          grouped.batched[purchase.import_batch_id] = [];
+        }
+        grouped.batched[purchase.import_batch_id].push(purchase);
+      } else {
+        grouped.unbatched.push(purchase);
+      }
+    });
+
+    return grouped;
+  }, [purchases]);
+
   const filteredPurchases = purchases.filter(p =>
     p.sku_code?.toLowerCase().includes(search.toLowerCase()) ||
     p.supplier_name?.toLowerCase().includes(search.toLowerCase())
@@ -520,26 +617,203 @@ export default function Purchases() {
         </div>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <Input
-          placeholder="Search purchases..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-        />
-      </div>
+      <Tabs defaultValue="batched" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="batched">Batched View</TabsTrigger>
+          <TabsTrigger value="all">All Purchases</TabsTrigger>
+        </TabsList>
 
-      <DataTable
-        columns={columns}
-        data={filteredPurchases}
-        loading={loading}
-        emptyIcon={Truck}
-        emptyTitle="No purchases yet"
-        emptyDescription="Record your first inventory purchase"
-        emptyAction="Record Purchase"
-        onEmptyAction={() => setShowForm(true)}
-      />
+        <TabsContent value="batched" className="space-y-4">
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* Batches */}
+              {batches.map(batch => {
+                const batchPurchases = groupedPurchases.batched[batch.id] || [];
+                const totalQty = batchPurchases.reduce((sum, p) => sum + p.quantity_purchased, 0);
+                const totalCost = batchPurchases.reduce((sum, p) => sum + p.total_cost, 0);
+                const isExpanded = expandedBatches.has(batch.id);
+
+                return (
+                  <div key={batch.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    {/* Batch Header */}
+                    <div 
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                      onClick={() => toggleBatch(batch.id)}
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                        <Package className="w-5 h-5 text-indigo-600" />
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-slate-900">{batch.batch_name || `Batch #${batch.id}`}</h3>
+                          <p className="text-sm text-slate-500">
+                            {format(new Date(batch.created_date), 'MMM d, yyyy h:mm a')} • {batchPurchases.length} items • {totalQty.toLocaleString()} units • ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => exportBatchCSV(batch)}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        {isAdmin && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleDeleteBatch(batch)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Batch Items */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-200">
+                        <table className="w-full">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">SKU</th>
+                              <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Supplier</th>
+                              <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Qty</th>
+                              <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Unit Cost</th>
+                              <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Total</th>
+                              <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Remaining</th>
+                              <th className="w-12"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {batchPurchases.map(purchase => (
+                              <tr key={purchase.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                <td className="py-3 px-4 font-medium text-slate-900">{purchase.sku_code}</td>
+                                <td className="py-3 px-4 text-slate-600">{purchase.supplier_name || '-'}</td>
+                                <td className="py-3 px-4 text-right">{purchase.quantity_purchased}</td>
+                                <td className="py-3 px-4 text-right">${(purchase.cost_per_unit || 0).toFixed(2)}</td>
+                                <td className="py-3 px-4 text-right font-medium">${(purchase.total_cost || 0).toFixed(2)}</td>
+                                <td className="py-3 px-4 text-right">
+                                  <span className={purchase.quantity_remaining > 0 ? 'text-emerald-600' : 'text-slate-400'}>
+                                    {purchase.quantity_remaining || 0}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    onClick={() => handleDeleteClick(purchase)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Unbatched Purchases */}
+              {groupedPurchases.unbatched.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between p-4 bg-slate-50">
+                    <div className="flex items-center gap-3">
+                      <Package className="w-5 h-5 text-slate-400" />
+                      <h3 className="font-semibold text-slate-700">Manual Entries ({groupedPurchases.unbatched.length})</h3>
+                    </div>
+                  </div>
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-t border-slate-200">
+                      <tr>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Date</th>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">SKU</th>
+                        <th className="text-left py-2 px-4 text-xs font-semibold text-slate-500">Supplier</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Qty</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Unit Cost</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Total</th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-slate-500">Remaining</th>
+                        <th className="w-12"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupedPurchases.unbatched.map(purchase => (
+                        <tr key={purchase.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="py-3 px-4 text-slate-600">{format(new Date(purchase.purchase_date), 'MMM d, yyyy')}</td>
+                          <td className="py-3 px-4 font-medium text-slate-900">{purchase.sku_code}</td>
+                          <td className="py-3 px-4 text-slate-600">{purchase.supplier_name || '-'}</td>
+                          <td className="py-3 px-4 text-right">{purchase.quantity_purchased}</td>
+                          <td className="py-3 px-4 text-right">${(purchase.cost_per_unit || 0).toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right font-medium">${(purchase.total_cost || 0).toFixed(2)}</td>
+                          <td className="py-3 px-4 text-right">
+                            <span className={purchase.quantity_remaining > 0 ? 'text-emerald-600' : 'text-slate-400'}>
+                              {purchase.quantity_remaining || 0}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => handleDeleteClick(purchase)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {batches.length === 0 && groupedPurchases.unbatched.length === 0 && (
+                <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
+                  <Truck className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-lg font-medium text-slate-900 mb-1">No purchases yet</h3>
+                  <p className="text-slate-500 mb-4">Record your first inventory purchase</p>
+                  <Button onClick={() => setShowForm(true)} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Record Purchase
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="all" className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Search purchases..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          <DataTable
+            columns={columns}
+            data={filteredPurchases}
+            loading={loading}
+            emptyIcon={Truck}
+            emptyTitle="No purchases yet"
+            emptyDescription="Record your first inventory purchase"
+            emptyAction="Record Purchase"
+            onEmptyAction={() => setShowForm(true)}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Add Purchase Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -805,11 +1079,20 @@ export default function Purchases() {
           </AlertDialogHeader>
           {deleteMode && (
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setDeleteMode(null)}>
+              <AlertDialogCancel onClick={() => {
+                setDeleteMode(null);
+                setDeletingBatch(null);
+              }}>
                 {deleteMode ? 'Back' : 'Cancel'}
               </AlertDialogCancel>
               <AlertDialogAction 
-                onClick={handleConfirmDelete}
+                onClick={() => {
+                  handleConfirmDelete();
+                  if (deletingBatch) {
+                    base44.entities.ImportBatch.delete(deletingBatch.id);
+                    setDeletingBatch(null);
+                  }
+                }}
                 className="bg-red-600 hover:bg-red-700"
               >
                 Confirm Delete

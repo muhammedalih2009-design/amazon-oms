@@ -46,6 +46,8 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
     const errors = [];
     let successCount = 0;
     let skusUpdated = new Set();
+    let totalQuantity = 0;
+    let totalCost = 0;
 
     try {
       const text = await file.text();
@@ -55,6 +57,16 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       const skus = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const suppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
       const currentStocks = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+
+      // Create batch record
+      const batch = await base44.entities.ImportBatch.create({
+        tenant_id: tenantId,
+        batch_type: 'purchases',
+        batch_name: `Purchase Batch - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
+        filename: file.name,
+        status: 'processing',
+        total_rows: rows.length
+      });
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -126,8 +138,12 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
             purchase_date: purchaseDate,
             supplier_id: supplierId,
             supplier_name: supplierName,
-            quantity_remaining: quantity
+            quantity_remaining: quantity,
+            import_batch_id: batch.id
           });
+
+          totalQuantity += quantity;
+          totalCost += totalCost;
 
           // Update CurrentStock
           let stock = currentStocks.find(s => s.sku_id === sku.id);
@@ -168,6 +184,16 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
           });
         }
       }
+
+      // Update batch status
+      const batchStatus = errors.length === 0 ? 'success' : 
+                          successCount === 0 ? 'failed' : 'partial';
+      
+      await base44.entities.ImportBatch.update(batch.id, {
+        status: batchStatus,
+        success_rows: successCount,
+        failed_rows: errors.length
+      });
 
       setResult({
         total: rows.length,
