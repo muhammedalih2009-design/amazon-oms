@@ -73,6 +73,13 @@ export default function Purchases() {
     if (tenantId) loadData();
   }, [tenantId]);
 
+  // Auto-expand newest batch on load
+  useEffect(() => {
+    if (batches.length > 0 && expandedBatches.size === 0) {
+      setExpandedBatches(new Set([batches[0].id]));
+    }
+  }, [batches]);
+
   const loadData = async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
@@ -641,11 +648,11 @@ export default function Purchases() {
                   <div key={batch.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                     {/* Batch Header */}
                     <div 
-                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-all duration-200"
                       onClick={() => toggleBatch(batch.id)}
                     >
                       <div className="flex items-center gap-3 flex-1">
-                        {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                        <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-90' : 'rotate-0'}`} />
                         <Package className="w-5 h-5 text-indigo-600" />
                         <div className="flex-1">
                           <h3 className="font-semibold text-slate-900">{batch.batch_name || `Batch #${batch.id}`}</h3>
@@ -676,8 +683,13 @@ export default function Purchases() {
                     </div>
 
                     {/* Batch Items */}
-                    {isExpanded && (
-                      <div className="border-t border-slate-200">
+                    <div 
+                      className={`border-t border-slate-200 transition-all duration-300 ease-in-out ${
+                        isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
+                      }`}
+                    >
+                      {isExpanded && (
+                        <div>
                         <table className="w-full">
                           <thead className="bg-slate-50">
                             <tr>
@@ -717,8 +729,9 @@ export default function Purchases() {
                             ))}
                           </tbody>
                         </table>
-                      </div>
-                    )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
