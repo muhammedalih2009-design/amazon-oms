@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
+import { useDebounce } from '@/components/hooks/useDebounce';
 import { format } from 'date-fns';
 import { ShoppingCart, Plus, Search, Eye, Trash2, Play, Filter, X, Edit, Save, PackageCheck, AlertTriangle, ChevronRight, Package, Download, CheckCircle2, XCircle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
@@ -50,6 +51,7 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('all');
   const [batchFilter, setBatchFilter] = useState('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -761,7 +763,7 @@ export default function Orders() {
   };
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.amazon_order_id?.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = order.amazon_order_id?.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
     const matchesBatch = batchFilter === 'all' || order.import_batch_id === batchFilter;
     
@@ -878,25 +880,178 @@ export default function Orders() {
     let successCount = 0;
     let failCount = 0;
 
+    // Collect all stock movements and stock updates for batch processing
+    const allStockMovements = [];
+    const stockUpdates = new Map(); // sku_id -> quantity to deduct
+    const orderUpdates = [];
+    const lineUpdates = [];
+
     for (let i = 0; i < ordersToProcess.length; i++) {
       const order = ordersToProcess[i];
       try {
-        await handleFulfillOrder(order);
+        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+        let totalCost = 0;
+
+        // Calculate costs and prepare updates
+        for (const line of lines) {
+          const skuPurchases = purchases
+            .filter(p => {
+              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
+              const lineSkuCode = line.sku_code?.trim().toLowerCase();
+              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
+                     (p.quantity_remaining || 0) > 0;
+            })
+            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
+
+          let remaining = line.quantity;
+          let lineCost = 0;
+
+          for (const purchase of skuPurchases) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, purchase.quantity_remaining || 0);
+            lineCost += take * purchase.cost_per_unit;
+            remaining -= take;
+          }
+
+          if (remaining > 0) {
+            const sku = skus.find(s => s.id === line.sku_id);
+            lineCost += remaining * (sku?.cost_price || 0);
+          }
+
+          totalCost += lineCost;
+
+          // Store line update
+          lineUpdates.push({
+            id: line.id,
+            unit_cost: lineCost / line.quantity,
+            line_total_cost: lineCost
+          });
+
+          // Accumulate stock deductions
+          const currentDeduction = stockUpdates.get(line.sku_id) || 0;
+          stockUpdates.set(line.sku_id, currentDeduction + line.quantity);
+
+          // Prepare stock movement
+          allStockMovements.push({
+            tenant_id: tenantId,
+            sku_id: line.sku_id,
+            sku_code: line.sku_code,
+            movement_type: 'order_fulfillment',
+            quantity: -line.quantity,
+            reference_type: 'order_line',
+            reference_id: line.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd')
+          });
+        }
+
+        // Store order update
+        orderUpdates.push({
+          id: order.id,
+          status: 'fulfilled',
+          total_cost: totalCost,
+          profit_loss: (order.net_revenue || 0) - totalCost,
+          profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
+        });
+
         successCount++;
       } catch (error) {
         failCount++;
-        console.error('Error fulfilling order:', order.amazon_order_id, error);
+        console.error('Error processing order:', order.amazon_order_id, error);
       }
 
-      // Update progress after each order
+      // Update progress after each order processed
       setProgressState({
         current: i + 1,
         total: ordersToProcess.length,
         successCount,
         failCount,
-        completed: i + 1 === ordersToProcess.length
+        completed: false
       });
     }
+
+    // Batch database operations
+    try {
+      // Update all order lines in batches
+      for (const lineUpdate of lineUpdates) {
+        await base44.entities.OrderLine.update(lineUpdate.id, {
+          unit_cost: lineUpdate.unit_cost,
+          line_total_cost: lineUpdate.line_total_cost
+        });
+      }
+
+      // Update purchase quantities (FIFO) - must be sequential for accuracy
+      for (const order of ordersToProcess) {
+        if (!orderUpdates.find(u => u.id === order.id)) continue; // Skip failed orders
+        
+        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+        for (const line of lines) {
+          const skuPurchases = purchases
+            .filter(p => {
+              const purchaseSkuCode = p.sku_code?.trim().toLowerCase();
+              const lineSkuCode = line.sku_code?.trim().toLowerCase();
+              return (p.sku_id === line.sku_id || purchaseSkuCode === lineSkuCode) && 
+                     (p.quantity_remaining || 0) > 0 &&
+                     p.tenant_id === tenantId;
+            })
+            .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
+
+          let remaining = line.quantity;
+          for (const purchase of skuPurchases) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, purchase.quantity_remaining || 0);
+            
+            await base44.entities.Purchase.update(purchase.id, {
+              quantity_remaining: (purchase.quantity_remaining || 0) - take
+            });
+            
+            remaining -= take;
+          }
+        }
+      }
+
+      // Batch update current stock
+      for (const [skuId, qtyToDeduct] of stockUpdates) {
+        const stockRecords = await base44.entities.CurrentStock.filter({ 
+          tenant_id: tenantId, 
+          sku_id: skuId 
+        });
+        
+        if (stockRecords.length > 0) {
+          const currentQty = stockRecords[0].quantity_available || 0;
+          await base44.entities.CurrentStock.update(stockRecords[0].id, {
+            quantity_available: currentQty - qtyToDeduct
+          });
+        }
+      }
+
+      // Batch create stock movements
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < allStockMovements.length; i += BATCH_SIZE) {
+        const batch = allStockMovements.slice(i, i + BATCH_SIZE);
+        await base44.entities.StockMovement.bulkCreate(batch);
+      }
+
+      // Update all orders
+      for (const orderUpdate of orderUpdates) {
+        await base44.entities.Order.update(orderUpdate.id, {
+          status: orderUpdate.status,
+          total_cost: orderUpdate.total_cost,
+          profit_loss: orderUpdate.profit_loss,
+          profit_margin_percent: orderUpdate.profit_margin_percent
+        });
+      }
+    } catch (error) {
+      console.error('Error in batch operations:', error);
+    }
+
+    // Mark as completed
+    setProgressState({
+      current: ordersToProcess.length,
+      total: ordersToProcess.length,
+      successCount,
+      failCount,
+      completed: true
+    });
 
     // Refresh data
     await loadData();
@@ -923,24 +1078,22 @@ export default function Orders() {
   const handleBulkDelete = async () => {
     const ordersToDelete = orders.filter(o => selectedOrders.has(o.id));
     
+    // Collect all stock updates and movements for batch processing
+    const stockUpdates = new Map();
+    const stockMovements = [];
+    const linesToDelete = [];
+    const ordersToDeleteIds = [];
+
     for (const order of ordersToDelete) {
-      // Reverse stock movements if fulfilled
       if (order.status === 'fulfilled') {
         const lines = orderLines.filter(l => l.order_id === order.id);
         for (const line of lines) {
-          // Restore stock
-          const stock = await base44.entities.CurrentStock.filter({ 
-            tenant_id: tenantId, 
-            sku_id: line.sku_id 
-          });
-          if (stock.length > 0) {
-            await base44.entities.CurrentStock.update(stock[0].id, {
-              quantity_available: (stock[0].quantity_available || 0) + line.quantity
-            });
-          }
+          // Accumulate stock restoration
+          const currentRestoration = stockUpdates.get(line.sku_id) || 0;
+          stockUpdates.set(line.sku_id, currentRestoration + line.quantity);
 
-          // Create reversal stock movement
-          await base44.entities.StockMovement.create({
+          // Prepare stock movement
+          stockMovements.push({
             tenant_id: tenantId,
             sku_id: line.sku_id,
             sku_code: line.sku_code,
@@ -954,14 +1107,45 @@ export default function Orders() {
         }
       }
       
-      // Delete order lines
+      // Collect lines to delete
       const lines = orderLines.filter(l => l.order_id === order.id);
-      for (const line of lines) {
-        await base44.entities.OrderLine.delete(line.id);
+      linesToDelete.push(...lines.map(l => l.id));
+      ordersToDeleteIds.push(order.id);
+    }
+
+    // Batch database operations
+    try {
+      // Batch update stock
+      for (const [skuId, qtyToRestore] of stockUpdates) {
+        const stock = await base44.entities.CurrentStock.filter({ 
+          tenant_id: tenantId, 
+          sku_id: skuId 
+        });
+        if (stock.length > 0) {
+          await base44.entities.CurrentStock.update(stock[0].id, {
+            quantity_available: (stock[0].quantity_available || 0) + qtyToRestore
+          });
+        }
       }
-      
-      // Delete order
-      await base44.entities.Order.delete(order.id);
+
+      // Batch create stock movements
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < stockMovements.length; i += BATCH_SIZE) {
+        const batch = stockMovements.slice(i, i + BATCH_SIZE);
+        await base44.entities.StockMovement.bulkCreate(batch);
+      }
+
+      // Delete all lines
+      for (const lineId of linesToDelete) {
+        await base44.entities.OrderLine.delete(lineId);
+      }
+
+      // Delete all orders
+      for (const orderId of ordersToDeleteIds) {
+        await base44.entities.Order.delete(orderId);
+      }
+    } catch (error) {
+      console.error('Error in batch delete operations:', error);
     }
 
     setShowBulkDeleteConfirm(false);
