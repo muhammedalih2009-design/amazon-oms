@@ -289,7 +289,7 @@ export class BulkFulfillmentProcessor {
         });
       }
 
-      // Step 7: Create stock movements (audit trail)
+      // Step 7: Create stock movements (audit trail) with force note
       const movements = [];
       for (const line of lines) {
         movements.push({
@@ -300,7 +300,8 @@ export class BulkFulfillmentProcessor {
           quantity: -line.quantity,
           reference_type: 'order_line',
           reference_id: line.id,
-          movement_date: format(new Date(), 'yyyy-MM-dd')
+          movement_date: format(new Date(), 'yyyy-MM-dd'),
+          notes: forceMode ? 'Force fulfilled - bypassed stock validation' : undefined
         });
       }
 
@@ -356,14 +357,14 @@ export class BulkFulfillmentProcessor {
   /**
    * Process orders in chunks
    */
-  async processOrdersInChunks(ordersToProcess, orderLines, purchases, currentStock, skus, format, onProgress) {
+  async processOrdersInChunks(ordersToProcess, orderLines, purchases, currentStock, skus, format, onProgress, forceMode = false) {
     const results = [];
     const totalOrders = ordersToProcess.length;
 
     for (let i = 0; i < totalOrders; i += this.CHUNK_SIZE) {
       const chunk = ordersToProcess.slice(i, i + this.CHUNK_SIZE);
       const chunkPromises = chunk.map(order =>
-        this.processSingleOrder(order, orderLines, purchases, currentStock, skus, format)
+        this.processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode)
       );
 
       const chunkResults = await Promise.all(chunkPromises);
