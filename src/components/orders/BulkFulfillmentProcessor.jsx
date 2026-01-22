@@ -7,10 +7,10 @@ export class BulkFulfillmentProcessor {
   constructor(base44, tenantId) {
     this.base44 = base44;
     this.tenantId = tenantId;
-    this.CHUNK_SIZE = 5; // Reduced from 10 to 5 to prevent rate limiting
-    this.CHUNK_DELAY_MS = 800; // 800ms delay between chunks to stay below rate limits
-    this.MAX_RETRIES = 2; // Retry up to 2 times on rate limit errors
-    this.RETRY_DELAY_MS = 2000; // 2 second delay before retry
+    this.CHUNK_SIZE = 2; // Process only 2 orders at a time to prevent rate limiting
+    this.CHUNK_DELAY_MS = 2000; // 2 second delay between chunks
+    this.MAX_RETRIES = 3; // Retry up to 3 times on rate limit errors
+    this.RETRY_DELAY_MS = 4000; // 4 second delay before retry
   }
 
   /**
