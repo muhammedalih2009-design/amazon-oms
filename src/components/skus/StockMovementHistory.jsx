@@ -161,6 +161,70 @@ export default function StockMovementHistory({ sku, tenantId, currentStock, isOw
     }
   };
 
+  const handleResetSync = async () => {
+    setResetting(true);
+    try {
+      const physicalCount = parseInt(resetCount);
+      if (isNaN(physicalCount) || physicalCount < 0) {
+        toast({
+          title: 'Invalid count',
+          description: 'Please enter a valid number',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      const stock = currentStock.find(s => s.sku_id === sku.id);
+      const previousStock = stock?.quantity_available || 0;
+      const difference = physicalCount - previousStock;
+
+      // Step 1: Force update stock to physical count
+      if (stock) {
+        await base44.entities.CurrentStock.update(stock.id, {
+          quantity_available: physicalCount
+        });
+      } else {
+        await base44.entities.CurrentStock.create({
+          tenant_id: tenantId,
+          sku_id: sku.id,
+          sku_code: sku.sku_code,
+          quantity_available: physicalCount
+        });
+      }
+
+      // Step 2: Create system reset movement entry
+      const resetDate = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+      await base44.entities.StockMovement.create({
+        tenant_id: tenantId,
+        sku_id: sku.id,
+        sku_code: sku.sku_code,
+        movement_type: 'manual',
+        quantity: difference,
+        reference_type: 'manual',
+        reference_id: null,
+        movement_date: format(new Date(), 'yyyy-MM-dd'),
+        notes: `🔄 SYSTEM RESET & SYNC - Admin reset stock from ${previousStock} to ${physicalCount} (${difference > 0 ? '+' : ''}${difference} units). Physical shelf count verified. Previous discrepancies cleared. Reset at ${resetDate}`
+      });
+
+      toast({
+        title: '✓ Stock reset successfully',
+        description: `Stock set to ${physicalCount} units. All previous discrepancies cleared.`
+      });
+
+      setShowResetSync(false);
+      setResetCount('');
+      loadMovements();
+    } catch (error) {
+      toast({
+        title: 'Reset failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const getMovementTypeLabel = (type) => {
     switch (type) {
       case 'purchase': return 'Purchase';
