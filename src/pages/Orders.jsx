@@ -593,25 +593,41 @@ export default function Orders() {
   const exportBatchCSV = (batch) => {
     const batchOrders = orders.filter(o => o.import_batch_id === batch.id);
     
-    const headers = ['Order ID', 'Order Date', 'Status', 'Revenue', 'Cost', 'Profit'];
-    const rows = batchOrders.map(o => [
-      o.amazon_order_id,
-      o.order_date,
-      o.status,
-      o.net_revenue?.toFixed(2) || '0.00',
-      o.total_cost?.toFixed(2) || '0.00',
-      o.profit_loss?.toFixed(2) || '0.00'
-    ]);
+    // Match upload structure exactly
+    const headers = ['amazon_order_id', 'order_date', 'sku_code', 'quantity'];
+    const rows = [];
+    
+    // Expand each order into multiple rows (one per order line)
+    batchOrders.forEach(order => {
+      const lines = orderLines.filter(l => l.order_id === order.id);
+      lines.forEach(line => {
+        rows.push([
+          order.amazon_order_id || '',
+          order.order_date || '',
+          line.sku_code || '',
+          line.quantity || ''
+        ]);
+      });
+    });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => {
-        const str = String(cell);
-        return str.includes(',') ? `"${str}"` : str;
-      }).join(','))
+    // Generate CSV with UTF-8 BOM for Excel compatibility
+    const BOM = '\uFEFF';
+    const escapeCsvCell = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      const needsQuoting = str.includes(',') || str.includes('"') || str.includes('\n');
+      if (needsQuoting) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = BOM + [
+      headers.map(h => escapeCsvCell(h)).join(','),
+      ...rows.map(row => row.map(cell => escapeCsvCell(cell)).join(','))
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

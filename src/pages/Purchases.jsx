@@ -438,30 +438,38 @@ export default function Purchases() {
   const exportBatchCSV = (batch) => {
     const batchPurchases = purchases.filter(p => p.import_batch_id === batch.id);
     
-    const headers = ['SKU Code', 'Product Name', 'Quantity', 'Unit Cost', 'Total Cost', 'Supplier', 'Purchase Date'];
+    // Match upload structure exactly
+    const headers = ['sku_code', 'quantity', 'unit_price', 'supplier_name', 'purchase_date'];
     const rows = batchPurchases.map(p => [
-      p.sku_code,
-      skus.find(s => s.id === p.sku_id)?.product_name || '',
-      p.quantity_purchased,
-      p.cost_per_unit?.toFixed(2) || '0.00',
-      p.total_cost?.toFixed(2) || '0.00',
+      p.sku_code || '',
+      p.quantity_purchased || '',
+      (p.cost_per_unit || 0).toFixed(2),
       p.supplier_name || '',
-      p.purchase_date
+      p.purchase_date || ''
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => {
-        const str = String(cell);
-        return str.includes(',') ? `"${str}"` : str;
-      }).join(','))
+    // Generate CSV with UTF-8 BOM for Excel/Arabic compatibility
+    const BOM = '\uFEFF';
+    const escapeCsvCell = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      const needsQuoting = str.includes(',') || str.includes('"') || str.includes('\n');
+      if (needsQuoting) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = BOM + [
+      headers.map(h => escapeCsvCell(h)).join(','),
+      ...rows.map(row => row.map(cell => escapeCsvCell(cell)).join(','))
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `batch_${batch.id}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.download = `purchases_batch_${batch.id}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
