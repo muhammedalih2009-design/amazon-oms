@@ -60,7 +60,20 @@ export class BulkFulfillmentProcessor {
     const orderId = order.id;
     const amazonOrderId = order.amazon_order_id;
 
+    // Rollback tracking
+    const rollbackActions = [];
+
     try {
+      // Pre-check: Verify order is not already fulfilled
+      const freshOrderRecords = await this.base44.entities.Order.filter({ id: orderId });
+      if (freshOrderRecords.length === 0) {
+        throw new Error('Order not found');
+      }
+      const freshOrder = freshOrderRecords[0];
+      if (freshOrder.status === 'fulfilled') {
+        throw new Error('Order already fulfilled - preventing duplicate processing');
+      }
+
       // Step 1: Get fresh order lines for this order
       const lines = orderLines.filter(l => l.order_id === orderId && !l.is_returned);
       if (lines.length === 0) {
@@ -118,10 +131,33 @@ export class BulkFulfillmentProcessor {
         totalCost += lineCost;
       }
 
-      // Step 3: ATOMIC COMMIT - Execute all updates
-      // If any step fails here, the entire order fails (simulating rollback)
+      // Step 3: ATOMIC COMMIT - Update order status FIRST (fail-fast)
+      // This ensures we never deduct stock without a fulfilled order
+      await this.base44.entities.Order.update(orderId, {
+        status: 'fulfilled',
+        total_cost: totalCost,
+        profit_loss: (order.net_revenue || 0) - totalCost,
+        profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
+      });
 
-      // 3a: Update purchase quantities (FIFO)
+      // Verify status update succeeded
+      const verifyRecords = await this.base44.entities.Order.filter({ id: orderId });
+      const updatedOrder = verifyRecords[0];
+      if (!updatedOrder || updatedOrder.status !== 'fulfilled') {
+        throw new Error('Critical: Order status update failed - aborting fulfillment');
+      }
+
+      // Track rollback: revert status if subsequent operations fail
+      rollbackActions.push(async () => {
+        await this.base44.entities.Order.update(orderId, {
+          status: 'pending',
+          total_cost: 0,
+          profit_loss: 0,
+          profit_margin_percent: null
+        });
+      });
+
+      // Step 4: Update purchase quantities (FIFO) - now that status is committed
       for (const line of lines) {
         const skuPurchases = purchases
           .filter(p => {
@@ -134,6 +170,7 @@ export class BulkFulfillmentProcessor {
           .sort((a, b) => new Date(a.purchase_date) - new Date(b.purchase_date));
 
         let remaining = line.quantity;
+        const purchaseUpdates = [];
 
         for (const purchase of skuPurchases) {
           if (remaining <= 0) break;
@@ -142,12 +179,29 @@ export class BulkFulfillmentProcessor {
           await this.base44.entities.Purchase.update(purchase.id, {
             quantity_remaining: (purchase.quantity_remaining || 0) - take
           });
+
+          // Track for rollback
+          purchaseUpdates.push({ id: purchase.id, restore: take });
           
           remaining -= take;
         }
+
+        // Track rollback for purchases
+        if (purchaseUpdates.length > 0) {
+          rollbackActions.push(async () => {
+            for (const pu of purchaseUpdates) {
+              const current = await this.base44.entities.Purchase.filter({ id: pu.id });
+              if (current.length > 0) {
+                await this.base44.entities.Purchase.update(pu.id, {
+                  quantity_remaining: (current[0].quantity_remaining || 0) + pu.restore
+                });
+              }
+            }
+          });
+        }
       }
 
-      // 3b: Update order lines with costs
+      // Step 5: Update order lines with costs
       for (const line of lines) {
         const skuPurchases = purchases
           .filter(p => {
@@ -179,7 +233,8 @@ export class BulkFulfillmentProcessor {
         });
       }
 
-      // 3c: Deduct stock
+      // Step 6: Deduct stock (critical operation)
+      const stockUpdates = [];
       for (const [skuId, qtyToDeduct] of stockDeductions) {
         const stockRecords = await this.base44.entities.CurrentStock.filter({
           tenant_id: this.tenantId,
@@ -191,16 +246,36 @@ export class BulkFulfillmentProcessor {
           const newQty = currentQty - qtyToDeduct;
 
           if (newQty < 0) {
-            throw new Error(`Stock validation failed: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
+            throw new Error(`Stock deduction failed: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
           }
 
           await this.base44.entities.CurrentStock.update(stockRecords[0].id, {
             quantity_available: newQty
           });
+
+          // Track for rollback
+          stockUpdates.push({ id: stockRecords[0].id, skuId, restore: qtyToDeduct });
         }
       }
 
-      // 3d: Create stock movements
+      // Track rollback for stock
+      if (stockUpdates.length > 0) {
+        rollbackActions.push(async () => {
+          for (const su of stockUpdates) {
+            const current = await this.base44.entities.CurrentStock.filter({ 
+              tenant_id: this.tenantId,
+              sku_id: su.skuId 
+            });
+            if (current.length > 0) {
+              await this.base44.entities.CurrentStock.update(current[0].id, {
+                quantity_available: (current[0].quantity_available || 0) + su.restore
+              });
+            }
+          }
+        });
+      }
+
+      // Step 7: Create stock movements (audit trail)
       const movements = [];
       for (const line of lines) {
         movements.push({
@@ -221,22 +296,6 @@ export class BulkFulfillmentProcessor {
         await this.base44.entities.StockMovement.bulkCreate(batch);
       }
 
-      // 3e: Update order status (LAST STEP - point of no return)
-      await this.base44.entities.Order.update(orderId, {
-        status: 'fulfilled',
-        total_cost: totalCost,
-        profit_loss: (order.net_revenue || 0) - totalCost,
-        profit_margin_percent: order.net_revenue ? (((order.net_revenue - totalCost) / order.net_revenue) * 100) : null
-      });
-
-      // 3f: Verify the update
-      const verifyRecords = await this.base44.entities.Order.filter({ id: orderId });
-      const updatedOrder = verifyRecords[0];
-
-      if (!updatedOrder || updatedOrder.status !== 'fulfilled') {
-        throw new Error('Order status verification failed after update');
-      }
-
       return {
         success: true,
         orderId: amazonOrderId,
@@ -245,10 +304,30 @@ export class BulkFulfillmentProcessor {
 
     } catch (error) {
       console.error(`Order fulfillment failed: ${amazonOrderId}`, error);
+
+      // ROLLBACK: Attempt to restore all changes
+      if (rollbackActions.length > 0) {
+        console.warn(`Initiating rollback for order ${amazonOrderId}...`);
+        try {
+          // Execute rollback actions in reverse order
+          for (let i = rollbackActions.length - 1; i >= 0; i--) {
+            await rollbackActions[i]();
+          }
+          console.log(`✓ Rollback completed for order ${amazonOrderId}`);
+        } catch (rollbackError) {
+          console.error(`⚠ Rollback failed for order ${amazonOrderId}:`, rollbackError);
+          return {
+            success: false,
+            orderId: amazonOrderId,
+            error: `Transaction failed & rollback error: ${error.message}. MANUAL REVIEW REQUIRED for order ${amazonOrderId}`
+          };
+        }
+      }
+
       return {
         success: false,
         orderId: amazonOrderId,
-        error: error.message || 'Unknown error during fulfillment'
+        error: `Transaction rolled back: ${error.message}`
       };
     }
   }
