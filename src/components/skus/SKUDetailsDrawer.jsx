@@ -16,8 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTenant } from '@/components/hooks/useTenant';
+import StockMovementHistory from './StockMovementHistory';
 
 export default function SKUDetailsDrawer({ open, onClose, sku, suppliers, currentStock, onUpdate }) {
+  const { tenantId } = useTenant();
   const [formData, setFormData] = useState({
     product_name: '',
     cost_price: '',
@@ -54,12 +58,19 @@ export default function SKUDetailsDrawer({ open, onClose, sku, suppliers, curren
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent className="sm:max-w-[500px] overflow-y-auto">
+      <SheetContent className="sm:max-w-[600px] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>SKU Details</SheetTitle>
         </SheetHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6 py-6">
+        <Tabs defaultValue="details" className="py-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="history">Movement History</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="details">
+            <form onSubmit={handleSubmit} className="space-y-6">
           {/* Image Preview */}
           {formData.image_url && (
             <div className="flex justify-center">
@@ -143,13 +154,25 @@ export default function SKUDetailsDrawer({ open, onClose, sku, suppliers, curren
             </p>
           </div>
 
-          <SheetFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit">Save Changes</Button>
-          </SheetFooter>
-        </form>
+              <SheetFooter className="gap-2 mt-6">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit">Save Changes</Button>
+              </SheetFooter>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-4">
+            {sku && (
+              <StockMovementHistory 
+                sku={sku} 
+                tenantId={tenantId} 
+                currentStock={currentStock}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
       </SheetContent>
     </Sheet>
   );
