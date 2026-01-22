@@ -61,6 +61,7 @@ export default function Orders() {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [showSelectAllBanner, setShowSelectAllBanner] = useState(false);
   const [expandedBatches, setExpandedBatches] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
@@ -975,6 +976,9 @@ export default function Orders() {
 
   const handlePageChange = (page) => {
     setCurrentPage(page);
+    setSelectedOrders(new Set());
+    setSelectAllFiltered(false);
+    setShowSelectAllBanner(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -982,17 +986,34 @@ export default function Orders() {
     setPageSize(size);
     localStorage.setItem('orders_page_size', String(size));
     setCurrentPage(1);
+    setSelectedOrders(new Set());
+    setSelectAllFiltered(false);
+    setShowSelectAllBanner(false);
   };
 
   const handleSelectAll = (checked) => {
     if (checked) {
-      const newSelected = new Set(filteredOrders.map(o => o.id));
+      // Only select items on current page
+      const newSelected = new Set(paginatedOrders.map(o => o.id));
       setSelectedOrders(newSelected);
-      setSelectAllFiltered(true);
+      setSelectAllFiltered(false);
+      
+      // Show banner if there are more items beyond current page
+      if (filteredOrders.length > paginatedOrders.length) {
+        setShowSelectAllBanner(true);
+      }
     } else {
       setSelectedOrders(new Set());
       setSelectAllFiltered(false);
+      setShowSelectAllBanner(false);
     }
+  };
+
+  const handleSelectAllFiltered = () => {
+    const newSelected = new Set(filteredOrders.map(o => o.id));
+    setSelectedOrders(newSelected);
+    setSelectAllFiltered(true);
+    setShowSelectAllBanner(false);
   };
 
   const handleSelectOrder = (orderId, checked) => {
@@ -1002,6 +1023,7 @@ export default function Orders() {
     } else {
       newSelected.delete(orderId);
       setSelectAllFiltered(false);
+      setShowSelectAllBanner(false);
     }
     setSelectedOrders(newSelected);
   };
@@ -1319,8 +1341,11 @@ export default function Orders() {
     });
   };
 
-  const allFilteredSelected = filteredOrders.length > 0 && 
-    filteredOrders.every(o => selectedOrders.has(o.id));
+  const allPageSelected = paginatedOrders.length > 0 && 
+    paginatedOrders.every(o => selectedOrders.has(o.id));
+  
+  const somePageSelected = paginatedOrders.some(o => selectedOrders.has(o.id)) && 
+    !allPageSelected;
 
   // Group orders by batch
   const groupedOrders = React.useMemo(() => {
@@ -1349,7 +1374,10 @@ export default function Orders() {
       header: (
         <input
           type="checkbox"
-          checked={allFilteredSelected}
+          checked={allPageSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = somePageSelected;
+          }}
           onChange={(e) => handleSelectAll(e.target.checked)}
           className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
         />
@@ -1780,6 +1808,25 @@ export default function Orders() {
             </div>
           </div>
 
+          {/* Gmail-style Select All Banner */}
+          {showSelectAllBanner && !selectAllFiltered && selectedOrders.size === paginatedOrders.length && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-blue-900">
+                  All <strong>{paginatedOrders.length}</strong> orders on this page are selected.
+                </p>
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={handleSelectAllFiltered}
+                  className="text-blue-700 hover:text-blue-900 font-semibold"
+                >
+                  Select all {filteredOrders.length} orders in this view instead
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Bulk Action Bar */}
           {selectedOrders.size > 0 && (
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
@@ -1792,9 +1839,13 @@ export default function Orders() {
                     <p className="font-medium text-slate-900">
                       {selectedOrders.size} order{selectedOrders.size !== 1 ? 's' : ''} selected
                     </p>
-                    {selectAllFiltered && filteredOrders.length === selectedOrders.size && (
+                    {selectAllFiltered ? (
                       <p className="text-xs text-slate-600">
-                        All orders on this page are selected
+                        All {filteredOrders.length} orders in this view are selected
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-600">
+                        {paginatedOrders.filter(o => selectedOrders.has(o.id)).length} orders on this page selected
                       </p>
                     )}
                   </div>
@@ -1806,6 +1857,7 @@ export default function Orders() {
                     onClick={() => {
                       setSelectedOrders(new Set());
                       setSelectAllFiltered(false);
+                      setShowSelectAllBanner(false);
                     }}
                   >
                     Clear Selection
