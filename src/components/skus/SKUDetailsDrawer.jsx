@@ -21,7 +21,7 @@ import { useTenant } from '@/components/hooks/useTenant';
 import StockMovementHistory from './StockMovementHistory';
 
 export default function SKUDetailsDrawer({ open, onClose, sku, suppliers, currentStock, onUpdate }) {
-  const { tenantId } = useTenant();
+  const { tenantId, isOwner, isAdmin } = useTenant();
   const [formData, setFormData] = useState({
     product_name: '',
     cost_price: '',
