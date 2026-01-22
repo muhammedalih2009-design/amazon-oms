@@ -68,9 +68,12 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         total_rows: rows.length
       });
 
+      // STEP 1: Aggregate rows by SKU code
+      const aggregatedData = new Map();
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const rowNumber = i + 2; // +2 because of header and 0-index
+        const rowNumber = i + 2;
 
         try {
           // Validate required fields
@@ -98,28 +101,10 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
 
           const quantity = parseFloat(row.quantity);
           const unitPrice = parseFloat(row.unit_price);
-          const lineTotalCost = quantity * unitPrice;
-
-          // Handle supplier
-          let supplierId = null;
-          let supplierName = row.supplier_name || 'Generic';
-          
-          if (row.supplier_name) {
-            let supplier = suppliers.find(s => s.supplier_name.toLowerCase() === row.supplier_name.toLowerCase());
-            if (!supplier) {
-              supplier = await base44.entities.Supplier.create({
-                tenant_id: tenantId,
-                supplier_name: row.supplier_name
-              });
-              suppliers.push(supplier);
-            }
-            supplierId = supplier.id;
-          }
+          const skuKey = sku.sku_code;
 
           // Handle purchase date
           let purchaseDate = row.purchase_date || format(new Date(), 'yyyy-MM-dd');
-          
-          // Validate date format
           if (row.purchase_date) {
             const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
             if (!dateRegex.test(row.purchase_date)) {
@@ -127,60 +112,114 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
             }
           }
 
-          // Create Purchase record
-          const purchase = await base44.entities.Purchase.create({
-            tenant_id: tenantId,
-            sku_id: sku.id,
-            sku_code: sku.sku_code,
-            quantity_purchased: quantity,
-            total_cost: lineTotalCost,
-            cost_per_unit: unitPrice,
-            purchase_date: purchaseDate,
-            supplier_id: supplierId,
-            supplier_name: supplierName,
-            quantity_remaining: quantity,
-            import_batch_id: batch.id
-          });
-
-          totalQuantity += quantity;
-          totalCost += lineTotalCost;
-
-          // Update CurrentStock
-          let stock = currentStocks.find(s => s.sku_id === sku.id);
-          if (stock) {
-            await base44.entities.CurrentStock.update(stock.id, {
-              quantity_available: stock.quantity_available + quantity
-            });
-            stock.quantity_available += quantity;
-          } else {
-            await base44.entities.CurrentStock.create({
-              tenant_id: tenantId,
+          // Aggregate by SKU
+          if (!aggregatedData.has(skuKey)) {
+            aggregatedData.set(skuKey, {
               sku_id: sku.id,
               sku_code: sku.sku_code,
-              quantity_available: quantity
+              total_quantity: 0,
+              weighted_cost_sum: 0,
+              supplier_name: row.supplier_name || 'Generic',
+              purchase_date: purchaseDate,
+              last_unit_price: unitPrice
             });
           }
 
-          // Create StockMovement record
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: sku.id,
-            sku_code: sku.sku_code,
-            movement_type: 'purchase',
-            quantity: quantity,
-            reference_type: 'purchase',
-            reference_id: purchase.id,
-            movement_date: purchaseDate,
-            notes: `Bulk upload from CSV`
-          });
-
-          successCount++;
-          skusUpdated.add(sku.sku_code);
+          const agg = aggregatedData.get(skuKey);
+          agg.total_quantity += quantity;
+          agg.weighted_cost_sum += (quantity * unitPrice);
+          agg.last_unit_price = unitPrice; // Keep last price as fallback
+          agg.purchase_date = purchaseDate; // Use latest date
+          if (row.supplier_name) {
+            agg.supplier_name = row.supplier_name; // Use latest supplier
+          }
         } catch (error) {
           errors.push({ 
             ...row, 
             row_number: rowNumber, 
             error_reason: error.message || 'Processing failed' 
+          });
+        }
+      }
+
+      // STEP 2: Create one purchase record per unique SKU
+      for (const [skuCode, agg] of aggregatedData) {
+        try {
+          // Calculate weighted average unit price
+          const avgUnitPrice = agg.weighted_cost_sum / agg.total_quantity;
+          const totalCostForSku = agg.weighted_cost_sum;
+
+          // Handle supplier
+          let supplierId = null;
+          let supplierName = agg.supplier_name;
+          
+          if (agg.supplier_name && agg.supplier_name !== 'Generic') {
+            let supplier = suppliers.find(s => s.supplier_name.toLowerCase() === agg.supplier_name.toLowerCase());
+            if (!supplier) {
+              supplier = await base44.entities.Supplier.create({
+                tenant_id: tenantId,
+                supplier_name: agg.supplier_name
+              });
+              suppliers.push(supplier);
+            }
+            supplierId = supplier.id;
+          }
+
+          // Create aggregated Purchase record
+          const purchase = await base44.entities.Purchase.create({
+            tenant_id: tenantId,
+            sku_id: agg.sku_id,
+            sku_code: agg.sku_code,
+            quantity_purchased: agg.total_quantity,
+            total_cost: totalCostForSku,
+            cost_per_unit: avgUnitPrice,
+            purchase_date: agg.purchase_date,
+            supplier_id: supplierId,
+            supplier_name: supplierName,
+            quantity_remaining: agg.total_quantity,
+            import_batch_id: batch.id
+          });
+
+          totalQuantity += agg.total_quantity;
+          totalCost += totalCostForSku;
+
+          // Update CurrentStock
+          let stock = currentStocks.find(s => s.sku_id === agg.sku_id);
+          if (stock) {
+            await base44.entities.CurrentStock.update(stock.id, {
+              quantity_available: stock.quantity_available + agg.total_quantity
+            });
+            stock.quantity_available += agg.total_quantity;
+          } else {
+            const newStock = await base44.entities.CurrentStock.create({
+              tenant_id: tenantId,
+              sku_id: agg.sku_id,
+              sku_code: agg.sku_code,
+              quantity_available: agg.total_quantity
+            });
+            currentStocks.push(newStock);
+          }
+
+          // Create StockMovement record
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: agg.sku_id,
+            sku_code: agg.sku_code,
+            movement_type: 'purchase',
+            quantity: agg.total_quantity,
+            reference_type: 'purchase',
+            reference_id: purchase.id,
+            movement_date: agg.purchase_date,
+            notes: `Bulk upload from CSV (aggregated)`
+          });
+
+          successCount++;
+          skusUpdated.add(agg.sku_code);
+        } catch (error) {
+          errors.push({ 
+            sku_code: skuCode, 
+            row_number: 'Aggregated', 
+            error_reason: error.message || 'Failed to create aggregated purchase' 
           });
         }
       }
@@ -199,6 +238,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         total: rows.length,
         success: successCount,
         skusUpdated: skusUpdated.size,
+        uniqueRecords: successCount,
         errors: errors.length,
         errorData: errors
       });
@@ -209,7 +249,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
 
       toast({
         title: 'Upload complete',
-        description: `${successCount} purchases created, ${skusUpdated.size} SKUs updated, ${errors.length} errors`
+        description: `Processed ${rows.length} rows into ${successCount} unique purchase record(s)`
       });
 
     } catch (error) {
@@ -331,7 +371,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
                   <div>
                     <h4 className="font-medium text-green-900">Upload Complete</h4>
                     <p className="text-sm text-green-700 mt-1">
-                      {result.success} purchases created successfully
+                      Processed {result.total} rows into {result.uniqueRecords} unique purchase record(s)
                     </p>
                     <p className="text-sm text-green-700">
                       Stock updated for {result.skusUpdated} SKU(s)
