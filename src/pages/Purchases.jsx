@@ -36,6 +36,7 @@ import DataTable from '@/components/shared/DataTable';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import TablePagination from '@/components/shared/TablePagination';
 
 export default function Purchases() {
   const { tenantId, subscription, isActive, isAdmin } = useTenant();
@@ -52,6 +53,11 @@ export default function Purchases() {
   const [expandedBatches, setExpandedBatches] = useState(new Set());
   const [deletingBatch, setDeletingBatch] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = localStorage.getItem('purchases_page_size');
+    return saved ? parseInt(saved) : 25;
+  });
   const [showCartForm, setShowCartForm] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [selectedPurchases, setSelectedPurchases] = useState([]);
@@ -500,6 +506,23 @@ export default function Purchases() {
     p.supplier_name?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Paginated data
+  const paginatedPurchases = filteredPurchases.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    localStorage.setItem('purchases_page_size', String(size));
+    setCurrentPage(1);
+  };
+
   const totalSelectedQty = selectedPurchases.reduce((sum, id) => {
     const purchase = purchases.find(p => p.id === id);
     return sum + (purchase?.quantity_purchased || 0);
@@ -823,16 +846,27 @@ export default function Purchases() {
             />
           </div>
 
-          <DataTable
-            columns={columns}
-            data={filteredPurchases}
-            loading={loading}
-            emptyIcon={Truck}
-            emptyTitle="No purchases yet"
-            emptyDescription="Record your first inventory purchase"
-            emptyAction="Record Purchase"
-            onEmptyAction={() => setShowForm(true)}
-          />
+          <div>
+            <DataTable
+              columns={columns}
+              data={paginatedPurchases}
+              loading={loading}
+              emptyIcon={Truck}
+              emptyTitle="No purchases yet"
+              emptyDescription="Record your first inventory purchase"
+              emptyAction="Record Purchase"
+              onEmptyAction={() => setShowForm(true)}
+            />
+            {!loading && filteredPurchases.length > 0 && (
+              <TablePagination
+                totalItems={filteredPurchases.length}
+                currentPage={currentPage}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 

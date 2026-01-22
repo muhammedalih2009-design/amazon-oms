@@ -42,6 +42,7 @@ import ItemConditionReversalModal from '@/components/orders/ItemConditionReversa
 import { BulkFulfillmentProcessor } from '@/components/orders/BulkFulfillmentProcessor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
+import TablePagination from '@/components/shared/TablePagination';
 
 export default function Orders() {
   const { tenantId, subscription, isActive } = useTenant();
@@ -61,6 +62,11 @@ export default function Orders() {
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [selectAllFiltered, setSelectAllFiltered] = useState(false);
   const [expandedBatches, setExpandedBatches] = useState(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = localStorage.getItem('orders_page_size');
+    return saved ? parseInt(saved) : 25;
+  });
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showBulkFulfillConfirm, setShowBulkFulfillConfirm] = useState(false);
   const [bulkFulfillValidation, setBulkFulfillValidation] = useState(null);
@@ -937,6 +943,23 @@ export default function Orders() {
     return matchesSearch && matchesStatus && matchesBatch && matchesDate;
   });
 
+  // Paginated data
+  const paginatedOrders = filteredOrders.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    localStorage.setItem('orders_page_size', String(size));
+    setCurrentPage(1);
+  };
+
   const handleSelectAll = (checked) => {
     if (checked) {
       const newSelected = new Set(filteredOrders.map(o => o.id));
@@ -1759,16 +1782,27 @@ export default function Orders() {
             </div>
           )}
 
-          <DataTable
-            columns={columns}
-            data={filteredOrders}
-            loading={loading}
-            emptyIcon={ShoppingCart}
-            emptyTitle="No orders yet"
-            emptyDescription="Import orders or add them manually"
-            emptyAction="Add Order"
-            onEmptyAction={() => setShowForm(true)}
-          />
+          <div>
+            <DataTable
+              columns={columns}
+              data={paginatedOrders}
+              loading={loading}
+              emptyIcon={ShoppingCart}
+              emptyTitle="No orders yet"
+              emptyDescription="Import orders or add them manually"
+              emptyAction="Add Order"
+              onEmptyAction={() => setShowForm(true)}
+            />
+            {!loading && filteredOrders.length > 0 && (
+              <TablePagination
+                totalItems={filteredOrders.length}
+                currentPage={currentPage}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="import" className="space-y-4">
