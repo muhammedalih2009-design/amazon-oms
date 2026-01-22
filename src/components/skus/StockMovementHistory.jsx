@@ -24,7 +24,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 
-export default function StockMovementHistory({ sku, tenantId, currentStock }) {
+export default function StockMovementHistory({ sku, tenantId, currentStock, isOwner, isAdmin }) {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reconciling, setReconciling] = useState(false);
@@ -63,6 +63,9 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
 
   const [showManualReconcile, setShowManualReconcile] = useState(false);
   const [manualCount, setManualCount] = useState('');
+  const [showResetSync, setShowResetSync] = useState(false);
+  const [resetCount, setResetCount] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   const handleRecalculateStock = async () => {
     setReconciling(true);
@@ -219,16 +222,33 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
               Complete audit trail of all stock changes
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRecalculateStock}
-            disabled={reconciling}
-            className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
-            Reconcile Stock
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRecalculateStock}
+              disabled={reconciling}
+              className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
+              Reconcile Stock
+            </Button>
+            {(isOwner || isAdmin) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setResetCount(currentQty.toString());
+                  setShowResetSync(true);
+                }}
+                disabled={resetting}
+                className="border-red-200 text-red-600 hover:bg-red-50"
+              >
+                <AlertTriangle className="w-4 h-4 mr-2" />
+                Reset & Sync
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Stock Status */}
@@ -407,6 +427,97 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
               className="bg-indigo-600 hover:bg-indigo-700"
             >
               {reconciling ? 'Reconciling...' : 'Confirm Reconciliation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset & Sync Dialog */}
+      <Dialog open={showResetSync} onOpenChange={setShowResetSync}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="w-5 h-5" />
+              Reset & Sync Stock
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <p className="font-bold text-red-900 text-sm">⚠ CRITICAL OPERATION - Admin Only</p>
+                  <p className="text-sm text-red-800">
+                    This will <strong>force-reset</strong> the stock to match your physical shelf count and clear all previous discrepancies. This action:
+                  </p>
+                  <ul className="text-sm text-red-800 space-y-1 list-disc list-inside ml-2">
+                    <li>Bypasses all history validation</li>
+                    <li>Creates a clean slate starting point</li>
+                    <li>Logs the reset as a system audit entry</li>
+                    <li>Cannot be easily undone</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-sm font-semibold text-slate-900 mb-2">Current Status:</p>
+              <div className="text-sm text-slate-700 space-y-1">
+                <p>• <strong>System Stock:</strong> {currentQty} units</p>
+                <p>• <strong>Movement History Total:</strong> {calculatedStock} units</p>
+                {calculatedStock !== currentQty && (
+                  <p className="text-orange-700 font-semibold">
+                    • <strong>Discrepancy:</strong> {Math.abs(calculatedStock - currentQty)} units
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reset-count" className="text-base font-semibold">
+                Physical Shelf Count (Verified) *
+              </Label>
+              <Input
+                id="reset-count"
+                type="number"
+                min="0"
+                value={resetCount}
+                onChange={(e) => setResetCount(e.target.value)}
+                placeholder="Count items on shelf now"
+                className="text-lg font-bold border-2 border-red-200 focus:border-red-500"
+              />
+              <p className="text-xs text-slate-600">
+                📦 Go to your physical shelf, count the actual units, and enter that exact number here.
+              </p>
+            </div>
+
+            {resetCount && !isNaN(parseInt(resetCount)) && (
+              <div className="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-3">
+                <p className="text-sm font-bold text-indigo-900 mb-2">Reset Preview:</p>
+                <div className="text-sm text-indigo-800 space-y-1">
+                  <p>• Stock will be set to: <strong>{parseInt(resetCount)}</strong> units</p>
+                  <p>• Adjustment: <strong>{parseInt(resetCount) - currentQty > 0 ? '+' : ''}{parseInt(resetCount) - currentQty}</strong> units</p>
+                  <p>• Previous discrepancies: <strong className="text-emerald-700">CLEARED</strong></p>
+                  <p className="text-xs text-indigo-700 mt-2 italic">
+                    A "System Reset" audit entry will be created in the movement history.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowResetSync(false);
+              setResetCount('');
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleResetSync}
+              disabled={!resetCount || isNaN(parseInt(resetCount)) || resetting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {resetting ? 'Resetting...' : 'Confirm Reset & Sync'}
             </Button>
           </DialogFooter>
         </DialogContent>

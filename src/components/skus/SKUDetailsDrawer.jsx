@@ -169,6 +169,8 @@ export default function SKUDetailsDrawer({ open, onClose, sku, suppliers, curren
                 sku={sku} 
                 tenantId={tenantId} 
                 currentStock={currentStock}
+                isOwner={isOwner}
+                isAdmin={isAdmin}
               />
             )}
           </TabsContent>
