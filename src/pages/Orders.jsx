@@ -193,8 +193,9 @@ export default function Orders() {
       
       if (!canFulfill) return;
     }
-
-      // Calculate cost using FIFO from purchases
+    
+    // Calculate cost using FIFO from purchases
+    for (const line of lines) {
       const skuPurchases = purchases
         .filter(p => {
           // Normalize SKU matching with trim and toLowerCase
