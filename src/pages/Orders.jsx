@@ -40,6 +40,7 @@ import UploadRequirementsBanner from '@/components/skus/UploadRequirementsBanner
 import SearchableSKUSelect from '@/components/orders/SearchableSKUSelect';
 import ItemConditionReversalModal from '@/components/orders/ItemConditionReversalModal';
 import { BulkFulfillmentProcessor } from '@/components/orders/BulkFulfillmentProcessor';
+import OrdersExporter from '@/components/orders/OrdersExporter';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import TablePagination from '@/components/shared/TablePagination';
@@ -1474,6 +1475,12 @@ export default function Orders() {
           <p className="text-slate-500">Manage Amazon orders and fulfillment</p>
         </div>
         <div className="flex items-center gap-3">
+          <OrdersExporter 
+            orders={orders}
+            orderLines={orderLines}
+            filteredOrders={filteredOrders}
+            skus={skus}
+          />
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           <Button 
             onClick={() => setShowForm(true)}
