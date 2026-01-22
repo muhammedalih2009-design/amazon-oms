@@ -88,6 +88,7 @@ export default function Orders() {
   const [editFormData, setEditFormData] = useState(null);
   const [showForceFulfillConfirm, setShowForceFulfillConfirm] = useState(false);
   const [forceFulfillOrder, setForceFulfillOrder] = useState(null);
+  const [showBulkForceFulfillConfirm, setShowBulkForceFulfillConfirm] = useState(false);
   const [deleteBatch, setDeleteBatch] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -1085,13 +1086,14 @@ export default function Orders() {
 
 
 
-  const handleBulkFulfill = async () => {
+  const handleBulkFulfill = async (forceMode = false) => {
     if (!bulkFulfillValidation || bulkFulfillValidation.validOrders.length === 0) return;
 
     const ordersToProcess = bulkFulfillValidation.validOrders;
     
     // Close confirmation dialog and show progress modal
     setShowBulkFulfillConfirm(false);
+    setShowBulkForceFulfillConfirm(false);
     setShowProgressModal(true);
     setProgressState({
       current: 0,
@@ -1129,7 +1131,8 @@ export default function Orders() {
             details: r.details || ''
           }))
         }));
-      }
+      },
+      forceMode
     );
 
     // Final update
@@ -1161,6 +1164,29 @@ export default function Orders() {
       setSelectedOrders(new Set());
       setSelectAllFiltered(false);
     }, 500);
+  };
+
+  const handleBulkForceFulfillClick = () => {
+    const ordersToFulfill = orders.filter(o => selectedOrders.has(o.id) && o.status === 'pending');
+    
+    if (ordersToFulfill.length === 0) {
+      toast({ 
+        title: 'No pending orders selected', 
+        description: 'Only pending orders can be force fulfilled',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    // Set all selected orders as valid (no stock check)
+    setBulkFulfillValidation({
+      validOrders: ordersToFulfill,
+      failedOrders: [],
+      totalSelected: ordersToFulfill.length,
+      bulkShortages: []
+    });
+    
+    setShowBulkForceFulfillConfirm(true);
   };
 
   const handleCloseProgressModal = () => {
@@ -1793,6 +1819,15 @@ export default function Orders() {
                     Fulfill Selected
                   </Button>
                   <Button 
+                    size="sm"
+                    onClick={handleBulkForceFulfillClick}
+                    variant="outline"
+                    className="border-orange-500 text-orange-700 hover:bg-orange-50"
+                  >
+                    <AlertTriangle className="w-4 h-4 mr-2" />
+                    Force Fulfill Selected
+                  </Button>
+                  <Button 
                     variant="destructive" 
                     size="sm"
                     onClick={() => setShowBulkDeleteConfirm(true)}
@@ -2386,6 +2421,65 @@ export default function Orders() {
             >
               <AlertTriangle className="w-4 h-4 mr-2" />
               Yes, Force Fulfill / نعم، تنفيذ إجباري
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Force Fulfill Confirmation */}
+      <AlertDialog open={showBulkForceFulfillConfirm} onOpenChange={setShowBulkForceFulfillConfirm}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-orange-600" />
+              Force Fulfill Selected Orders - تنفيذ إجباري
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-orange-900 mb-2">
+                    ⚠️ تحذير: Warning - Bypass Stock Validation
+                  </p>
+                  <p className="text-sm text-orange-800 mb-3">
+                    You are about to FORCE FULFILL <strong>{bulkFulfillValidation?.validOrders.length || 0}</strong> order(s). This will:
+                  </p>
+                  <ul className="text-sm text-orange-800 space-y-1 list-disc list-inside">
+                    <li>Skip all stock availability checks</li>
+                    <li>Fulfill orders regardless of current stock levels</li>
+                    <li>Create <strong>NEGATIVE STOCK</strong> for items with insufficient inventory</li>
+                    <li>Mark all orders as fulfilled</li>
+                    <li>Log these actions for audit purposes</li>
+                  </ul>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-sm font-medium text-slate-900 mb-2">
+                    Selected Orders: {bulkFulfillValidation?.validOrders.length || 0}
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    All selected pending orders will be force fulfilled. Stock may become negative. Purchase inventory to balance.
+                  </p>
+                </div>
+
+                <p className="text-sm text-slate-600 font-medium">
+                  Are you sure you want to proceed with Force Fulfillment?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowBulkForceFulfillConfirm(false);
+              setBulkFulfillValidation(null);
+            }}>
+              Cancel / إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => handleBulkFulfill(true)}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              <AlertTriangle className="w-4 h-4 mr-2" />
+              Yes, Force Fulfill {bulkFulfillValidation?.validOrders.length || 0} Order(s)
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
