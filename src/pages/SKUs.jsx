@@ -42,6 +42,7 @@ import SKUSearchBar from '@/components/skus/SKUSearchBar';
 import AddSKUModal from '@/components/skus/AddSKUModal';
 import BulkUploadModal from '@/components/skus/BulkUploadModal';
 import SKUDetailsDrawer from '@/components/skus/SKUDetailsDrawer';
+import StockIntegrityChecker from '@/components/skus/StockIntegrityChecker';
 import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 
@@ -68,6 +69,7 @@ export default function SKUsPage() {
   const [showClearStockDialog, setShowClearStockDialog] = useState(false);
   const [selectedSKU, setSelectedSKU] = useState(null);
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
+  const [showIntegrityChecker, setShowIntegrityChecker] = useState(false);
 
   const lowStockThreshold = tenant?.settings?.low_stock_threshold || 5;
 
@@ -737,6 +739,16 @@ export default function SKUsPage() {
         
         <div className="flex flex-wrap items-center gap-3">
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          {canEdit && (
+            <Button 
+              variant="outline" 
+              onClick={() => setShowIntegrityChecker(true)}
+              className="border-orange-200 text-orange-600 hover:bg-orange-50"
+            >
+              <AlertCircle className="w-4 h-4 mr-2" />
+              Check Integrity
+            </Button>
+          )}
           <Button 
             variant="outline" 
             onClick={downloadTemplate}
@@ -974,6 +986,12 @@ export default function SKUsPage() {
         suppliers={suppliers}
         currentStock={currentStock}
         onUpdate={handleUpdateSKU}
+      />
+
+      <StockIntegrityChecker
+        tenantId={tenantId}
+        open={showIntegrityChecker}
+        onClose={() => setShowIntegrityChecker(false)}
       />
 
       {/* Clear Stock Confirmation */}

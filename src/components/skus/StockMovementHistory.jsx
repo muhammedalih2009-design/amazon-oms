@@ -12,8 +12,17 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 export default function StockMovementHistory({ sku, tenantId, currentStock }) {
   const [movements, setMovements] = useState([]);
@@ -52,6 +61,9 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
     }
   };
 
+  const [showManualReconcile, setShowManualReconcile] = useState(false);
+  const [manualCount, setManualCount] = useState('');
+
   const handleRecalculateStock = async () => {
     setReconciling(true);
     try {
@@ -71,34 +83,69 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
           description: `Current stock (${currentQty}) matches movement history total (${calculatedStock})`,
         });
       } else {
-        // Reconcile by updating stock to match history
-        if (stock) {
-          await base44.entities.CurrentStock.update(stock.id, {
-            quantity_available: calculatedStock
-          });
+        // Show discrepancy - prompt for manual reconciliation
+        setManualCount(currentQty.toString());
+        setShowManualReconcile(true);
+      }
+    } catch (error) {
+      toast({
+        title: 'Reconciliation failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setReconciling(false);
+    }
+  };
 
-          // Create reconciliation movement
-          const difference = calculatedStock - currentQty;
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: sku.id,
-            sku_code: sku.sku_code,
-            movement_type: 'manual',
-            quantity: difference,
-            reference_type: 'manual',
-            reference_id: null,
-            movement_date: format(new Date(), 'yyyy-MM-dd'),
-            notes: `Stock reconciliation: Adjusted from ${currentQty} to ${calculatedStock}`
-          });
+  const handleManualReconcile = async () => {
+    setReconciling(true);
+    try {
+      const physicalCount = parseInt(manualCount);
+      if (isNaN(physicalCount) || physicalCount < 0) {
+        toast({
+          title: 'Invalid count',
+          description: 'Please enter a valid number',
+          variant: 'destructive'
+        });
+        return;
+      }
 
-          toast({
-            title: 'Stock reconciled',
-            description: `Stock adjusted from ${currentQty} to ${calculatedStock} (difference: ${difference > 0 ? '+' : ''}${difference})`,
-          });
+      const calculatedStock = movements.reduce((total, movement) => {
+        return total + (movement.quantity || 0);
+      }, 0);
 
-          // Reload movements to show reconciliation entry
-          loadMovements();
-        }
+      const stock = currentStock.find(s => s.sku_id === sku.id);
+      const currentQty = stock?.quantity_available || 0;
+      const correction = physicalCount - calculatedStock;
+
+      // Update stock to physical count
+      if (stock) {
+        await base44.entities.CurrentStock.update(stock.id, {
+          quantity_available: physicalCount
+        });
+
+        // Create correction movement to balance history
+        await base44.entities.StockMovement.create({
+          tenant_id: tenantId,
+          sku_id: sku.id,
+          sku_code: sku.sku_code,
+          movement_type: 'manual',
+          quantity: correction,
+          reference_type: 'manual',
+          reference_id: null,
+          movement_date: format(new Date(), 'yyyy-MM-dd'),
+          notes: `Manual reconciliation: Physical count ${physicalCount}, System: ${currentQty}, History: ${calculatedStock}. Correction: ${correction > 0 ? '+' : ''}${correction}`
+        });
+
+        toast({
+          title: 'Stock reconciled',
+          description: `Stock set to ${physicalCount} units. Correction movement created (${correction > 0 ? '+' : ''}${correction})`,
+        });
+
+        setShowManualReconcile(false);
+        setManualCount('');
+        loadMovements();
       }
     } catch (error) {
       toast({
@@ -291,6 +338,79 @@ export default function StockMovementHistory({ sku, tenantId, currentStock }) {
           </>
         )}
       </div>
+
+      {/* Manual Reconciliation Dialog */}
+      <Dialog open={showManualReconcile} onOpenChange={setShowManualReconcile}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manual Stock Reconciliation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold text-amber-900">Stock Discrepancy Detected</p>
+                  <div className="space-y-1 text-amber-800">
+                    <p>• <strong>Current Stock:</strong> {currentQty} units</p>
+                    <p>• <strong>Movement History Total:</strong> {calculatedStock} units</p>
+                    <p>• <strong>Difference:</strong> {calculatedStock - currentQty} units</p>
+                  </div>
+                  <p className="text-amber-700 mt-2">
+                    {calculatedStock > currentQty 
+                      ? '⚠ History shows more stock than system. Possible missing OUT movements (unfulfilled orders not logged).'
+                      : '⚠ System shows more stock than history. Possible missing IN movements (purchases not logged).'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="physical-count">Physical Count (Actual Inventory) *</Label>
+              <Input
+                id="physical-count"
+                type="number"
+                min="0"
+                value={manualCount}
+                onChange={(e) => setManualCount(e.target.value)}
+                placeholder="Enter actual physical count"
+                className="text-lg font-semibold"
+              />
+              <p className="text-xs text-slate-500">
+                Count your actual physical inventory and enter the true number here. A correction movement will be created to balance the history.
+              </p>
+            </div>
+
+            {manualCount && !isNaN(parseInt(manualCount)) && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-indigo-900 mb-2">Reconciliation Preview:</p>
+                <div className="text-sm text-indigo-800 space-y-1">
+                  <p>• Stock will be set to: <strong>{parseInt(manualCount)}</strong> units</p>
+                  <p>• Correction movement: <strong>{parseInt(manualCount) - calculatedStock > 0 ? '+' : ''}{parseInt(manualCount) - calculatedStock}</strong> units</p>
+                  <p className="text-xs text-indigo-700 mt-2">
+                    This will add a "Manual Adjustment" entry to balance the movement history.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowManualReconcile(false);
+              setManualCount('');
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleManualReconcile}
+              disabled={!manualCount || isNaN(parseInt(manualCount)) || reconciling}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {reconciling ? 'Reconciling...' : 'Confirm Reconciliation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
