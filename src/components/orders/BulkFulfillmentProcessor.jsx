@@ -55,8 +55,9 @@ export class BulkFulfillmentProcessor {
   /**
    * Process a single order with transactional-like logic
    * Returns: { success, orderId, error, details }
+   * @param {boolean} forceMode - If true, bypass stock validation checks
    */
-  async processSingleOrder(order, orderLines, purchases, currentStock, skus, format) {
+  async processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode = false) {
     const orderId = order.id;
     const amazonOrderId = order.amazon_order_id;
 
@@ -80,9 +81,10 @@ export class BulkFulfillmentProcessor {
         throw new Error('No valid order lines found');
       }
 
-      // Step 2: Validate stock availability (re-check current stock)
+      // Step 2: Validate stock availability (re-check current stock) - UNLESS force mode
       let totalCost = 0;
       const stockDeductions = new Map(); // sku_id -> quantity to deduct
+      let forceFulfilledWarnings = [];
 
       for (const line of lines) {
         // Fresh stock check
@@ -93,13 +95,24 @@ export class BulkFulfillmentProcessor {
 
         const availableStock = stockRecords.length > 0 ? (stockRecords[0].quantity_available || 0) : 0;
         
-        if (availableStock < line.quantity) {
+        // Only enforce stock validation if NOT in force mode
+        if (!forceMode && availableStock < line.quantity) {
           throw new Error(
             `Insufficient stock for ${line.sku_code}: Need ${line.quantity}, Have ${availableStock}`
           );
         }
 
-        // Accumulate deductions
+        // Track if this was force-fulfilled with insufficient stock
+        if (forceMode && availableStock < line.quantity) {
+          forceFulfilledWarnings.push({
+            sku_code: line.sku_code,
+            required: line.quantity,
+            available: availableStock,
+            shortage: line.quantity - availableStock
+          });
+        }
+
+        // Accumulate deductions (will allow negative stock in force mode)
         const currentDeduction = stockDeductions.get(line.sku_id) || 0;
         stockDeductions.set(line.sku_id, currentDeduction + line.quantity);
 
@@ -233,7 +246,7 @@ export class BulkFulfillmentProcessor {
         });
       }
 
-      // Step 6: Deduct stock (critical operation)
+      // Step 6: Deduct stock (critical operation) - allow negative in force mode
       const stockUpdates = [];
       for (const [skuId, qtyToDeduct] of stockDeductions) {
         const stockRecords = await this.base44.entities.CurrentStock.filter({
@@ -245,7 +258,8 @@ export class BulkFulfillmentProcessor {
           const currentQty = stockRecords[0].quantity_available || 0;
           const newQty = currentQty - qtyToDeduct;
 
-          if (newQty < 0) {
+          // In force mode, allow negative stock. Otherwise, enforce validation.
+          if (!forceMode && newQty < 0) {
             throw new Error(`Stock deduction failed: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
           }
 
@@ -296,10 +310,17 @@ export class BulkFulfillmentProcessor {
         await this.base44.entities.StockMovement.bulkCreate(batch);
       }
 
+      // Success message with force-fulfill indication
+      let successMessage = `Successfully fulfilled with cost: $${totalCost.toFixed(2)}`;
+      if (forceMode && forceFulfilledWarnings.length > 0) {
+        successMessage += ` (FORCE FULFILLED - Negative stock created)`;
+      }
+
       return {
         success: true,
         orderId: amazonOrderId,
-        details: `Successfully fulfilled with cost: $${totalCost.toFixed(2)}`
+        details: successMessage,
+        forceMode: forceMode
       };
 
     } catch (error) {
