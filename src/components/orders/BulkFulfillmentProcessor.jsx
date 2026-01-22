@@ -7,7 +7,10 @@ export class BulkFulfillmentProcessor {
   constructor(base44, tenantId) {
     this.base44 = base44;
     this.tenantId = tenantId;
-    this.CHUNK_SIZE = 10;
+    this.CHUNK_SIZE = 5; // Reduced from 10 to 5 to prevent rate limiting
+    this.CHUNK_DELAY_MS = 800; // 800ms delay between chunks to stay below rate limits
+    this.MAX_RETRIES = 2; // Retry up to 2 times on rate limit errors
+    this.RETRY_DELAY_MS = 2000; // 2 second delay before retry
   }
 
   /**
@@ -53,11 +56,12 @@ export class BulkFulfillmentProcessor {
   }
 
   /**
-   * Process a single order with transactional-like logic
+   * Process a single order with transactional-like logic with retry support
    * Returns: { success, orderId, error, details }
    * @param {boolean} forceMode - If true, bypass stock validation checks
+   * @param {number} retryCount - Current retry attempt (for rate limit handling)
    */
-  async processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode = false) {
+  async processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode = false, retryCount = 0) {
     const orderId = order.id;
     const amazonOrderId = order.amazon_order_id;
 
@@ -327,6 +331,21 @@ export class BulkFulfillmentProcessor {
     } catch (error) {
       console.error(`Order fulfillment failed: ${amazonOrderId}`, error);
 
+      // Check if this is a rate limit error and we haven't exceeded max retries
+      const isRateLimitError = error.message?.toLowerCase().includes('rate limit') || 
+                                error.message?.toLowerCase().includes('429') ||
+                                error.message?.toLowerCase().includes('too many requests');
+      
+      if (isRateLimitError && retryCount < this.MAX_RETRIES) {
+        console.warn(`⏳ Rate limit hit for order ${amazonOrderId}. Retrying in ${this.RETRY_DELAY_MS}ms (Attempt ${retryCount + 1}/${this.MAX_RETRIES})...`);
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_MS));
+        
+        // Retry the order processing
+        return this.processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode, retryCount + 1);
+      }
+
       // ROLLBACK: Attempt to restore all changes
       if (rollbackActions.length > 0) {
         console.warn(`Initiating rollback for order ${amazonOrderId}...`);
@@ -349,20 +368,28 @@ export class BulkFulfillmentProcessor {
       return {
         success: false,
         orderId: amazonOrderId,
-        error: `Transaction rolled back: ${error.message}`
+        error: `Transaction rolled back: ${error.message}${isRateLimitError ? ' (Max retries exceeded)' : ''}`
       };
     }
   }
 
   /**
-   * Process orders in chunks
+   * Process orders in chunks with throttling to prevent rate limiting
    */
   async processOrdersInChunks(ordersToProcess, orderLines, purchases, currentStock, skus, format, onProgress, forceMode = false) {
     const results = [];
     const totalOrders = ordersToProcess.length;
+    const totalChunks = Math.ceil(totalOrders / this.CHUNK_SIZE);
+
+    console.log(`📦 Starting bulk fulfillment: ${totalOrders} orders in ${totalChunks} chunks of ${this.CHUNK_SIZE}`);
 
     for (let i = 0; i < totalOrders; i += this.CHUNK_SIZE) {
+      const chunkNumber = Math.floor(i / this.CHUNK_SIZE) + 1;
       const chunk = ordersToProcess.slice(i, i + this.CHUNK_SIZE);
+      
+      console.log(`⚡ Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} orders)...`);
+      
+      // Process all orders in this chunk in parallel
       const chunkPromises = chunk.map(order =>
         this.processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode)
       );
@@ -374,10 +401,14 @@ export class BulkFulfillmentProcessor {
       const processed = Math.min(i + this.CHUNK_SIZE, totalOrders);
       onProgress(processed, results);
 
-      // Small delay to prevent UI blocking
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Throttle: Wait between chunks to prevent rate limiting (except for the last chunk)
+      if (i + this.CHUNK_SIZE < totalOrders) {
+        console.log(`⏳ Throttling: waiting ${this.CHUNK_DELAY_MS}ms before next chunk...`);
+        await new Promise(resolve => setTimeout(resolve, this.CHUNK_DELAY_MS));
+      }
     }
 
+    console.log(`✅ Bulk fulfillment complete: ${results.filter(r => r.success).length}/${totalOrders} succeeded`);
     return results;
   }
 }
