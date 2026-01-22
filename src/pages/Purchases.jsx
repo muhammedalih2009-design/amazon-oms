@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle, ChevronDown, ChevronRight, Download, Package } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
+import BatchDeletionProgress from '@/components/purchases/BatchDeletionProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,6 +53,15 @@ export default function Purchases() {
   const [search, setSearch] = useState('');
   const [expandedBatches, setExpandedBatches] = useState(new Set());
   const [deletingBatch, setDeletingBatch] = useState(null);
+  const [showBatchDeleteProgress, setShowBatchDeleteProgress] = useState(false);
+  const [batchDeleteProgress, setBatchDeleteProgress] = useState({
+    current: 0,
+    total: 0,
+    successCount: 0,
+    failCount: 0,
+    completed: false,
+    log: []
+  });
   const [showForm, setShowForm] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => {
@@ -313,6 +323,14 @@ export default function Purchases() {
   const handleConfirmDelete = async () => {
     if (!deleteMode) return;
 
+    // If deleting a batch, show progress modal
+    if (deletingBatch) {
+      setShowDeleteDialog(false);
+      await handleBatchDeletionWithProgress();
+      return;
+    }
+
+    // Regular deletion (single/bulk without batch)
     try {
       const shouldDeductStock = deleteMode === 'deduct';
       
@@ -369,6 +387,111 @@ export default function Purchases() {
         variant: 'destructive'
       });
     }
+  };
+
+  const handleBatchDeletionWithProgress = async () => {
+    const shouldDeductStock = deleteMode === 'deduct';
+    const batchPurchases = purchases.filter(p => p.import_batch_id === deletingBatch.id);
+    
+    // Initialize progress
+    setBatchDeleteProgress({
+      current: 0,
+      total: batchPurchases.length,
+      successCount: 0,
+      failCount: 0,
+      completed: false,
+      log: []
+    });
+    setShowBatchDeleteProgress(true);
+
+    const results = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    // Process each purchase sequentially with live updates
+    for (let i = 0; i < batchPurchases.length; i++) {
+      const purchase = batchPurchases[i];
+      
+      try {
+        // Update stock if deducting
+        if (shouldDeductStock) {
+          const stock = currentStock.find(s => s.sku_id === purchase.sku_id);
+          if (stock) {
+            const newQty = (stock.quantity_available || 0) - purchase.quantity_purchased;
+            await base44.entities.CurrentStock.update(stock.id, {
+              quantity_available: newQty
+            });
+          }
+
+          // Create stock movement
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: purchase.sku_id,
+            sku_code: purchase.sku_code,
+            movement_type: 'batch_delete',
+            quantity: -purchase.quantity_purchased,
+            reference_type: 'purchase',
+            reference_id: purchase.id,
+            movement_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: `Batch deletion: ${deletingBatch.batch_name} - Stock ${shouldDeductStock ? 'deducted' : 'kept'}`
+          });
+        }
+
+        // Delete purchase record
+        await base44.entities.Purchase.delete(purchase.id);
+
+        successCount++;
+        results.push({
+          skuCode: purchase.sku_code,
+          success: true,
+          details: shouldDeductStock 
+            ? `Removed ${purchase.quantity_purchased} units from stock` 
+            : 'Record deleted, stock unchanged'
+        });
+      } catch (error) {
+        failCount++;
+        results.push({
+          skuCode: purchase.sku_code,
+          success: false,
+          error: error.message || 'Deletion failed'
+        });
+      }
+
+      // Update progress after each item
+      setBatchDeleteProgress(prev => ({
+        ...prev,
+        current: i + 1,
+        successCount,
+        failCount,
+        log: results.slice(-50).reverse() // Keep last 50, newest first
+      }));
+
+      // Small delay to allow UI to update
+      if (i < batchPurchases.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+
+    // Delete the batch record
+    try {
+      await base44.entities.ImportBatch.delete(deletingBatch.id);
+    } catch (error) {
+      console.error('Failed to delete batch record:', error);
+    }
+
+    // Mark as complete
+    setBatchDeleteProgress(prev => ({
+      ...prev,
+      completed: true
+    }));
+
+    // Refresh data
+    loadData();
+    
+    // Reset state
+    setDeleteWarning(null);
+    setDeleteMode(null);
+    setDeletingBatch(null);
   };
 
   const toggleSelectAll = () => {
@@ -1061,6 +1184,24 @@ export default function Purchases() {
         onClose={() => setShowBulkUpload(false)}
         tenantId={tenantId}
         onSuccess={() => loadData()}
+      />
+
+      {/* Batch Deletion Progress */}
+      <BatchDeletionProgress
+        open={showBatchDeleteProgress}
+        batch={deletingBatch}
+        progressState={batchDeleteProgress}
+        onClose={() => {
+          setShowBatchDeleteProgress(false);
+          setBatchDeleteProgress({
+            current: 0,
+            total: 0,
+            successCount: 0,
+            failCount: 0,
+            completed: false,
+            log: []
+          });
+        }}
       />
 
       {/* Delete Confirmation Dialog */}
