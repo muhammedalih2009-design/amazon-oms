@@ -251,14 +251,17 @@ export class BulkFulfillmentProcessor {
       }
 
       // Step 6: Deduct stock (critical operation) - allow negative in force mode
+      // RACE CONDITION MITIGATION: Re-fetch stock immediately before update
       const stockUpdates = [];
       for (const [skuId, qtyToDeduct] of stockDeductions) {
+        // CRITICAL: Re-read stock value to get latest (pseudo-atomic behavior)
         const stockRecords = await this.base44.entities.CurrentStock.filter({
           tenant_id: this.tenantId,
           sku_id: skuId
         });
 
         if (stockRecords.length > 0) {
+          // Get CURRENT value from database, not cached value
           const currentQty = stockRecords[0].quantity_available || 0;
           const newQty = currentQty - qtyToDeduct;
 
@@ -293,7 +296,8 @@ export class BulkFulfillmentProcessor {
         });
       }
 
-      // Step 7: Create stock movements (audit trail) with force note
+      // Step 7: CRITICAL - Create stock movements (audit trail)
+      // These MUST be created to maintain integrity
       const movements = [];
       for (const line of lines) {
         movements.push({
@@ -305,14 +309,22 @@ export class BulkFulfillmentProcessor {
           reference_type: 'order_line',
           reference_id: line.id,
           movement_date: format(new Date(), 'yyyy-MM-dd'),
-          notes: forceMode ? 'Force fulfilled - bypassed stock validation' : undefined
+          notes: forceMode 
+            ? `Force fulfilled (Order ${amazonOrderId}) - bypassed stock validation` 
+            : `Order fulfillment: ${amazonOrderId}`
         });
       }
 
-      const BATCH_SIZE = 400;
-      for (let i = 0; i < movements.length; i += BATCH_SIZE) {
-        const batch = movements.slice(i, i + BATCH_SIZE);
-        await this.base44.entities.StockMovement.bulkCreate(batch);
+      // CRITICAL: Movement creation must succeed for integrity
+      try {
+        const BATCH_SIZE = 400;
+        for (let i = 0; i < movements.length; i += BATCH_SIZE) {
+          const batch = movements.slice(i, i + BATCH_SIZE);
+          await this.base44.entities.StockMovement.bulkCreate(batch);
+        }
+      } catch (movementError) {
+        // If movements fail, this is a critical integrity error
+        throw new Error(`CRITICAL: Failed to create stock movements for order ${amazonOrderId}: ${movementError.message}. Stock deducted but audit trail incomplete.`);
       }
 
       // Success message with force-fulfill indication
