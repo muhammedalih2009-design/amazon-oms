@@ -523,9 +523,6 @@ export default function SKUsPage() {
   const handleDeleteSelected = async () => {
     setShowDeleteDialog(false);
     
-    // Create global task
-    const taskId = createTask(`Deleting ${selectedRows.length} SKUs`, selectedRows.length);
-    
     // Initialize progress modal
     setProgressState({
       current: 0,
@@ -536,13 +533,6 @@ export default function SKUsPage() {
       log: []
     });
     setShowProgressModal(true);
-
-    // Browser warning
-    const handleBeforeUnload = (e) => {
-      e.preventDefault();
-      e.returnValue = 'Tasks are still running. Are you sure you want to leave?';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
 
     const BATCH_SIZE = 4; // Process 4 items at a time
     const BASE_DELAY_MS = 750; // 750ms delay between batches
@@ -635,20 +625,13 @@ export default function SKUsPage() {
         current++;
         
         // Update progress more frequently
-        const newState = {
+        setProgressState({
           current,
           total: selectedRows.length,
           successCount,
           failCount,
           completed: false,
           log: log.slice(0, 50)
-        };
-        setProgressState(newState);
-        
-        // Update global task
-        updateTask(taskId, {
-          progress: newState,
-          log: log.slice(0, 10)
         });
         
         // Adaptive delay - increase if hitting rate limits
@@ -657,11 +640,9 @@ export default function SKUsPage() {
       }
     }
 
-    // Mark as complete
-    setProgressState(prev => ({
-      ...prev,
-      completed: true
-    }));
+    // Mark as completed
+    const finalState = { current, total: selectedRows.length, successCount, failCount, completed: true };
+    setProgressState(prev => ({ ...prev, completed: true }));
 
     // Generate error CSV if any failures
     if (failCount > 0) {
@@ -1145,18 +1126,8 @@ export default function SKUsPage() {
       {/* Bulk Deletion Progress Modal */}
       <TaskProgressModal
         open={showProgressModal}
-        onClose={() => {
-          setShowProgressModal(false);
-          setProgressState({
-            current: 0,
-            total: 0,
-            successCount: 0,
-            failCount: 0,
-            completed: false,
-            log: []
-          });
-          setSelectedRows([]);
-        }}
+        onClose={() => setShowProgressModal(false)}
+        onMinimize={() => setShowProgressModal(false)}
         title="Deleting SKUs"
         current={progressState.current}
         total={progressState.total}
