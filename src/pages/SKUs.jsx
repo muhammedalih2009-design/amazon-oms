@@ -18,6 +18,7 @@ import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
+import TaskProgressModal from '@/components/shared/TaskProgressModal';
 import {
   Select,
   SelectContent,
