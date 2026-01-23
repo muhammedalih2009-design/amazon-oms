@@ -70,6 +70,15 @@ export default function SKUsPage() {
   const [selectedSKU, setSelectedSKU] = useState(null);
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
   const [showIntegrityChecker, setShowIntegrityChecker] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressState, setProgressState] = useState({
+    current: 0,
+    total: 0,
+    successCount: 0,
+    failCount: 0,
+    completed: false,
+    log: []
+  });
 
   const lowStockThreshold = tenant?.settings?.low_stock_threshold || 5;
 
@@ -511,10 +520,36 @@ export default function SKUsPage() {
   };
 
   const handleDeleteSelected = async () => {
-    try {
-      const deleteResults = [];
+    setShowDeleteDialog(false);
+    
+    // Initialize progress modal
+    setProgressState({
+      current: 0,
+      total: selectedRows.length,
+      successCount: 0,
+      failCount: 0,
+      completed: false,
+      log: []
+    });
+    setShowProgressModal(true);
+
+    const BATCH_SIZE = 2; // Process 2 items at a time
+    const DELAY_MS = 750; // 750ms delay between batches
+    
+    let current = 0;
+    let successCount = 0;
+    let failCount = 0;
+    const log = [];
+
+    // Process in batches of 2 with throttling
+    for (let i = 0; i < selectedRows.length; i += BATCH_SIZE) {
+      const batchIds = selectedRows.slice(i, i + BATCH_SIZE);
       
-      for (const skuId of selectedRows) {
+      // Process batch in parallel
+      await Promise.all(batchIds.map(async (skuId) => {
+        const sku = skus.find(s => s.id === skuId);
+        const skuLabel = sku?.sku_code || skuId;
+        
         try {
           // Check if SKU is referenced
           const [orders, purchases] = await Promise.all([
@@ -523,16 +558,10 @@ export default function SKUsPage() {
           ]);
 
           if (orders.length > 0 || purchases.length > 0) {
-            const sku = skus.find(s => s.id === skuId);
-            deleteResults.push({
-              sku_code: sku.sku_code,
-              success: false,
-              reason: 'Referenced by orders or purchases'
-            });
-            continue;
+            throw new Error(`Referenced by ${orders.length} order(s) and ${purchases.length} purchase(s)`);
           }
 
-          // Delete stock and movements
+          // Delete stock records
           const stockRecords = await base44.entities.CurrentStock.filter({ 
             tenant_id: tenantId, 
             sku_id: skuId 
@@ -541,6 +570,7 @@ export default function SKUsPage() {
             await base44.entities.CurrentStock.delete(stock.id);
           }
 
+          // Delete stock movements
           const movements = await base44.entities.StockMovement.filter({ 
             tenant_id: tenantId, 
             sku_id: skuId 
@@ -552,54 +582,65 @@ export default function SKUsPage() {
           // Delete SKU
           await base44.entities.SKU.delete(skuId);
           
-          const sku = skus.find(s => s.id === skuId);
-          deleteResults.push({
-            sku_code: sku.sku_code,
-            success: true
+          successCount++;
+          log.unshift({
+            label: `SKU ${skuLabel}`,
+            success: true,
+            details: 'Deleted successfully'
           });
         } catch (error) {
-          const sku = skus.find(s => s.id === skuId);
-          deleteResults.push({
-            sku_code: sku?.sku_code || 'Unknown',
+          failCount++;
+          log.unshift({
+            label: `SKU ${skuLabel}`,
             success: false,
-            reason: error.message
+            error: error.message
           });
         }
-      }
-
-      const successCount = deleteResults.filter(r => r.success).length;
-      const failedCount = deleteResults.filter(r => !r.success).length;
-
-      // Download error CSV if any failures
-      if (failedCount > 0) {
-        const failedItems = deleteResults.filter(r => !r.success);
-        const errorCSV = [
-          'sku_code,reason',
-          ...failedItems.map(e => `"${e.sku_code}","${e.reason}"`)
-        ].join('\n');
         
-        const blob = new Blob([errorCSV], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `delete_errors_${Date.now()}.csv`;
-        link.click();
+        current++;
+      }));
+
+      // Update progress after each batch
+      setProgressState({
+        current,
+        total: selectedRows.length,
+        successCount,
+        failCount,
+        completed: false,
+        log: log.slice(0, 50)
+      });
+
+      // Throttle: wait before processing next batch (unless it's the last batch)
+      if (i + BATCH_SIZE < selectedRows.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
       }
-
-      toast({
-        title: 'Deletion complete',
-        description: `${successCount} SKUs deleted${failedCount > 0 ? `, ${failedCount} failed` : ''}`
-      });
-
-      loadData();
-      setShowDeleteDialog(false);
-    } catch (error) {
-      toast({
-        title: 'Error deleting SKUs',
-        description: error.message,
-        variant: 'destructive'
-      });
     }
+
+    // Mark as complete
+    setProgressState(prev => ({
+      ...prev,
+      completed: true
+    }));
+
+    // Generate error CSV if any failures
+    if (failCount > 0) {
+      const failedItems = log.filter(entry => !entry.success);
+      const errorCSV = [
+        'sku_code,reason',
+        ...failedItems.map(e => `"${e.label.replace('SKU ', '')}","${e.error}"`)
+      ].join('\n');
+      
+      const blob = new Blob([errorCSV], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sku_delete_errors_${Date.now()}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Refresh data
+    loadData();
   };
 
   const downloadTemplate = () => {
@@ -1029,14 +1070,21 @@ export default function SKUsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedRows.length} SKU(s)?</AlertDialogTitle>
             <AlertDialogDescription>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p>This action cannot be undone. SKUs will be permanently deleted.</p>
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
                   <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-sm text-amber-800">
-                    <strong>Warning:</strong> SKUs referenced by orders or purchases cannot be deleted. 
-                    A detailed error report will be provided for failed deletions.
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-sm text-amber-800 font-semibold">
+                      Processing Details:
+                    </p>
+                    <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                      <li>SKUs will be processed in batches of 2 items</li>
+                      <li>750ms delay between batches to prevent timeouts</li>
+                      <li>SKUs linked to orders/purchases will be skipped</li>
+                      <li>Failed deletions will be logged and exported</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </AlertDialogDescription>
@@ -1047,11 +1095,35 @@ export default function SKUsPage() {
               onClick={handleDeleteSelected}
               className="bg-red-600 hover:bg-red-700"
             >
-              Delete Selected
+              Start Deletion
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk Deletion Progress Modal */}
+      <TaskProgressModal
+        open={showProgressModal}
+        onClose={() => {
+          setShowProgressModal(false);
+          setProgressState({
+            current: 0,
+            total: 0,
+            successCount: 0,
+            failCount: 0,
+            completed: false,
+            log: []
+          });
+          setSelectedRows([]);
+        }}
+        title="Deleting SKUs"
+        current={progressState.current}
+        total={progressState.total}
+        successCount={progressState.successCount}
+        failCount={progressState.failCount}
+        completed={progressState.completed}
+        log={progressState.log}
+      />
     </div>
   );
 }
