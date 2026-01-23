@@ -21,7 +21,8 @@ import {
   Moon,
   Sun,
   Shield,
-  CheckSquare
+  CheckSquare,
+  Store
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
