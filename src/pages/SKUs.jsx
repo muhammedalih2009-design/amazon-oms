@@ -534,8 +534,8 @@ export default function SKUsPage() {
     });
     setShowProgressModal(true);
 
-    const BATCH_SIZE = 4; // Process 4 items at a time
-    const BASE_DELAY_MS = 750; // 750ms delay between batches
+    const BATCH_SIZE = 6; // Process 6 items at a time
+    const BASE_DELAY_MS = 500; // 500ms delay between batches
     const MAX_RETRIES = 3;
     
     let current = 0;
@@ -1101,8 +1101,8 @@ export default function SKUsPage() {
                       Processing Details:
                     </p>
                     <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                      <li>SKUs will be processed in batches of 4 items</li>
-                      <li>750ms delay between batches to prevent timeouts</li>
+                      <li>SKUs will be processed in batches of 6 items</li>
+                      <li>500ms delay between batches to prevent timeouts</li>
                       <li>SKUs linked to orders/purchases will be skipped</li>
                       <li>Failed deletions will be logged and exported</li>
                     </ul>
