@@ -81,6 +81,15 @@ export default function SKUsPage() {
     log: []
   });
 
+  // Pagination state
+  const [rowsPerPage, setRowsPerPage] = useState(() => {
+    const saved = localStorage.getItem('skus_rows_per_page');
+    return saved ? (saved === 'all' ? 'all' : parseInt(saved)) : 50;
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectAllPages, setSelectAllPages] = useState(false);
+  const [showSelectAllBanner, setShowSelectAllBanner] = useState(false);
+
   const lowStockThreshold = tenant?.settings?.low_stock_threshold || 5;
 
   useEffect(() => {
@@ -755,19 +764,73 @@ export default function SKUsPage() {
       }
     });
 
+  // Pagination calculations
+  const totalItems = filteredSkus.length;
+  const totalPages = rowsPerPage === 'all' ? 1 : Math.ceil(totalItems / rowsPerPage);
+  const startIndex = rowsPerPage === 'all' ? 0 : (currentPage - 1) * rowsPerPage;
+  const endIndex = rowsPerPage === 'all' ? totalItems : startIndex + rowsPerPage;
+  const paginatedSkus = rowsPerPage === 'all' ? filteredSkus : filteredSkus.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectAllPages(false);
+    setShowSelectAllBanner(false);
+  }, [debouncedSearch, stockFilter, sortBy]);
+
+  // Handle rows per page change
+  const handleRowsPerPageChange = (value) => {
+    const newValue = value === 'all' ? 'all' : parseInt(value);
+    setRowsPerPage(newValue);
+    localStorage.setItem('skus_rows_per_page', value);
+    setCurrentPage(1);
+    setSelectAllPages(false);
+    setShowSelectAllBanner(false);
+  };
+
   const toggleSelectAll = () => {
-    if (selectedRows.length === filteredSkus.length) {
-      setSelectedRows([]);
+    const currentPageIds = paginatedSkus.map(s => s.id);
+    const allCurrentPageSelected = currentPageIds.every(id => selectedRows.includes(id));
+    
+    if (allCurrentPageSelected) {
+      // Deselect all on current page
+      setSelectedRows(selectedRows.filter(id => !currentPageIds.includes(id)));
+      setShowSelectAllBanner(false);
+      setSelectAllPages(false);
     } else {
-      setSelectedRows(filteredSkus.map(s => s.id));
+      // Select all on current page
+      const newSelection = [...new Set([...selectedRows, ...currentPageIds])];
+      setSelectedRows(newSelection);
+      
+      // Show banner if all items on page are now selected and there are more pages
+      if (newSelection.length === currentPageIds.length && totalItems > currentPageIds.length) {
+        setShowSelectAllBanner(true);
+      }
     }
+  };
+
+  const handleSelectAllPages = () => {
+    setSelectedRows(filteredSkus.map(s => s.id));
+    setSelectAllPages(true);
+    setShowSelectAllBanner(false);
   };
 
   const toggleSelectRow = (skuId) => {
     if (selectedRows.includes(skuId)) {
       setSelectedRows(selectedRows.filter(id => id !== skuId));
+      setShowSelectAllBanner(false);
+      setSelectAllPages(false);
     } else {
-      setSelectedRows([...selectedRows, skuId]);
+      const newSelection = [...selectedRows, skuId];
+      setSelectedRows(newSelection);
+      
+      // Check if all items on current page are selected
+      const currentPageIds = paginatedSkus.map(s => s.id);
+      const allCurrentPageSelected = currentPageIds.every(id => newSelection.includes(id));
+      
+      if (allCurrentPageSelected && totalItems > currentPageIds.length) {
+        setShowSelectAllBanner(true);
+      }
     }
   };
 
@@ -885,6 +948,18 @@ export default function SKUsPage() {
         </div>
         
         <div className="flex gap-3">
+          {/* Rows Per Page */}
+          <Select value={rowsPerPage.toString()} onValueChange={handleRowsPerPageChange}>
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="25">25 rows</SelectItem>
+              <SelectItem value="50">50 rows</SelectItem>
+              <SelectItem value="100">100 rows</SelectItem>
+              <SelectItem value="all">All rows</SelectItem>
+            </SelectContent>
+          </Select>
           {/* Stock Status Filter */}
           <Select value={stockFilter} onValueChange={setStockFilter}>
             <SelectTrigger className="w-48">
@@ -925,6 +1000,55 @@ export default function SKUsPage() {
         </div>
       </div>
 
+      {/* Select All Banner */}
+      {showSelectAllBanner && !selectAllPages && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-indigo-600" />
+            <p className="text-sm text-slate-700">
+              All <strong>{paginatedSkus.length}</strong> items on this page are selected.{' '}
+              <button
+                onClick={handleSelectAllPages}
+                className="text-indigo-600 font-semibold hover:underline"
+              >
+                Select all {totalItems} items in SKUs
+              </button>
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setShowSelectAllBanner(false);
+              setSelectedRows([]);
+            }}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {selectAllPages && (
+        <div className="bg-indigo-100 border border-indigo-300 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-indigo-700" />
+            <p className="text-sm text-slate-900 font-semibold">
+              All <strong>{totalItems}</strong> items in SKUs are selected.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectAllPages(false);
+              setSelectedRows([]);
+            }}
+          >
+            Clear Selection
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       {loading ? (
         <div className="bg-white rounded-2xl border border-slate-100 p-6">
@@ -949,7 +1073,7 @@ export default function SKUsPage() {
                   <th className="py-4 px-6 text-left w-12">
                     {canEdit && (
                       <Checkbox
-                        checked={selectedRows.length === filteredSkus.length}
+                        checked={paginatedSkus.length > 0 && paginatedSkus.every(sku => selectedRows.includes(sku.id))}
                         onCheckedChange={toggleSelectAll}
                       />
                     )}
@@ -963,7 +1087,7 @@ export default function SKUsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredSkus.map((sku) => {
+                {paginatedSkus.map((sku) => {
                   const supplier = suppliers.find(s => s.id === sku.supplier_id);
                   return (
                     <tr 
@@ -1021,6 +1145,62 @@ export default function SKUsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Footer */}
+          {rowsPerPage !== 'all' && totalPages > 1 && (
+            <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+              <div className="text-sm text-slate-600">
+                Showing <strong>{startIndex + 1}</strong> to <strong>{Math.min(endIndex, totalItems)}</strong> of <strong>{totalItems}</strong> entries
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={currentPage === pageNum ? "bg-indigo-600" : ""}
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
