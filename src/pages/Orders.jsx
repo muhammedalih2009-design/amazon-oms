@@ -1267,8 +1267,8 @@ export default function Orders() {
     });
     setShowProgressModal(true);
 
-    const BATCH_SIZE = 20; // Process 20 items at a time (optimized)
-    const DELAY_MS = 200; // 200ms delay between batches (optimized)
+    const BATCH_SIZE = 4; // Process 4 items at a time
+    const DELAY_MS = 750; // 750ms delay between batches
     
     let current = 0;
     let successCount = 0;
@@ -2416,8 +2416,8 @@ export default function Orders() {
                       Processing Details:
                     </p>
                     <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                      <li>Orders will be processed in batches of 20 items (optimized)</li>
-                      <li>200ms delay between batches (10x faster)</li>
+                      <li>Orders will be processed in batches of 4 items</li>
+                      <li>750ms delay between batches to prevent timeouts</li>
                       <li>Stock will be restored for fulfilled orders</li>
                       <li>Failed deletions will be logged and exported</li>
                     </ul>
