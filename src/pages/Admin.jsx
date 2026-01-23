@@ -36,6 +36,7 @@ import DataTable from '@/components/shared/DataTable';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import TaskProgressModal from '@/components/shared/TaskProgressModal';
 
 export default function Admin() {
   const { isPlatformAdmin, user } = useTenant();
@@ -53,6 +54,15 @@ export default function Admin() {
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetting, setResetting] = useState(false);
   const [tenantToReset, setTenantToReset] = useState(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressState, setProgressState] = useState({
+    current: 0,
+    total: 0,
+    successCount: 0,
+    failCount: 0,
+    completed: false,
+    log: []
+  });
 
   useEffect(() => {
     if (isPlatformAdmin) {
@@ -94,98 +104,198 @@ export default function Admin() {
     if (!tenantToReset) return;
     
     setResetting(true);
+    
+    // Close confirmation dialogs
+    setShowResetConfirm3(false);
+    setShowResetConfirm2(false);
+    setShowResetConfirm1(false);
+    
     try {
       const tenantId = tenantToReset.id;
 
+      // Collect all entities to delete
+      const [movements, errors, orderLines, orders, purchases, stock, cart, batches, skus, suppliers, tasks] = await Promise.all([
+        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
+        base44.entities.ImportError.filter({ tenant_id: tenantId }),
+        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
+        base44.entities.Order.filter({ tenant_id: tenantId }),
+        base44.entities.Purchase.filter({ tenant_id: tenantId }),
+        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
+        base44.entities.PurchaseCart.filter({ tenant_id: tenantId }),
+        base44.entities.ImportBatch.filter({ tenant_id: tenantId }),
+        base44.entities.SKU.filter({ tenant_id: tenantId }),
+        base44.entities.Supplier.filter({ tenant_id: tenantId }),
+        base44.entities.Task.filter({ tenant_id: tenantId })
+      ]);
+
+      const totalItems = movements.length + errors.length + orderLines.length + orders.length + 
+                         purchases.length + stock.length + cart.length + batches.length + 
+                         skus.length + suppliers.length + tasks.length;
+
+      // Initialize progress modal
+      setProgressState({
+        current: 0,
+        total: totalItems,
+        successCount: 0,
+        failCount: 0,
+        completed: false,
+        log: []
+      });
+      setShowProgressModal(true);
+
+      let current = 0;
+      let successCount = 0;
+      let failCount = 0;
+      const log = [];
+
+      const updateProgress = (label, success, error = null) => {
+        current++;
+        if (success) successCount++;
+        else failCount++;
+        
+        log.unshift({ label, success, error, details: success ? 'Deleted' : undefined });
+        
+        setProgressState({
+          current,
+          total: totalItems,
+          successCount,
+          failCount,
+          completed: false,
+          log: log.slice(0, 50)
+        });
+      };
+
       // Delete in proper order respecting foreign keys
-      // 1. Delete StockMovements (references SKUs and OrderLines)
-      const movements = await base44.entities.StockMovement.filter({ tenant_id: tenantId });
+      // 1. StockMovements
       for (const mov of movements) {
-        await base44.entities.StockMovement.delete(mov.id);
+        try {
+          await base44.entities.StockMovement.delete(mov.id);
+          updateProgress(`StockMovement ${mov.sku_code || mov.id}`, true);
+        } catch (err) {
+          updateProgress(`StockMovement ${mov.id}`, false, err.message);
+        }
       }
 
-      // 2. Delete ImportErrors (references ImportBatch)
-      const errors = await base44.entities.ImportError.filter({ tenant_id: tenantId });
+      // 2. ImportErrors
       for (const err of errors) {
-        await base44.entities.ImportError.delete(err.id);
+        try {
+          await base44.entities.ImportError.delete(err.id);
+          updateProgress(`ImportError Row ${err.row_number}`, true);
+        } catch (error) {
+          updateProgress(`ImportError ${err.id}`, false, error.message);
+        }
       }
 
-      // 3. Delete OrderLines (references Orders and SKUs)
-      const orderLines = await base44.entities.OrderLine.filter({ tenant_id: tenantId });
+      // 3. OrderLines
       for (const line of orderLines) {
-        await base44.entities.OrderLine.delete(line.id);
+        try {
+          await base44.entities.OrderLine.delete(line.id);
+          updateProgress(`OrderLine ${line.sku_code || line.id}`, true);
+        } catch (error) {
+          updateProgress(`OrderLine ${line.id}`, false, error.message);
+        }
       }
 
-      // 4. Delete Orders
-      const orders = await base44.entities.Order.filter({ tenant_id: tenantId });
+      // 4. Orders
       for (const order of orders) {
-        await base44.entities.Order.delete(order.id);
+        try {
+          await base44.entities.Order.delete(order.id);
+          updateProgress(`Order ${order.amazon_order_id || order.id}`, true);
+        } catch (error) {
+          updateProgress(`Order ${order.id}`, false, error.message);
+        }
       }
 
-      // 5. Delete Purchases (references SKUs)
-      const purchases = await base44.entities.Purchase.filter({ tenant_id: tenantId });
+      // 5. Purchases
       for (const purchase of purchases) {
-        await base44.entities.Purchase.delete(purchase.id);
+        try {
+          await base44.entities.Purchase.delete(purchase.id);
+          updateProgress(`Purchase ${purchase.sku_code || purchase.id}`, true);
+        } catch (error) {
+          updateProgress(`Purchase ${purchase.id}`, false, error.message);
+        }
       }
 
-      // 6. Delete CurrentStock (references SKUs)
-      const stock = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+      // 6. CurrentStock
       for (const s of stock) {
-        await base44.entities.CurrentStock.delete(s.id);
+        try {
+          await base44.entities.CurrentStock.delete(s.id);
+          updateProgress(`Stock ${s.sku_code || s.id}`, true);
+        } catch (error) {
+          updateProgress(`Stock ${s.id}`, false, error.message);
+        }
       }
 
-      // 7. Delete PurchaseCart (references SKUs)
-      const cart = await base44.entities.PurchaseCart.filter({ tenant_id: tenantId });
+      // 7. PurchaseCart
       for (const item of cart) {
-        await base44.entities.PurchaseCart.delete(item.id);
+        try {
+          await base44.entities.PurchaseCart.delete(item.id);
+          updateProgress(`Cart ${item.sku_code || item.id}`, true);
+        } catch (error) {
+          updateProgress(`Cart ${item.id}`, false, error.message);
+        }
       }
 
-      // 8. Delete ImportBatches
-      const batches = await base44.entities.ImportBatch.filter({ tenant_id: tenantId });
+      // 8. ImportBatches
       for (const batch of batches) {
-        await base44.entities.ImportBatch.delete(batch.id);
+        try {
+          await base44.entities.ImportBatch.delete(batch.id);
+          updateProgress(`Batch ${batch.batch_name || batch.id}`, true);
+        } catch (error) {
+          updateProgress(`Batch ${batch.id}`, false, error.message);
+        }
       }
 
-      // 9. Delete SKUs (must be last as everything else references them)
-      const skus = await base44.entities.SKU.filter({ tenant_id: tenantId });
+      // 9. SKUs
       for (const sku of skus) {
-        await base44.entities.SKU.delete(sku.id);
+        try {
+          await base44.entities.SKU.delete(sku.id);
+          updateProgress(`SKU ${sku.sku_code || sku.id}`, true);
+        } catch (error) {
+          updateProgress(`SKU ${sku.id}`, false, error.message);
+        }
       }
 
-      // 10. Delete Suppliers
-      const suppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+      // 10. Suppliers
       for (const supplier of suppliers) {
-        await base44.entities.Supplier.delete(supplier.id);
+        try {
+          await base44.entities.Supplier.delete(supplier.id);
+          updateProgress(`Supplier ${supplier.supplier_name || supplier.id}`, true);
+        } catch (error) {
+          updateProgress(`Supplier ${supplier.id}`, false, error.message);
+        }
       }
 
-      // 11. Delete Tasks
-      const tasks = await base44.entities.Task.filter({ tenant_id: tenantId });
+      // 11. Tasks
       for (const task of tasks) {
-        // Delete task checklists
-        const checklists = await base44.entities.TaskChecklistItem.filter({ task_id: task.id });
-        for (const item of checklists) {
-          await base44.entities.TaskChecklistItem.delete(item.id);
+        try {
+          const checklists = await base44.entities.TaskChecklistItem.filter({ task_id: task.id });
+          for (const item of checklists) {
+            await base44.entities.TaskChecklistItem.delete(item.id);
+          }
+          const comments = await base44.entities.TaskComment.filter({ task_id: task.id });
+          for (const comment of comments) {
+            await base44.entities.TaskComment.delete(comment.id);
+          }
+          await base44.entities.Task.delete(task.id);
+          updateProgress(`Task ${task.title || task.id}`, true);
+        } catch (error) {
+          updateProgress(`Task ${task.id}`, false, error.message);
         }
-        // Delete task comments
-        const comments = await base44.entities.TaskComment.filter({ task_id: task.id });
-        for (const comment of comments) {
-          await base44.entities.TaskComment.delete(comment.id);
-        }
-        await base44.entities.Task.delete(task.id);
       }
+
+      // Mark as complete
+      setProgressState(prev => ({ ...prev, completed: true }));
 
       // Log the action
       console.log(`MASTER RESET performed by ${user.email} on tenant ${tenantToReset.name} (${tenantId}) at ${new Date().toISOString()}`);
 
       toast({
         title: '✓ Master Reset Complete',
-        description: `All data for "${tenantToReset.name}" has been permanently deleted.`
+        description: `Deleted ${successCount} items with ${failCount} failures.`
       });
 
-      // Close dialogs and refresh
-      setShowResetConfirm3(false);
-      setShowResetConfirm2(false);
-      setShowResetConfirm1(false);
+      // Refresh and reset
       setTenantToReset(null);
       setResetConfirmation('');
       loadData();
@@ -683,6 +793,29 @@ export default function Admin() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Master Reset Progress Modal */}
+      <TaskProgressModal
+        open={showProgressModal}
+        onClose={() => {
+          setShowProgressModal(false);
+          setProgressState({
+            current: 0,
+            total: 0,
+            successCount: 0,
+            failCount: 0,
+            completed: false,
+            log: []
+          });
+        }}
+        title="Master Reset - Deleting All Data"
+        current={progressState.current}
+        total={progressState.total}
+        successCount={progressState.successCount}
+        failCount={progressState.failCount}
+        completed={progressState.completed}
+        log={progressState.log}
+      />
     </div>
   );
 }

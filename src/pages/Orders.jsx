@@ -44,6 +44,7 @@ import OrdersExporter from '@/components/orders/OrdersExporter';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import TablePagination from '@/components/shared/TablePagination';
+import TaskProgressModal from '@/components/shared/TaskProgressModal';
 
 export default function Orders() {
   const { tenantId, subscription, isActive } = useTenant();
@@ -2368,144 +2369,23 @@ export default function Orders() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Progress Modal */}
-      <Dialog open={showProgressModal} onOpenChange={(open) => {
-        if (!open && progressState.completed) {
-          handleCloseProgressModal();
-        }
-      }}>
-        <DialogContent className="sm:max-w-2xl" hideClose={!progressState.completed}>
-          <DialogHeader className="flex items-center justify-between">
-            <DialogTitle>
-              {progressState.completed ? 'Fulfillment Complete!' : 'Processing Bulk Fulfillment...'}
-            </DialogTitle>
-            {progressState.completed && (
-              <button
-                onClick={handleCloseProgressModal}
-                className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
-              </button>
-            )}
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Live Counter */}
-            {!progressState.completed && progressState.current > 0 && (
-              <div className="text-center">
-                <p className="text-sm text-indigo-600 font-medium animate-pulse">
-                  Fulfilling order {progressState.current} of {progressState.total}...
-                </p>
-              </div>
-            )}
-
-            {/* Status Label */}
-            <div className="text-center">
-              <p className="text-lg font-semibold text-slate-900">
-                {progressState.current} of {progressState.total} Orders
-              </p>
-              <p className="text-sm text-slate-500 mt-1">
-                {Math.round((progressState.current / progressState.total) * 100)}% Complete
-              </p>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="relative w-full h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div 
-                className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-full transition-all duration-300 ease-out"
-                style={{ 
-                  width: `${(progressState.current / progressState.total) * 100}%`
-                }}
-              />
-            </div>
-
-            {/* Stats Breakdown */}
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <div>
-                    <p className="text-xs text-emerald-700 font-medium">Success</p>
-                    <p className="text-2xl font-bold text-emerald-900">{progressState.successCount}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  <XCircle className="w-5 h-5 text-red-600" />
-                  <div>
-                    <p className="text-xs text-red-700 font-medium">Failed</p>
-                    <p className="text-2xl font-bold text-red-900">{progressState.failCount}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Status Log */}
-            {progressState.log.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Recent Activity</p>
-                <div className="bg-slate-50 rounded-lg border border-slate-200 max-h-48 overflow-y-auto">
-                  <div className="p-3 space-y-2">
-                    {progressState.log.map((entry, idx) => (
-                      <div 
-                        key={idx}
-                        className={`flex items-start gap-2 text-sm ${
-                          entry.success ? 'text-emerald-700' : 'text-red-700'
-                        }`}
-                      >
-                        {entry.success ? (
-                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                        ) : (
-                          <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                         <span className="font-medium">Order {entry.orderId}</span>
-                         {entry.success ? (
-                           <span className="text-emerald-600 ml-2 text-xs block">
-                             {entry.details || 'Success'}
-                           </span>
-                         ) : (
-                           <span className="text-red-600 ml-2 text-xs block">
-                             {entry.error || 'Failed'}
-                           </span>
-                         )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Completion Summary */}
-            {progressState.completed && (
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                <p className="font-semibold text-indigo-900 mb-1">Summary</p>
-                <p className="text-sm text-indigo-700">
-                  Successfully fulfilled <strong>{progressState.successCount}</strong> orders.
-                  {progressState.failCount > 0 && (
-                    <> <strong>{progressState.failCount}</strong> failed.</>
-                  )}
-                </p>
-              </div>
-            )}
-
-            {/* Completion Actions */}
-            {progressState.completed && (
-              <div className="pt-2">
-                <Button 
-                  onClick={handleCloseProgressModal}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700"
-                >
-                  Done
-                </Button>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Bulk Fulfillment Progress Modal */}
+      <TaskProgressModal
+        open={showProgressModal}
+        onClose={handleCloseProgressModal}
+        title="Processing Bulk Fulfillment"
+        current={progressState.current}
+        total={progressState.total}
+        successCount={progressState.successCount}
+        failCount={progressState.failCount}
+        completed={progressState.completed}
+        log={progressState.log.map(entry => ({
+          label: `Order ${entry.orderId}`,
+          success: entry.success,
+          error: entry.error,
+          details: entry.details
+        }))}
+      />
 
       {/* Item Condition Reversal Modal */}
       {reversalContext && (

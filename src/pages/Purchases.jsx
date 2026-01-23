@@ -38,6 +38,7 @@ import PaywallBanner from '@/components/ui/PaywallBanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import TablePagination from '@/components/shared/TablePagination';
+import TaskProgressModal from '@/components/shared/TaskProgressModal';
 
 export default function Purchases() {
   const { tenantId, subscription, isActive, isAdmin } = useTenant();
@@ -1186,11 +1187,9 @@ export default function Purchases() {
         onSuccess={() => loadData()}
       />
 
-      {/* Batch Deletion Progress */}
-      <BatchDeletionProgress
+      {/* Batch Deletion Progress Modal */}
+      <TaskProgressModal
         open={showBatchDeleteProgress}
-        batch={deletingBatch}
-        progressState={batchDeleteProgress}
         onClose={() => {
           setShowBatchDeleteProgress(false);
           setBatchDeleteProgress({
@@ -1202,6 +1201,18 @@ export default function Purchases() {
             log: []
           });
         }}
+        title={`Deleting Batch: ${deletingBatch?.batch_name || 'Purchases'}`}
+        current={batchDeleteProgress.current}
+        total={batchDeleteProgress.total}
+        successCount={batchDeleteProgress.successCount}
+        failCount={batchDeleteProgress.failCount}
+        completed={batchDeleteProgress.completed}
+        log={batchDeleteProgress.log.map(entry => ({
+          label: entry.skuCode,
+          success: entry.success,
+          error: entry.error,
+          details: entry.details
+        }))}
       />
 
       {/* Delete Confirmation Dialog */}
