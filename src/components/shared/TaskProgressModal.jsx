@@ -1,11 +1,12 @@
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, XCircle, X } from 'lucide-react';
+import { CheckCircle2, XCircle, X, Minimize2 } from 'lucide-react';
 
 export default function TaskProgressModal({
   open,
   onClose,
+  onMinimize,
   title,
   current,
   total,
@@ -25,9 +26,22 @@ export default function TaskProgressModal({
     }}>
       <DialogContent className="sm:max-w-2xl" hideClose={!completed || !allowClose}>
         <DialogHeader className="flex items-center justify-between">
-          <DialogTitle>
-            {completed ? `${title} - Complete!` : title}
-          </DialogTitle>
+          <div className="flex items-center justify-between w-full pr-6">
+            <DialogTitle>
+              {completed ? `${title} - Complete!` : title}
+            </DialogTitle>
+            {!completed && onMinimize && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onMinimize}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <Minimize2 className="w-4 h-4 mr-2" />
+                Run in Background
+              </Button>
+            )}
+          </div>
           {completed && allowClose && (
             <button
               onClick={onClose}
