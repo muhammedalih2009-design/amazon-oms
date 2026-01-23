@@ -10,6 +10,7 @@ import Settlement from './pages/Settlement';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
+import Stores from './pages/Stores';
 import __Layout from './Layout.jsx';
 
 
@@ -26,6 +27,7 @@ export const PAGES = {
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
+    "Stores": Stores,
 }
 
 export const pagesConfig = {

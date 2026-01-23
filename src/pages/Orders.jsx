@@ -51,6 +51,7 @@ export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [orderLines, setOrderLines] = useState([]);
   const [skus, setSkus] = useState([]);
+  const [stores, setStores] = useState([]);
   const [batches, setBatches] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,7 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [storeFilter, setStoreFilter] = useState('all');
   const [batchFilter, setBatchFilter] = useState('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedOrders, setSelectedOrders] = useState(new Set());
@@ -97,8 +99,10 @@ export default function Orders() {
   const [formData, setFormData] = useState({
     amazon_order_id: '',
     order_date: '',
+    store_id: '',
     lines: [{ sku_id: '', quantity: 1 }]
   });
+  const [csvStoreId, setCsvStoreId] = useState('');
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -117,10 +121,11 @@ export default function Orders() {
     } else {
       setLoading(true);
     }
-    const [ordersData, linesData, skusData, batchesData, purchasesData, stockData] = await Promise.all([
+    const [ordersData, linesData, skusData, storesData, batchesData, purchasesData, stockData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
+      base44.entities.Store.filter({ tenant_id: tenantId }),
       base44.entities.ImportBatch.filter({ tenant_id: tenantId, batch_type: 'orders' }),
       base44.entities.Purchase.filter({ tenant_id: tenantId }),
       base44.entities.CurrentStock.filter({ tenant_id: tenantId })
@@ -128,6 +133,7 @@ export default function Orders() {
     setOrders(ordersData);
     setOrderLines(linesData);
     setSkus(skusData);
+    setStores(storesData);
     setBatches(batchesData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     setPurchases(purchasesData);
     setCurrentStock(stockData);
@@ -141,10 +147,19 @@ export default function Orders() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (!formData.store_id) {
+      toast({ title: 'Please select a store', variant: 'destructive' });
+      return;
+    }
+    
+    const store = stores.find(s => s.id === formData.store_id);
     const order = await base44.entities.Order.create({
       tenant_id: tenantId,
       amazon_order_id: formData.amazon_order_id,
       order_date: formData.order_date,
+      store_id: formData.store_id,
+      store_name: store?.name,
+      store_color: store?.color,
       status: 'pending'
     });
 
@@ -162,7 +177,7 @@ export default function Orders() {
     }
 
     setShowForm(false);
-    setFormData({ amazon_order_id: '', order_date: '', lines: [{ sku_id: '', quantity: 1 }] });
+    setFormData({ amazon_order_id: '', order_date: '', store_id: '', lines: [{ sku_id: '', quantity: 1 }] });
     loadData();
     toast({ title: 'Order created successfully' });
   };
@@ -669,9 +684,16 @@ export default function Orders() {
   };
 
   const handleCSVUpload = async (file) => {
+    if (!csvStoreId) {
+      toast({ title: 'Please select a store', variant: 'destructive' });
+      return;
+    }
+    
     setProcessing(true);
     
     try {
+      const store = stores.find(s => s.id === csvStoreId);
+      
       // Upload file
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       
@@ -819,6 +841,9 @@ export default function Orders() {
       const ordersToCreate = Array.from(validOrders.values()).map(({ _rowNumber, ...order }) => ({
         tenant_id: tenantId,
         ...order,
+        store_id: csvStoreId,
+        store_name: store?.name,
+        store_color: store?.color,
         status: 'pending',
         import_batch_id: batch.id
       }));
@@ -953,6 +978,7 @@ export default function Orders() {
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.amazon_order_id?.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    const matchesStore = storeFilter === 'all' || order.store_id === storeFilter;
     const matchesBatch = batchFilter === 'all' || order.import_batch_id === batchFilter;
     
     let matchesDate = true;
@@ -966,7 +992,7 @@ export default function Orders() {
       }
     }
     
-    return matchesSearch && matchesStatus && matchesBatch && matchesDate;
+    return matchesSearch && matchesStatus && matchesStore && matchesBatch && matchesDate;
   });
 
   // Paginated data
@@ -1398,6 +1424,19 @@ export default function Orders() {
       sortable: true,
       render: (val) => <span className="font-medium text-slate-900">{val}</span>
     },
+    {
+      key: 'store_name',
+      header: 'Store',
+      render: (val, row) => (
+        <div className="flex items-center gap-2">
+          <div 
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: row.store_color || '#6366f1' }}
+          />
+          <span className="text-sm text-slate-700">{val || 'N/A'}</span>
+        </div>
+      )
+    },
     { 
       key: 'order_date', 
       header: 'Date', 
@@ -1480,6 +1519,7 @@ export default function Orders() {
             orderLines={orderLines}
             filteredOrders={filteredOrders}
             skus={skus}
+            stores={stores}
           />
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           <Button 
@@ -1746,6 +1786,25 @@ export default function Orders() {
                 className="pl-10"
               />
             </div>
+            <Select value={storeFilter} onValueChange={setStoreFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Store" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Stores</SelectItem>
+                {stores.map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      {s.name}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Status" />
@@ -1923,6 +1982,31 @@ export default function Orders() {
         </TabsContent>
 
         <TabsContent value="import" className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <Label className="text-sm font-medium text-blue-900 mb-2">Select Store *</Label>
+            <Select value={csvStoreId} onValueChange={setCsvStoreId}>
+              <SelectTrigger className="bg-white">
+                <SelectValue placeholder="Choose a store for this import" />
+              </SelectTrigger>
+              <SelectContent>
+                {stores.map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      {s.name} ({s.platform})
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-blue-700 mt-2">
+              All orders in this CSV will be assigned to the selected store
+            </p>
+          </div>
+          
           <UploadRequirementsBanner 
             columns={[
               { name: 'amazon_order_id', required: true },
@@ -1959,9 +2043,34 @@ export default function Orders() {
             <DialogTitle>Add New Order</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Store *</Label>
+              <Select 
+                value={formData.store_id} 
+                onValueChange={(val) => setFormData({...formData, store_id: val})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a store" />
+                </SelectTrigger>
+                <SelectContent>
+                  {stores.map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: s.color }}
+                        />
+                        {s.name} ({s.platform})
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Amazon Order ID *</Label>
+                <Label>Order ID *</Label>
                 <Input
                   value={formData.amazon_order_id}
                   onChange={(e) => setFormData({...formData, amazon_order_id: e.target.value})}

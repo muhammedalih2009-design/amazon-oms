@@ -4,7 +4,7 @@ import { Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 
-export default function OrdersExporter({ orders, orderLines, filteredOrders, skus }) {
+export default function OrdersExporter({ orders, orderLines, filteredOrders, skus, stores = [] }) {
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async () => {
@@ -23,6 +23,7 @@ export default function OrdersExporter({ orders, orderLines, filteredOrders, sku
         if (lines.length === 0) {
           // Order with no lines - export order info only
           rows.push({
+            'Store': order.store_name || 'N/A',
             'Amazon Order ID': order.amazon_order_id || '',
             'Order Date': order.order_date ? format(new Date(order.order_date), 'yyyy-MM-dd') : '',
             'Status': order.status || '',
@@ -40,6 +41,7 @@ export default function OrdersExporter({ orders, orderLines, filteredOrders, sku
           lines.forEach(line => {
             const sku = skus.find(s => s.id === line.sku_id);
             rows.push({
+              'Store': order.store_name || 'N/A',
               'Amazon Order ID': order.amazon_order_id || '',
               'Order Date': order.order_date ? format(new Date(order.order_date), 'yyyy-MM-dd') : '',
               'Status': order.status || '',
@@ -62,6 +64,7 @@ export default function OrdersExporter({ orders, orderLines, filteredOrders, sku
 
       // Set column widths for better readability
       ws['!cols'] = [
+        { wch: 15 }, // Store
         { wch: 22 }, // Amazon Order ID
         { wch: 12 }, // Order Date
         { wch: 12 }, // Status
