@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
+import { TaskManagerProvider } from '@/components/hooks/useTaskManager';
+import TaskTray from '@/components/shared/TaskTray';
 import { Toaster } from '@/components/ui/toaster';
 import {
   LayoutDashboard,
@@ -232,10 +234,13 @@ function LayoutContent({ children, currentPageName }) {
 export default function Layout({ children, currentPageName }) {
   return (
     <TenantProvider>
-      <LayoutContent currentPageName={currentPageName}>
-        {children}
-      </LayoutContent>
-      <Toaster />
+      <TaskManagerProvider>
+        <LayoutContent currentPageName={currentPageName}>
+          {children}
+        </LayoutContent>
+        <TaskTray />
+        <Toaster />
+      </TaskManagerProvider>
     </TenantProvider>
   );
 }

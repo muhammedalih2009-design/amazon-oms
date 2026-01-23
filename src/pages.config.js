@@ -7,10 +7,10 @@ import Purchases from './pages/Purchases';
 import Returns from './pages/Returns';
 import SKUs from './pages/SKUs';
 import Settlement from './pages/Settlement';
+import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
-import Stores from './pages/Stores';
 import __Layout from './Layout.jsx';
 
 
@@ -24,10 +24,10 @@ export const PAGES = {
     "Returns": Returns,
     "SKUs": SKUs,
     "Settlement": Settlement,
+    "Stores": Stores,
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
-    "Stores": Stores,
 }
 
 export const pagesConfig = {
