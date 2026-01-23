@@ -1252,88 +1252,138 @@ export default function Orders() {
   };
 
   const handleBulkDelete = async () => {
+    setShowBulkDeleteConfirm(false);
+    
     const ordersToDelete = orders.filter(o => selectedOrders.has(o.id));
     
-    // Collect all stock updates and movements for batch processing
-    const stockUpdates = new Map();
-    const stockMovements = [];
-    const linesToDelete = [];
-    const ordersToDeleteIds = [];
+    // Initialize progress modal
+    setProgressState({
+      current: 0,
+      total: ordersToDelete.length,
+      successCount: 0,
+      failCount: 0,
+      completed: false,
+      log: []
+    });
+    setShowProgressModal(true);
 
-    for (const order of ordersToDelete) {
-      if (order.status === 'fulfilled') {
-        const lines = orderLines.filter(l => l.order_id === order.id);
-        for (const line of lines) {
-          // Accumulate stock restoration
-          const currentRestoration = stockUpdates.get(line.sku_id) || 0;
-          stockUpdates.set(line.sku_id, currentRestoration + line.quantity);
+    const BATCH_SIZE = 2; // Process 2 items at a time
+    const DELAY_MS = 750; // 750ms delay between batches
+    
+    let current = 0;
+    let successCount = 0;
+    let failCount = 0;
+    const log = [];
 
-          // Prepare stock movement
-          stockMovements.push({
-            tenant_id: tenantId,
-            sku_id: line.sku_id,
-            sku_code: line.sku_code,
-            movement_type: 'manual',
-            quantity: line.quantity,
-            reference_type: 'manual',
-            reference_id: order.id,
-            movement_date: format(new Date(), 'yyyy-MM-dd'),
-            notes: `Stock restored from deleted order ${order.amazon_order_id}`
-          });
-        }
-      }
+    // Process in batches of 2 with throttling
+    for (let i = 0; i < ordersToDelete.length; i += BATCH_SIZE) {
+      const batchOrders = ordersToDelete.slice(i, i + BATCH_SIZE);
       
-      // Collect lines to delete
-      const lines = orderLines.filter(l => l.order_id === order.id);
-      linesToDelete.push(...lines.map(l => l.id));
-      ordersToDeleteIds.push(order.id);
-    }
+      // Process batch in parallel
+      await Promise.all(batchOrders.map(async (order) => {
+        const orderLabel = order.amazon_order_id || order.id;
+        
+        try {
+          // Restore stock if fulfilled
+          if (order.status === 'fulfilled') {
+            const lines = orderLines.filter(l => l.order_id === order.id);
+            for (const line of lines) {
+              // Restore stock
+              const stock = await base44.entities.CurrentStock.filter({ 
+                tenant_id: tenantId, 
+                sku_id: line.sku_id 
+              });
+              if (stock.length > 0) {
+                await base44.entities.CurrentStock.update(stock[0].id, {
+                  quantity_available: (stock[0].quantity_available || 0) + line.quantity
+                });
+              }
 
-    // Batch database operations
-    try {
-      // Batch update stock
-      for (const [skuId, qtyToRestore] of stockUpdates) {
-        const stock = await base44.entities.CurrentStock.filter({ 
-          tenant_id: tenantId, 
-          sku_id: skuId 
-        });
-        if (stock.length > 0) {
-          await base44.entities.CurrentStock.update(stock[0].id, {
-            quantity_available: (stock[0].quantity_available || 0) + qtyToRestore
+              // Create stock movement record
+              await base44.entities.StockMovement.create({
+                tenant_id: tenantId,
+                sku_id: line.sku_id,
+                sku_code: line.sku_code,
+                movement_type: 'manual',
+                quantity: line.quantity,
+                reference_type: 'manual',
+                reference_id: order.id,
+                movement_date: format(new Date(), 'yyyy-MM-dd'),
+                notes: `Stock restored from deleted order ${order.amazon_order_id}`
+              });
+            }
+          }
+          
+          // Delete lines
+          const lines = orderLines.filter(l => l.order_id === order.id);
+          for (const line of lines) {
+            await base44.entities.OrderLine.delete(line.id);
+          }
+          
+          // Delete order
+          await base44.entities.Order.delete(order.id);
+          
+          successCount++;
+          log.unshift({
+            label: `Order ${orderLabel}`,
+            success: true,
+            details: order.status === 'fulfilled' ? 'Deleted (Stock restored)' : 'Deleted successfully'
+          });
+        } catch (error) {
+          failCount++;
+          log.unshift({
+            label: `Order ${orderLabel}`,
+            success: false,
+            error: error.message
           });
         }
-      }
+        
+        current++;
+      }));
 
-      // Batch create stock movements
-      const BATCH_SIZE = 400;
-      for (let i = 0; i < stockMovements.length; i += BATCH_SIZE) {
-        const batch = stockMovements.slice(i, i + BATCH_SIZE);
-        await base44.entities.StockMovement.bulkCreate(batch);
-      }
+      // Update progress after each batch
+      setProgressState({
+        current,
+        total: ordersToDelete.length,
+        successCount,
+        failCount,
+        completed: false,
+        log: log.slice(0, 50)
+      });
 
-      // Delete all lines
-      for (const lineId of linesToDelete) {
-        await base44.entities.OrderLine.delete(lineId);
+      // Throttle: wait before processing next batch (unless it's the last batch)
+      if (i + BATCH_SIZE < ordersToDelete.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
       }
-
-      // Delete all orders
-      for (const orderId of ordersToDeleteIds) {
-        await base44.entities.Order.delete(orderId);
-      }
-    } catch (error) {
-      console.error('Error in batch delete operations:', error);
     }
 
-    setShowBulkDeleteConfirm(false);
+    // Mark as complete
+    setProgressState(prev => ({
+      ...prev,
+      completed: true
+    }));
+
+    // Generate error CSV if any failures
+    if (failCount > 0) {
+      const failedItems = log.filter(entry => !entry.success);
+      const errorCSV = [
+        'order_id,reason',
+        ...failedItems.map(e => `"${e.label.replace('Order ', '')}","${e.error}"`)
+      ].join('\n');
+      
+      const blob = new Blob([errorCSV], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `order_delete_errors_${Date.now()}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Clear selections and refresh
     setSelectedOrders(new Set());
     setSelectAllFiltered(false);
     loadData();
-    toast({ 
-      title: `Successfully deleted ${ordersToDelete.length} orders`,
-      description: ordersToDelete.some(o => o.status === 'fulfilled') 
-        ? 'Stock has been restored for fulfilled orders'
-        : undefined
-    });
   };
 
   const setDatePreset = (preset) => {
@@ -2356,31 +2406,51 @@ export default function Orders() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedOrders.size} Orders?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the selected orders. For any fulfilled orders, stock will be automatically restored. This action cannot be undone.
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>This will permanently delete the selected orders. For any fulfilled orders, stock will be automatically restored. This action cannot be undone.</p>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm text-amber-800 font-semibold">
+                      Processing Details:
+                    </p>
+                    <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                      <li>Orders will be processed in batches of 2 items</li>
+                      <li>750ms delay between batches to prevent timeouts</li>
+                      <li>Stock will be restored for fulfilled orders</li>
+                      <li>Failed deletions will be logged and exported</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
-              Delete Orders
+              Start Deletion
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk Fulfillment Progress Modal */}
+      {/* Bulk Operation Progress Modal */}
       <TaskProgressModal
         open={showProgressModal}
         onClose={handleCloseProgressModal}
-        title="Processing Bulk Fulfillment"
+        title={progressState.log.length > 0 && progressState.log[0].label?.includes('Order') 
+          ? progressState.log[0].details?.includes('Deleted') || progressState.log[0].error 
+            ? "Deleting Orders" 
+            : "Processing Bulk Fulfillment"
+          : "Processing Bulk Fulfillment"}
         current={progressState.current}
         total={progressState.total}
         successCount={progressState.successCount}
         failCount={progressState.failCount}
         completed={progressState.completed}
         log={progressState.log.map(entry => ({
-          label: `Order ${entry.orderId}`,
+          label: entry.label || `Order ${entry.orderId}`,
           success: entry.success,
           error: entry.error,
           details: entry.details
