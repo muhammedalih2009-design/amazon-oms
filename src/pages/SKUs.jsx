@@ -534,8 +534,8 @@ export default function SKUsPage() {
     });
     setShowProgressModal(true);
 
-    const BATCH_SIZE = 10; // Conservative batch size to avoid rate limits
-    const BASE_DELAY_MS = 300; // Base delay between batches
+    const BATCH_SIZE = 4; // Process 4 items at a time
+    const BASE_DELAY_MS = 750; // 750ms delay between batches
     const MAX_RETRIES = 3;
     
     let current = 0;
@@ -1103,14 +1103,11 @@ export default function SKUsPage() {
                       Processing Details:
                     </p>
                     <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                      <li>Intelligent rate limit handling with auto-retry</li>
-                      <li>Adaptive throttling prevents server overload</li>
+                      <li>SKUs will be processed in batches of 4 items</li>
+                      <li>750ms delay between batches to prevent timeouts</li>
                       <li>SKUs linked to orders/purchases will be skipped</li>
                       <li>Failed deletions will be logged and exported</li>
                     </ul>
-                    <p className="text-xs text-amber-700 mt-2 font-semibold">
-                      ⚡ For 10x faster bulk operations, enable Backend Functions in app settings
-                    </p>
                   </div>
                 </div>
               </div>
