@@ -534,86 +534,109 @@ export default function SKUsPage() {
     });
     setShowProgressModal(true);
 
-    const BATCH_SIZE = 20; // Process 20 items at a time (optimized)
-    const DELAY_MS = 200; // 200ms delay between batches (optimized)
+    const BATCH_SIZE = 10; // Conservative batch size to avoid rate limits
+    const BASE_DELAY_MS = 300; // Base delay between batches
+    const MAX_RETRIES = 3;
     
     let current = 0;
     let successCount = 0;
     let failCount = 0;
     const log = [];
+    let consecutiveRateLimitErrors = 0;
 
-    // Process in batches of 2 with throttling
+    // Retry logic with exponential backoff
+    const deleteWithRetry = async (skuId, sku, retryCount = 0) => {
+      const skuLabel = sku?.sku_code || skuId;
+      
+      try {
+        // Check if SKU is referenced
+        const [orders, purchases] = await Promise.all([
+          base44.entities.OrderLine.filter({ tenant_id: tenantId, sku_id: skuId }),
+          base44.entities.Purchase.filter({ tenant_id: tenantId, sku_id: skuId })
+        ]);
+
+        if (orders.length > 0 || purchases.length > 0) {
+          throw new Error(`Referenced by ${orders.length} order(s) and ${purchases.length} purchase(s)`);
+        }
+
+        // Delete stock records
+        const stockRecords = await base44.entities.CurrentStock.filter({ 
+          tenant_id: tenantId, 
+          sku_id: skuId 
+        });
+        for (const stock of stockRecords) {
+          await base44.entities.CurrentStock.delete(stock.id);
+        }
+
+        // Delete stock movements
+        const movements = await base44.entities.StockMovement.filter({ 
+          tenant_id: tenantId, 
+          sku_id: skuId 
+        });
+        for (const movement of movements) {
+          await base44.entities.StockMovement.delete(movement.id);
+        }
+
+        // Delete SKU
+        await base44.entities.SKU.delete(skuId);
+        
+        consecutiveRateLimitErrors = 0; // Reset on success
+        return { success: true, skuLabel };
+      } catch (error) {
+        const isRateLimit = error.message?.toLowerCase().includes('rate limit') || 
+                           error.message?.toLowerCase().includes('too many requests');
+        
+        if (isRateLimit && retryCount < MAX_RETRIES) {
+          consecutiveRateLimitErrors++;
+          const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          return deleteWithRetry(skuId, sku, retryCount + 1);
+        }
+        
+        return { success: false, skuLabel, error: error.message };
+      }
+    };
+
+    // Process in batches with adaptive throttling
     for (let i = 0; i < selectedRows.length; i += BATCH_SIZE) {
       const batchIds = selectedRows.slice(i, i + BATCH_SIZE);
       
-      // Process batch in parallel
-      await Promise.all(batchIds.map(async (skuId) => {
+      // Process batch sequentially to better control rate limits
+      for (const skuId of batchIds) {
         const sku = skus.find(s => s.id === skuId);
-        const skuLabel = sku?.sku_code || skuId;
+        const result = await deleteWithRetry(skuId, sku);
         
-        try {
-          // Check if SKU is referenced
-          const [orders, purchases] = await Promise.all([
-            base44.entities.OrderLine.filter({ tenant_id: tenantId, sku_id: skuId }),
-            base44.entities.Purchase.filter({ tenant_id: tenantId, sku_id: skuId })
-          ]);
-
-          if (orders.length > 0 || purchases.length > 0) {
-            throw new Error(`Referenced by ${orders.length} order(s) and ${purchases.length} purchase(s)`);
-          }
-
-          // Delete stock records
-          const stockRecords = await base44.entities.CurrentStock.filter({ 
-            tenant_id: tenantId, 
-            sku_id: skuId 
-          });
-          for (const stock of stockRecords) {
-            await base44.entities.CurrentStock.delete(stock.id);
-          }
-
-          // Delete stock movements
-          const movements = await base44.entities.StockMovement.filter({ 
-            tenant_id: tenantId, 
-            sku_id: skuId 
-          });
-          for (const movement of movements) {
-            await base44.entities.StockMovement.delete(movement.id);
-          }
-
-          // Delete SKU
-          await base44.entities.SKU.delete(skuId);
-          
+        if (result.success) {
           successCount++;
           log.unshift({
-            label: `SKU ${skuLabel}`,
+            label: `SKU ${result.skuLabel}`,
             success: true,
             details: 'Deleted successfully'
           });
-        } catch (error) {
+        } else {
           failCount++;
           log.unshift({
-            label: `SKU ${skuLabel}`,
+            label: `SKU ${result.skuLabel}`,
             success: false,
-            error: error.message
+            error: result.error
           });
         }
         
         current++;
-      }));
-
-      // Update progress after each batch
-      setProgressState({
-        current,
-        total: selectedRows.length,
-        successCount,
-        failCount,
-        completed: false,
-        log: log.slice(0, 50)
-      });
-
-      // Throttle: wait before processing next batch (unless it's the last batch)
-      if (i + BATCH_SIZE < selectedRows.length) {
-        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        
+        // Update progress more frequently
+        setProgressState({
+          current,
+          total: selectedRows.length,
+          successCount,
+          failCount,
+          completed: false,
+          log: log.slice(0, 50)
+        });
+        
+        // Adaptive delay - increase if hitting rate limits
+        const adaptiveDelay = BASE_DELAY_MS * (1 + consecutiveRateLimitErrors);
+        await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
       }
     }
 
@@ -1080,11 +1103,14 @@ export default function SKUsPage() {
                       Processing Details:
                     </p>
                     <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                      <li>SKUs will be processed in batches of 20 items (optimized)</li>
-                      <li>200ms delay between batches (10x faster)</li>
+                      <li>Intelligent rate limit handling with auto-retry</li>
+                      <li>Adaptive throttling prevents server overload</li>
                       <li>SKUs linked to orders/purchases will be skipped</li>
                       <li>Failed deletions will be logged and exported</li>
                     </ul>
+                    <p className="text-xs text-amber-700 mt-2 font-semibold">
+                      ⚡ For 10x faster bulk operations, enable Backend Functions in app settings
+                    </p>
                   </div>
                 </div>
               </div>
