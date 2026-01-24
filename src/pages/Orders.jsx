@@ -686,99 +686,187 @@ export default function Orders() {
     window.URL.revokeObjectURL(url);
   };
 
+  // Normalize header for mapping
+  const normalizeHeader = (header) => {
+    return header.toLowerCase().replace(/[\s_]/g, '');
+  };
+
+  // Map CSV headers to internal fields
+  const mapOrderHeaders = (headers) => {
+    const mapping = {
+      'amazonorderid': 'amazon_order_id',
+      'orderid': 'amazon_order_id',
+      'orderdate': 'order_date',
+      'date': 'order_date',
+      'skucode': 'sku_code',
+      'sku': 'sku_code',
+      'quantity': 'quantity',
+      'qty': 'quantity',
+      'store': 'store',
+      'storename': 'store'
+    };
+
+    const mapped = {};
+    headers.forEach(header => {
+      const normalized = normalizeHeader(header);
+      if (mapping[normalized]) {
+        mapped[header] = mapping[normalized];
+      }
+    });
+
+    return mapped;
+  };
+
+  // Parse CSV file
+  const parseOrderCSV = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          let text = e.target.result;
+          
+          // Remove BOM if present (UTF-8-sig)
+          if (text.charCodeAt(0) === 0xFEFF) {
+            text = text.slice(1);
+          }
+          
+          // Parse CSV properly handling quoted fields
+          const parseCSVLine = (text) => {
+            const rows = [];
+            let currentRow = [];
+            let currentField = '';
+            let insideQuotes = false;
+            
+            for (let i = 0; i < text.length; i++) {
+              const char = text[i];
+              const nextChar = text[i + 1];
+              
+              if (char === '"') {
+                if (insideQuotes && nextChar === '"') {
+                  currentField += '"';
+                  i++;
+                } else {
+                  insideQuotes = !insideQuotes;
+                }
+              } else if (char === ',' && !insideQuotes) {
+                currentRow.push(currentField.trim());
+                currentField = '';
+              } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+                if (char === '\r' && nextChar === '\n') {
+                  i++;
+                }
+                if (currentField || currentRow.length > 0) {
+                  currentRow.push(currentField.trim());
+                  if (currentRow.some(f => f.length > 0)) {
+                    rows.push(currentRow);
+                  }
+                  currentRow = [];
+                  currentField = '';
+                }
+              } else {
+                currentField += char;
+              }
+            }
+            
+            if (currentField || currentRow.length > 0) {
+              currentRow.push(currentField.trim());
+              if (currentRow.some(f => f.length > 0)) {
+                rows.push(currentRow);
+              }
+            }
+            
+            return rows;
+          };
+          
+          const allRows = parseCSVLine(text);
+          
+          if (allRows.length === 0) {
+            reject(new Error('CSV parsed 0 rows. Check delimiter/quotes or ensure file is not empty.'));
+            return;
+          }
+          
+          if (allRows.length < 2) {
+            reject(new Error('CSV must contain headers and at least one data row'));
+            return;
+          }
+
+          const rawHeaders = allRows[0];
+          const headerMapping = mapOrderHeaders(rawHeaders);
+          const mappedFields = Object.values(headerMapping);
+          
+          // Check required fields
+          const requiredFields = ['amazon_order_id', 'order_date', 'sku_code', 'quantity'];
+          const missingFields = requiredFields.filter(field => !mappedFields.includes(field));
+          
+          if (missingFields.length > 0) {
+            reject(new Error(
+              `Missing required columns: ${missingFields.join(', ')}\n\n` +
+              `Detected headers: ${rawHeaders.join(', ')}\n\n` +
+              `Required: amazon_order_id, order_date, sku_code, quantity\n` +
+              `Optional: store (or store_name)`
+            ));
+            return;
+          }
+
+          // Parse data rows
+          const rows = [];
+          for (let i = 1; i < allRows.length; i++) {
+            const values = allRows[i];
+            const row = { _rowIndex: i };
+            
+            rawHeaders.forEach((header, index) => {
+              const internalField = headerMapping[header];
+              if (internalField && values[index] !== undefined) {
+                let value = values[index];
+                
+                // Sanitize text fields
+                if (internalField === 'amazon_order_id' || internalField === 'sku_code' || internalField === 'store') {
+                  value = value.replace(/[\r\n]+/g, ' ').trim();
+                }
+                
+                row[internalField] = value;
+              }
+            });
+
+            rows.push(row);
+          }
+
+          resolve({ headers: rawHeaders, rows, headerMapping });
+        } catch (error) {
+          reject(new Error(`Failed to parse CSV: ${error.message}`));
+        }
+      };
+
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file, 'utf-8');
+    });
+  };
+
   const handleCSVUpload = async (file) => {
     setProcessing(true);
     
     try {
-      // Upload file
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      // Stage 1: Parse CSV
+      const parsed = await parseOrderCSV(file);
+      const totalRows = parsed.rows.length;
       
-      // Extract data with all possible columns
-      const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
-        file_url,
-        json_schema: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              amazon_order_id: { type: 'string' },
-              order_date: { type: 'string' },
-              sku_code: { type: 'string' },
-              quantity: { type: ['number', 'string'] }
-            }
-          }
-        }
-      });
-
-      let rows = result.output || [];
-      
-      // Always show total row count - CRITICAL FIX for "0 Total Rows"
-      if (!rows || rows.length === 0) {
+      // Always set total rows immediately
+      if (totalRows === 0) {
         setUploadResult({
           status: 'failed',
           total_rows: 0,
           success_rows: 0,
           failed_rows: 0,
-          error: 'CSV file is empty or has no valid data rows'
+          error: 'CSV parsed 0 data rows. Check if file has data below headers.'
         });
         setProcessing(false);
         return;
       }
 
-      // Filter out completely empty rows
-      rows = rows.filter(row => {
-        const hasAnyData = Object.values(row).some(val => val !== null && val !== undefined && val !== '');
-        return hasAnyData;
-      });
+      let rows = parsed.rows;
 
-      if (rows.length === 0) {
-        setUploadResult({
-          status: 'failed',
-          total_rows: 0,
-          success_rows: 0,
-          failed_rows: 0,
-          error: 'CSV file contains no valid data rows after filtering empty rows'
-        });
-        setProcessing(false);
-        return;
-      }
-
-      // Fetch raw CSV to get all headers including store column
-      const rawResponse = await fetch(file_url);
-      const rawText = await rawResponse.text();
-      const rawLines = rawText.split('\n');
-      const rawHeaders = rawLines[0]?.split(',').map(h => h.trim().replace(/['"]/g, ''));
-
-      // Normalize headers and map store column variants (like SKU uploader)
-      const normalizeHeader = (header) => header.toLowerCase().trim().replace(/[\s_]/g, '');
-      
-      // Check if CSV has store column
-      const storeHeaderIndex = rawHeaders.findIndex(h => {
-        const norm = normalizeHeader(h);
-        return norm === 'store' || norm === 'storename';
-      });
-
-      const hasStoreColumn = storeHeaderIndex !== -1;
-
-      // Map rows with normalized headers
-      rows = rows.map((row, idx) => {
-        const normalized = {};
-        Object.keys(row).forEach(key => {
-          normalized[key.toLowerCase().trim()] = row[key];
-        });
-        
-        // Extract store value from raw CSV if column exists
-        if (hasStoreColumn) {
-          const rawRowData = rawLines[idx + 1]?.split(',');
-          if (rawRowData && rawRowData[storeHeaderIndex]) {
-            normalized['store'] = rawRowData[storeHeaderIndex].trim().replace(/['"]/g, '');
-          }
-        }
-        
-        return normalized;
-      });
-
-      // Build store lookup map with normalization
+      // Stage 2: Build store lookup and resolve stores
       const normalizeStoreName = (name) => {
         if (!name) return '';
         return name.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -796,7 +884,7 @@ export default function Orders() {
         }
       });
 
-      // Check if CSV has store column with values
+      const hasStoreColumn = rows.some(r => r.store !== undefined);
       const csvHasStoreValues = hasStoreColumn && rows.some(r => r.store?.trim());
 
       // Resolve stores for each row
@@ -805,7 +893,6 @@ export default function Orders() {
         let resolvedStoreId = null;
 
         if (rowStoreValue) {
-          // Try to match store from CSV
           const normalized = normalizeStoreName(rowStoreValue);
           const matchedStore = storeMap.get(normalized);
           if (matchedStore) {
@@ -823,15 +910,15 @@ export default function Orders() {
 
       // Check requirements: CSV store OR UI store
       const rowsMissingStore = rowsWithStores.filter(r => !r._resolvedStoreId);
-      const allRowsMissingStore = rowsMissingStore.length === rows.length;
+      const allRowsMissingStore = rowsMissingStore.length === totalRows;
 
       // If ALL rows missing store AND no UI store selected, show error
       if (allRowsMissingStore && !csvStoreId) {
         setUploadResult({
           status: 'failed',
-          total_rows: rows.length,
+          total_rows: totalRows,
           success_rows: 0,
-          failed_rows: rows.length,
+          failed_rows: totalRows,
           error: csvHasStoreValues 
             ? 'None of the store values in CSV match existing stores. Please check store names or select a default store.'
             : 'Please select a store from the dropdown above, or add a "store" column in your CSV with valid store names.'
@@ -841,11 +928,12 @@ export default function Orders() {
       }
 
       // If SOME rows missing store, show fallback modal
-      if (rowsMissingStore.length > 0 && rowsMissingStore.length < rows.length && !csvStoreId) {
+      if (rowsMissingStore.length > 0 && rowsMissingStore.length < totalRows && !csvStoreId) {
         setFallbackStoreData({
           file,
           rows: rowsWithStores,
-          rowsMissingStore: rowsMissingStore.length
+          rowsMissingStore: rowsMissingStore.length,
+          totalRows
         });
         setShowStoreFallbackModal(true);
         setProcessing(false);
@@ -864,12 +952,13 @@ export default function Orders() {
       // Continue with upload
       await processOrdersUpload(rowsWithStores, file.name);
     } catch (error) {
+      console.error('Orders CSV upload error:', error);
       setUploadResult({
         status: 'failed',
         total_rows: 0,
         success_rows: 0,
         failed_rows: 0,
-        error: error.message || 'Upload failed'
+        error: `Import failed: ${error.message}`
       });
     } finally {
       setProcessing(false);
@@ -2890,7 +2979,10 @@ export default function Orders() {
             <AlertDialogDescription asChild>
               <div className="space-y-4">
                 <p className="text-slate-600">
-                  <strong>{fallbackStoreData?.rowsMissingStore || 0}</strong> orders in your CSV are missing a store assignment.
+                  Your CSV has <strong>{fallbackStoreData?.totalRows || 0}</strong> total rows.
+                </p>
+                <p className="text-slate-600">
+                  <strong>{fallbackStoreData?.rowsMissingStore || 0}</strong> of them are missing a store assignment.
                 </p>
                 <p className="text-slate-600">
                   Please select a store to assign to these orders:
