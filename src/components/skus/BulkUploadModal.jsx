@@ -322,32 +322,36 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
     });
 
     try {
-      // Process in batches
-      for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
-        const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
-        const batch = validRows.slice(i, Math.min(i + BATCH_SIZE, validRows.length));
+      // Helper function to process a single batch
+      const processBatch = async (batch, batchIndex) => {
+        const batchNum = batchIndex + 1;
         const skuCodes = batch.map(row => row.sku_code);
+        const batchResults = {
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          failed: [],
+          processed: 0
+        };
 
-        // Update batch status
-        setProgressState(prev => ({
-          ...prev,
-          log: [`Uploading batch ${currentBatch}/${totalBatches}...`, ...prev.log.slice(0, 49)]
-        }));
+        try {
+          // Prefetch existing SKUs in one query
+          const existingSKUs = await base44.entities.SKU.filter({
+            tenant_id: tenantId,
+            sku_code: { $in: skuCodes }
+          });
 
-        // Prefetch existing SKUs in one query
-        const existingSKUs = await base44.entities.SKU.filter({
-          tenant_id: tenantId,
-          sku_code: { $in: skuCodes }
-        });
+          const existingMap = {};
+          existingSKUs.forEach(sku => {
+            existingMap[sku.sku_code] = sku;
+          });
 
-        const existingMap = {};
-        existingSKUs.forEach(sku => {
-          existingMap[sku.sku_code] = sku;
-        });
+          // Split batch into operations
+          const toCreate = [];
+          const toUpdate = [];
+          const toSkip = [];
 
-        // Process each row in batch
-        for (const row of batch) {
-          try {
+          batch.forEach(row => {
             const existing = existingMap[row.sku_code];
             const skuData = {
               tenant_id: tenantId,
@@ -355,21 +359,102 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
               product_name: row.product_name,
               cost_price: parseFloat(row.cost),
               supplier_id: row.supplier || null,
-              image_url: row.image_url || null
+              image_url: row.image_url || null,
+              _stock: parseInt(row.stock) || 0
             };
 
             if (existing) {
               if (upsertMode === 'update') {
-                // Update existing
-                await base44.entities.SKU.update(existing.id, skuData);
-                
-                // Update stock if provided
-                const stockQty = parseInt(row.stock) || 0;
+                toUpdate.push({ ...skuData, _id: existing.id, _existing: existing });
+              } else {
+                toSkip.push(row);
+              }
+            } else {
+              toCreate.push(skuData);
+            }
+          });
+
+          // Bulk create new SKUs
+          if (toCreate.length > 0) {
+            try {
+              const createdSKUs = await base44.entities.SKU.bulkCreate(
+                toCreate.map(({ _stock, ...data }) => data)
+              );
+              
+              // Create stock records for new SKUs with stock > 0
+              const stockToCreate = [];
+              createdSKUs.forEach((sku, idx) => {
+                const stockQty = toCreate[idx]._stock;
+                if (stockQty > 0) {
+                  stockToCreate.push({
+                    tenant_id: tenantId,
+                    sku_id: sku.id,
+                    sku_code: sku.sku_code,
+                    quantity_available: stockQty
+                  });
+                }
+              });
+
+              if (stockToCreate.length > 0) {
+                await base44.entities.CurrentStock.bulkCreate(stockToCreate);
+              }
+
+              batchResults.created = createdSKUs.length;
+            } catch (error) {
+              console.error('Bulk create failed, falling back to individual creates:', error);
+              // Fallback to individual creates
+              for (const skuData of toCreate) {
+                try {
+                  const newSKU = await base44.entities.SKU.create({
+                    tenant_id: skuData.tenant_id,
+                    sku_code: skuData.sku_code,
+                    product_name: skuData.product_name,
+                    cost_price: skuData.cost_price,
+                    supplier_id: skuData.supplier_id,
+                    image_url: skuData.image_url
+                  });
+                  
+                  if (skuData._stock > 0) {
+                    await base44.entities.CurrentStock.create({
+                      tenant_id: tenantId,
+                      sku_id: newSKU.id,
+                      sku_code: skuData.sku_code,
+                      quantity_available: skuData._stock
+                    });
+                  }
+                  batchResults.created++;
+                } catch (err) {
+                  batchResults.failed.push({
+                    sku_code: skuData.sku_code,
+                    product_name: skuData.product_name,
+                    cost: skuData.cost_price,
+                    error_reason: err.message
+                  });
+                }
+              }
+            }
+          }
+
+          // Bulk update existing SKUs (parallel with concurrency limit)
+          if (toUpdate.length > 0) {
+            const updatePromises = toUpdate.map(async (skuData) => {
+              try {
+                await base44.entities.SKU.update(skuData._id, {
+                  tenant_id: skuData.tenant_id,
+                  sku_code: skuData.sku_code,
+                  product_name: skuData.product_name,
+                  cost_price: skuData.cost_price,
+                  supplier_id: skuData.supplier_id,
+                  image_url: skuData.image_url
+                });
+
+                // Update stock
+                const stockQty = skuData._stock;
                 const stockRecords = await base44.entities.CurrentStock.filter({
                   tenant_id: tenantId,
-                  sku_id: existing.id
+                  sku_id: skuData._id
                 });
-                
+
                 if (stockRecords.length > 0) {
                   await base44.entities.CurrentStock.update(stockRecords[0].id, {
                     quantity_available: stockQty
@@ -377,58 +462,95 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
                 } else if (stockQty > 0) {
                   await base44.entities.CurrentStock.create({
                     tenant_id: tenantId,
-                    sku_id: existing.id,
-                    sku_code: row.sku_code,
+                    sku_id: skuData._id,
+                    sku_code: skuData.sku_code,
                     quantity_available: stockQty
                   });
                 }
 
-                updated++;
-              } else {
-                // Skip existing
-                skipped++;
+                return { success: true };
+              } catch (error) {
+                return { 
+                  success: false, 
+                  sku_code: skuData.sku_code,
+                  product_name: skuData.product_name,
+                  cost: skuData.cost_price,
+                  error_reason: error.message 
+                };
               }
-            } else {
-              // Create new SKU
-              const newSKU = await base44.entities.SKU.create(skuData);
-              
-              // Create stock record if stock provided
-              const stockQty = parseInt(row.stock) || 0;
-              if (stockQty > 0) {
-                await base44.entities.CurrentStock.create({
-                  tenant_id: tenantId,
-                  sku_id: newSKU.id,
-                  sku_code: row.sku_code,
-                  quantity_available: stockQty
-                });
-              }
-
-              created++;
-            }
-
-            processed++;
-            setProgressState(prev => ({
-              ...prev,
-              current: processed,
-              successCount: created + updated + skipped,
-              log: [`✓ ${row.sku_code}`, ...prev.log.slice(0, 49)]
-            }));
-          } catch (error) {
-            console.error(`Failed to process SKU ${row.sku_code}:`, error);
-            failed.push({
-              ...row,
-              error_reason: error.message || 'Database error'
             });
 
-            processed++;
-            setProgressState(prev => ({
-              ...prev,
-              current: processed,
-              failCount: prev.failCount + 1,
-              log: [`✗ ${row.sku_code}: ${error.message}`, ...prev.log.slice(0, 49)]
-            }));
+            const updateResults = await Promise.all(updatePromises);
+            updateResults.forEach(result => {
+              if (result.success) {
+                batchResults.updated++;
+              } else {
+                batchResults.failed.push(result);
+              }
+            });
           }
+
+          // Count skipped
+          batchResults.skipped = toSkip.length;
+          batchResults.processed = batch.length;
+
+        } catch (error) {
+          console.error(`Batch ${batchNum} failed:`, error);
+          // Mark entire batch as failed
+          batch.forEach(row => {
+            batchResults.failed.push({
+              ...row,
+              error_reason: `Batch processing error: ${error.message}`
+            });
+          });
+          batchResults.processed = batch.length;
         }
+
+        return batchResults;
+      };
+
+      // Split into batch groups for concurrency control
+      const batches = [];
+      for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+        batches.push(validRows.slice(i, Math.min(i + BATCH_SIZE, validRows.length)));
+      }
+
+      // Process batches with concurrency limit
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const batchGroup = batches.slice(i, Math.min(i + CONCURRENCY, batches.length));
+        const batchIndexes = Array.from({ length: batchGroup.length }, (_, idx) => i + idx);
+
+        // Update UI: processing batch group
+        setProgressState(prev => ({
+          ...prev,
+          log: [`Processing batches ${i + 1}-${Math.min(i + CONCURRENCY, batches.length)} of ${totalBatches}...`, ...prev.log.slice(0, 49)]
+        }));
+
+        // Process batch group in parallel
+        const results = await Promise.all(
+          batchGroup.map((batch, idx) => processBatch(batch, batchIndexes[idx]))
+        );
+
+        // Aggregate results
+        results.forEach(result => {
+          created += result.created;
+          updated += result.updated;
+          skipped += result.skipped;
+          processed += result.processed;
+          failed.push(...result.failed);
+        });
+
+        // Update progress once per batch group
+        setProgressState(prev => ({
+          ...prev,
+          current: processed,
+          successCount: created + updated + skipped,
+          failCount: failed.length,
+          log: [
+            `✓ Batches ${i + 1}-${Math.min(i + CONCURRENCY, batches.length)} complete: +${results.reduce((sum, r) => sum + r.created, 0)} created, +${results.reduce((sum, r) => sum + r.updated, 0)} updated`,
+            ...prev.log.slice(0, 49)
+          ]
+        }));
       }
 
       // Mark complete
