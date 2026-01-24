@@ -5,84 +5,443 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Upload, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
+import { base44 } from '@/api/base44Client';
+import { useTenant } from '@/components/hooks/useTenant';
+import TaskProgressModal from '@/components/shared/TaskProgressModal';
 
-export default function BulkUploadModal({ open, onClose, onUpload }) {
+export default function BulkUploadModal({ open, onClose, onComplete }) {
+  const { tenantId } = useTenant();
   const [file, setFile] = useState(null);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [parsedData, setParsedData] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressText, setProgressText] = useState('');
+  const [progressState, setProgressState] = useState({
+    current: 0,
+    total: 0,
+    successCount: 0,
+    failCount: 0,
+    completed: false,
+    log: []
+  });
   const [result, setResult] = useState(null);
+  const [failedRows, setFailedRows] = useState([]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile && selectedFile.type === 'text/csv') {
       setFile(selectedFile);
       setResult(null);
+      setFailedRows([]);
     }
   };
 
-  const handleUpload = async () => {
+  // Normalize header for mapping
+  const normalizeHeader = (header) => {
+    return header.toLowerCase().replace(/[\s_]/g, '');
+  };
+
+  // Map CSV headers to internal fields
+  const mapHeaders = (headers) => {
+    const mapping = {
+      'skucode': 'sku_code',
+      'productname': 'product_name',
+      'cost': 'cost',
+      'supplier': 'supplier',
+      'stock': 'stock',
+      'initialstock': 'stock',
+      'imageurl': 'image_url'
+    };
+
+    const mapped = {};
+    headers.forEach(header => {
+      const normalized = normalizeHeader(header);
+      if (mapping[normalized]) {
+        mapped[header] = mapping[normalized];
+      }
+    });
+
+    return mapped;
+  };
+
+  // Validate row data
+  const validateRow = (row, rowIndex) => {
+    const errors = [];
+
+    // Required: sku_code
+    if (!row.sku_code || row.sku_code.trim() === '') {
+      errors.push('sku_code is required');
+    }
+
+    // Required: product_name
+    if (!row.product_name || row.product_name.trim() === '') {
+      errors.push('product_name is required');
+    }
+
+    // Required: cost (must be number > 0)
+    const cost = parseFloat(row.cost);
+    if (isNaN(cost) || cost <= 0) {
+      errors.push('cost must be a number greater than 0');
+    }
+
+    // Optional: stock (must be integer >= 0)
+    if (row.stock !== undefined && row.stock !== null && row.stock !== '') {
+      const stock = parseInt(row.stock);
+      if (isNaN(stock) || stock < 0) {
+        errors.push('stock must be an integer >= 0');
+      }
+    }
+
+    // Optional: image_url (basic URL validation)
+    if (row.image_url && row.image_url.trim() !== '') {
+      try {
+        new URL(row.image_url);
+      } catch {
+        errors.push('image_url must be a valid URL');
+      }
+    }
+
+    return errors;
+  };
+
+  // Parse CSV file
+  const parseCSV = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const text = e.target.result;
+          const lines = text.split('\n').filter(line => line.trim());
+          
+          if (lines.length < 2) {
+            reject(new Error('CSV file must contain headers and at least one data row'));
+            return;
+          }
+
+          // Parse headers
+          const headerLine = lines[0];
+          const rawHeaders = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          
+          // Map headers
+          const headerMapping = mapHeaders(rawHeaders);
+          const requiredFields = ['sku_code', 'product_name', 'cost'];
+          const mappedFields = Object.values(headerMapping);
+          
+          const missingFields = requiredFields.filter(field => !mappedFields.includes(field));
+          if (missingFields.length > 0) {
+            reject(new Error(
+              `Missing required columns: ${missingFields.join(', ')}\n\n` +
+              `Detected headers: ${rawHeaders.join(', ')}\n\n` +
+              `Please ensure your CSV has columns: sku_code, product_name, cost`
+            ));
+            return;
+          }
+
+          // Parse data rows
+          const rows = [];
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            // Simple CSV parsing (handles basic cases)
+            const values = [];
+            let currentValue = '';
+            let insideQuotes = false;
+
+            for (let j = 0; j < line.length; j++) {
+              const char = line[j];
+              
+              if (char === '"') {
+                insideQuotes = !insideQuotes;
+              } else if (char === ',' && !insideQuotes) {
+                values.push(currentValue.trim().replace(/^"|"$/g, ''));
+                currentValue = '';
+              } else {
+                currentValue += char;
+              }
+            }
+            values.push(currentValue.trim().replace(/^"|"$/g, ''));
+
+            // Map values to internal fields
+            const row = { _rowIndex: i };
+            rawHeaders.forEach((header, index) => {
+              const internalField = headerMapping[header];
+              if (internalField) {
+                row[internalField] = values[index] || '';
+              }
+            });
+
+            // Set defaults
+            if (!row.stock || row.stock === '') {
+              row.stock = 0;
+            }
+
+            rows.push(row);
+          }
+
+          resolve({ headers: rawHeaders, rows });
+        } catch (error) {
+          reject(new Error(`Failed to parse CSV: ${error.message}`));
+        }
+      };
+
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file, 'utf-8'); // Handle UTF-8 with BOM
+    });
+  };
+
+  const handleValidateAndParse = async () => {
     if (!file) return;
 
-    setUploading(true);
-    setProgress(10);
-    setProgressText('Uploading file...');
-
     try {
-      setProgress(30);
-      setProgressText('Processing rows...');
+      const parsed = await parseCSV(file);
       
-      const uploadResult = await onUpload(file);
-      
-      setProgress(100);
-      setProgressText('Complete!');
-      
-      // Ensure we have a valid result
-      if (!uploadResult || uploadResult.status === 'failed') {
+      // Validate all rows
+      const validRows = [];
+      const invalidRows = [];
+
+      parsed.rows.forEach((row) => {
+        const errors = validateRow(row, row._rowIndex);
+        if (errors.length > 0) {
+          invalidRows.push({
+            ...row,
+            error_reason: errors.join('; ')
+          });
+        } else {
+          validRows.push(row);
+        }
+      });
+
+      if (validRows.length === 0) {
         setResult({
           status: 'failed',
-          total_rows: uploadResult?.total_rows || 0,
+          total_rows: parsed.rows.length,
           success_rows: 0,
-          failed_rows: uploadResult?.failed_rows || uploadResult?.total_rows || 0,
-          error: uploadResult?.error || 'Upload failed',
-          error_file_url: uploadResult?.error_file_url
+          failed_rows: invalidRows.length,
+          error: 'No valid rows found in CSV'
         });
-      } else {
-        setResult(uploadResult);
+        setFailedRows(invalidRows);
+        return;
       }
-      setFile(null);
+
+      // Store parsed data and show conflict resolution dialog
+      setParsedData({ validRows, invalidRows });
+      setShowConflictDialog(true);
     } catch (error) {
       setResult({
         status: 'failed',
         total_rows: 0,
         success_rows: 0,
         failed_rows: 0,
-        error: error.message || 'Upload failed'
+        error: error.message
+      });
+    }
+  };
+
+  const handleStartUpload = async (upsertMode) => {
+    setShowConflictDialog(false);
+    setUploading(true);
+    
+    const { validRows, invalidRows } = parsedData;
+    const totalRows = validRows.length;
+    const BATCH_SIZE = 20;
+    const failed = [...invalidRows];
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    setProgressState({
+      current: 0,
+      total: totalRows,
+      successCount: 0,
+      failCount: invalidRows.length,
+      completed: false,
+      log: invalidRows.length > 0 ? [`${invalidRows.length} rows failed validation`] : []
+    });
+
+    try {
+      // Process in batches
+      for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+        const batch = validRows.slice(i, Math.min(i + BATCH_SIZE, validRows.length));
+        const skuCodes = batch.map(row => row.sku_code);
+
+        // Prefetch existing SKUs in one query
+        const existingSKUs = await base44.entities.SKU.filter({
+          tenant_id: tenantId,
+          sku_code: { $in: skuCodes }
+        });
+
+        const existingMap = {};
+        existingSKUs.forEach(sku => {
+          existingMap[sku.sku_code] = sku;
+        });
+
+        // Process each row in batch
+        for (const row of batch) {
+          try {
+            const existing = existingMap[row.sku_code];
+            const skuData = {
+              tenant_id: tenantId,
+              sku_code: row.sku_code,
+              product_name: row.product_name,
+              cost_price: parseFloat(row.cost),
+              supplier_id: row.supplier || null,
+              image_url: row.image_url || null
+            };
+
+            if (existing) {
+              if (upsertMode === 'update') {
+                // Update existing
+                await base44.entities.SKU.update(existing.id, skuData);
+                
+                // Update stock if provided
+                const stockQty = parseInt(row.stock) || 0;
+                const stockRecords = await base44.entities.CurrentStock.filter({
+                  tenant_id: tenantId,
+                  sku_id: existing.id
+                });
+                
+                if (stockRecords.length > 0) {
+                  await base44.entities.CurrentStock.update(stockRecords[0].id, {
+                    quantity_available: stockQty
+                  });
+                } else if (stockQty > 0) {
+                  await base44.entities.CurrentStock.create({
+                    tenant_id: tenantId,
+                    sku_id: existing.id,
+                    sku_code: row.sku_code,
+                    quantity_available: stockQty
+                  });
+                }
+
+                updated++;
+              } else {
+                // Skip existing
+                skipped++;
+              }
+            } else {
+              // Create new SKU
+              const newSKU = await base44.entities.SKU.create(skuData);
+              
+              // Create stock record if stock provided
+              const stockQty = parseInt(row.stock) || 0;
+              if (stockQty > 0) {
+                await base44.entities.CurrentStock.create({
+                  tenant_id: tenantId,
+                  sku_id: newSKU.id,
+                  sku_code: row.sku_code,
+                  quantity_available: stockQty
+                });
+              }
+
+              created++;
+            }
+
+            setProgressState(prev => ({
+              ...prev,
+              current: prev.current + 1,
+              successCount: prev.successCount + 1,
+              log: [...prev.log, `✓ Processed: ${row.sku_code}`]
+            }));
+          } catch (error) {
+            failed.push({
+              ...row,
+              error_reason: error.message || 'Database error'
+            });
+
+            setProgressState(prev => ({
+              ...prev,
+              current: prev.current + 1,
+              failCount: prev.failCount + 1,
+              log: [...prev.log, `✗ Failed: ${row.sku_code} - ${error.message}`]
+            }));
+          }
+        }
+      }
+
+      // Mark complete
+      setProgressState(prev => ({
+        ...prev,
+        completed: true
+      }));
+
+      const successCount = created + updated + skipped;
+      setResult({
+        status: failed.length === 0 ? 'success' : successCount > 0 ? 'partial' : 'failed',
+        total_rows: totalRows + invalidRows.length,
+        success_rows: successCount,
+        failed_rows: failed.length,
+        created,
+        updated,
+        skipped
+      });
+      setFailedRows(failed);
+      
+      if (onComplete) {
+        onComplete();
+      }
+    } catch (error) {
+      setResult({
+        status: 'failed',
+        total_rows: totalRows,
+        success_rows: 0,
+        failed_rows: totalRows,
+        error: error.message
       });
     } finally {
       setUploading(false);
-      setProgress(0);
-      setProgressText('');
     }
   };
 
   const handleClose = () => {
+    if (uploading) return;
     setFile(null);
     setResult(null);
-    setProgress(0);
-    setProgressText('');
+    setFailedRows([]);
+    setParsedData(null);
+    setProgressState({
+      current: 0,
+      total: 0,
+      successCount: 0,
+      failCount: 0,
+      completed: false,
+      log: []
+    });
     onClose();
   };
 
   const downloadErrorCSV = () => {
-    if (!result?.error_file_url) return;
+    if (failedRows.length === 0) return;
     
-    // Download from URL if available
+    // Generate CSV client-side
+    const headers = ['sku_code', 'product_name', 'cost', 'supplier', 'stock', 'image_url', 'error_reason'];
+    const csvContent = [
+      headers.join(','),
+      ...failedRows.map(row => {
+        return headers.map(header => {
+          const value = row[header] || '';
+          // Escape quotes and wrap in quotes if contains comma
+          const escaped = String(value).replace(/"/g, '""');
+          return escaped.includes(',') ? `"${escaped}"` : escaped;
+        }).join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    link.href = result.error_file_url;
+    link.href = URL.createObjectURL(blob);
     link.download = `sku_upload_errors_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
@@ -90,186 +449,210 @@ export default function BulkUploadModal({ open, onClose, onUpload }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>Bulk Upload SKUs</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open && !uploading} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload SKUs</DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          {/* Upload Requirements */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-blue-900 mb-2">Required Columns:</h4>
-            <div className="text-sm text-blue-700 space-y-1">
-              <div>• <strong>sku_code</strong> (required, unique)</div>
-              <div>• <strong>product_name</strong> (required)</div>
-              <div>• <strong>cost</strong> (required, number &gt; 0)</div>
-              <div>• <strong>supplier</strong> (optional, name)</div>
-              <div>• <strong>stock</strong> (optional, integer ≥ 0)</div>
-              <div>• <strong>image_url</strong> (optional, URL)</div>
-            </div>
-          </div>
-
-          {/* File Upload Area */}
-          {!result && (
-            <div>
-              <label
-                htmlFor="csv-upload"
-                className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-slate-50 transition-all"
-              >
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <Upload className="w-10 h-10 text-slate-400 mb-3" />
-                  {file ? (
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-slate-700">{file.name}</p>
-                      <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-slate-700">Click to upload CSV</p>
-                      <p className="text-xs text-slate-500">or drag and drop</p>
-                    </div>
-                  )}
-                </div>
-                <input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-              </label>
-
-              {file && (
-                <div className="flex gap-3 mt-4">
-                  <Button
-                    onClick={handleUpload}
-                    disabled={uploading}
-                    className="flex-1"
-                  >
-                    {uploading ? 'Uploading...' : 'Validate & Upload'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setFile(null)}
-                    disabled={uploading}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Progress */}
-          {uploading && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-slate-700">{progressText}</p>
-                <p className="text-xs font-semibold text-indigo-600">{progress}%</p>
+          <div className="space-y-6 py-4">
+            {/* Upload Requirements */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-blue-900 mb-2">Required Columns:</h4>
+              <div className="text-sm text-blue-700 space-y-1">
+                <div>• <strong>sku_code</strong> (required, unique)</div>
+                <div>• <strong>product_name</strong> (required)</div>
+                <div>• <strong>cost</strong> (required, number &gt; 0)</div>
+                <div>• <strong>supplier</strong> (optional, name)</div>
+                <div>• <strong>stock</strong> (optional, integer ≥ 0, default 0)</div>
+                <div>• <strong>image_url</strong> (optional, URL)</div>
               </div>
-              <Progress value={progress} className="h-3" />
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mt-0.5" />
-                  <div>
-                    <p className="text-xs font-medium text-indigo-900">
-                      Processing in batches of 400 rows...
-                    </p>
-                    <p className="text-xs text-indigo-700 mt-1">
-                      Large files (1,000+ rows) complete in seconds with optimized batch processing.
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <p className="text-xs text-blue-600 mt-2">
+                💡 Supports flexible headers (e.g., "SKU Code", "Product Name", etc.)
+              </p>
             </div>
-          )}
 
-          {/* Results */}
-          {result && (
-            <div className="space-y-4">
-              {result.status === 'success' && result.success_rows > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    <h4 className="font-semibold text-green-900">Upload Successful!</h4>
-                  </div>
-                  <div className="text-sm text-green-700 space-y-1">
-                    <p>✓ Total rows found: <strong>{result.total_rows}</strong></p>
-                    <p>✓ Successfully imported: <strong>{result.success_rows}</strong></p>
-                  </div>
-                </div>
-              )}
-
-              {result.status === 'partial' && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <AlertCircle className="w-5 h-5 text-orange-600" />
-                    <h4 className="font-semibold text-orange-900">Partial Success</h4>
-                  </div>
-                  <div className="text-sm text-orange-700 space-y-1">
-                    <p>• Total rows found: <strong>{result.total_rows}</strong></p>
-                    <p>• Successfully imported: <strong>{result.success_rows}</strong></p>
-                    <p>• Failed rows: <strong>{result.failed_rows}</strong></p>
-                  </div>
-                  {result.error_file_url && (
-                    <Button
-                      onClick={downloadErrorCSV}
-                      variant="outline"
-                      size="sm"
-                      className="mt-3 border-orange-300 text-orange-700 hover:bg-orange-100"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Download Error CSV
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {(result.status === 'failed' || result.success_rows === 0) && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <XCircle className="w-5 h-5 text-red-600" />
-                    <h4 className="font-semibold text-red-900">Upload Failed</h4>
-                  </div>
-                  <div className="text-sm text-red-700 space-y-1">
-                    {result.error && <p className="mb-2">{result.error}</p>}
-                    {result.total_rows > 0 ? (
-                      <>
-                        <p>• Total rows found: <strong>{result.total_rows}</strong></p>
-                        <p>• Successfully imported: <strong>0</strong></p>
-                        <p>• Failed rows: <strong>{result.failed_rows || result.total_rows}</strong></p>
-                      </>
+            {/* File Upload Area */}
+            {!result && (
+              <div>
+                <label
+                  htmlFor="csv-upload"
+                  className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-slate-50 transition-all"
+                >
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <Upload className="w-10 h-10 text-slate-400 mb-3" />
+                    {file ? (
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-slate-700">{file.name}</p>
+                        <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                      </div>
                     ) : (
-                      <p>No valid data rows found in the CSV file.</p>
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-slate-700">Click to upload CSV</p>
+                        <p className="text-xs text-slate-500">Supports UTF-8 (Arabic text)</p>
+                      </div>
                     )}
                   </div>
-                  {result.error_file_url && (
-                    <Button
-                      onClick={downloadErrorCSV}
-                      variant="outline"
-                      size="sm"
-                      className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Download Error CSV
-                    </Button>
-                  )}
-                </div>
-              )}
+                  <input
+                    id="csv-upload"
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
 
-              <div className="flex gap-3">
-                <Button onClick={handleClose} className="flex-1">
-                  Done
-                </Button>
-                <Button variant="outline" onClick={() => setResult(null)}>
-                  Upload Another
-                </Button>
+                {file && (
+                  <div className="flex gap-3 mt-4">
+                    <Button
+                      onClick={handleValidateAndParse}
+                      className="flex-1"
+                    >
+                      Validate & Upload
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setFile(null)}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+            )}
+
+            {/* Results */}
+            {result && (
+              <div className="space-y-4">
+                {result.status === 'success' && result.success_rows > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <h4 className="font-semibold text-green-900">Upload Successful!</h4>
+                    </div>
+                    <div className="text-sm text-green-700 space-y-1">
+                      <p>✓ Total rows: <strong>{result.total_rows}</strong></p>
+                      {result.created > 0 && <p>✓ Created: <strong>{result.created}</strong></p>}
+                      {result.updated > 0 && <p>✓ Updated: <strong>{result.updated}</strong></p>}
+                      {result.skipped > 0 && <p>✓ Skipped: <strong>{result.skipped}</strong></p>}
+                    </div>
+                  </div>
+                )}
+
+                {result.status === 'partial' && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <AlertCircle className="w-5 h-5 text-orange-600" />
+                      <h4 className="font-semibold text-orange-900">Partial Success</h4>
+                    </div>
+                    <div className="text-sm text-orange-700 space-y-1">
+                      <p>• Total rows: <strong>{result.total_rows}</strong></p>
+                      <p>• Successful: <strong>{result.success_rows}</strong></p>
+                      {result.created > 0 && <p>&nbsp;&nbsp;- Created: <strong>{result.created}</strong></p>}
+                      {result.updated > 0 && <p>&nbsp;&nbsp;- Updated: <strong>{result.updated}</strong></p>}
+                      {result.skipped > 0 && <p>&nbsp;&nbsp;- Skipped: <strong>{result.skipped}</strong></p>}
+                      <p>• Failed: <strong>{result.failed_rows}</strong></p>
+                    </div>
+                    {failedRows.length > 0 && (
+                      <Button
+                        onClick={downloadErrorCSV}
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 border-orange-300 text-orange-700 hover:bg-orange-100"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Failed Rows CSV
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {(result.status === 'failed' || result.success_rows === 0) && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <XCircle className="w-5 h-5 text-red-600" />
+                      <h4 className="font-semibold text-red-900">Upload Failed</h4>
+                    </div>
+                    <div className="text-sm text-red-700 space-y-1">
+                      {result.error && <p className="mb-2 font-medium">{result.error}</p>}
+                      {result.total_rows > 0 && (
+                        <>
+                          <p>• Total rows: <strong>{result.total_rows}</strong></p>
+                          <p>• Failed: <strong>{result.failed_rows}</strong></p>
+                        </>
+                      )}
+                    </div>
+                    {failedRows.length > 0 && (
+                      <Button
+                        onClick={downloadErrorCSV}
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Failed Rows CSV
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button onClick={handleClose} className="flex-1">
+                    Done
+                  </Button>
+                  <Button variant="outline" onClick={() => {
+                    setResult(null);
+                    setFailedRows([]);
+                  }}>
+                    Upload Another
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conflict Resolution Dialog */}
+      <AlertDialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Handle Existing SKUs</AlertDialogTitle>
+            <AlertDialogDescription>
+              Some SKU codes in your file may already exist in the database. How would you like to handle them?
+              <div className="mt-4 space-y-3">
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                  <p className="text-sm font-semibold text-indigo-900">Update Existing</p>
+                  <p className="text-xs text-indigo-700">Overwrite existing SKU data with new values from the CSV</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <p className="text-sm font-semibold text-slate-900">Skip Existing</p>
+                  <p className="text-xs text-slate-700">Keep existing SKUs unchanged, only import new ones</p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => handleStartUpload('skip')} className="bg-slate-600">
+              Skip Existing
+            </AlertDialogAction>
+            <AlertDialogAction onClick={() => handleStartUpload('update')}>
+              Update Existing
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Progress Modal */}
+      <TaskProgressModal
+        open={uploading}
+        progressState={progressState}
+        title="Uploading SKUs"
+        onClose={() => {}}
+        allowMinimize={false}
+      />
+    </>
   );
 }
