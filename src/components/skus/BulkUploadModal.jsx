@@ -205,10 +205,27 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
   const handleValidateAndParse = async () => {
     if (!file) return;
 
+    // Show initial parsing stage
+    setProgressState({
+      current: 0,
+      total: 0,
+      successCount: 0,
+      failCount: 0,
+      completed: false,
+      log: ['Reading CSV file...']
+    });
+    setUploading(true);
+
     try {
+      // Stage 1: Parse CSV
       const parsed = await parseCSV(file);
       
-      // Validate all rows
+      setProgressState(prev => ({
+        ...prev,
+        log: ['✓ File read successfully', `Found ${parsed.rows.length} rows`, 'Validating data...']
+      }));
+
+      // Stage 2: Validate all rows
       const validRows = [];
       const invalidRows = [];
 
@@ -224,6 +241,8 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
         }
       });
 
+      setUploading(false);
+
       if (validRows.length === 0) {
         setResult({
           status: 'failed',
@@ -233,19 +252,45 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
           error: 'No valid rows found in CSV'
         });
         setFailedRows(invalidRows);
+        setProgressState({
+          current: 0,
+          total: 0,
+          successCount: 0,
+          failCount: 0,
+          completed: false,
+          log: []
+        });
         return;
       }
 
       // Store parsed data and show conflict resolution dialog
       setParsedData({ validRows, invalidRows });
       setShowConflictDialog(true);
+      setProgressState({
+        current: 0,
+        total: 0,
+        successCount: 0,
+        failCount: 0,
+        completed: false,
+        log: []
+      });
     } catch (error) {
+      console.error('CSV parsing failed:', error);
+      setUploading(false);
       setResult({
         status: 'failed',
         total_rows: 0,
         success_rows: 0,
         failed_rows: 0,
-        error: error.message
+        error: `Upload failed to start: ${error.message}`
+      });
+      setProgressState({
+        current: 0,
+        total: 0,
+        successCount: 0,
+        failCount: 0,
+        completed: false,
+        log: []
       });
     }
   };
@@ -257,25 +302,37 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
     const { validRows, invalidRows } = parsedData;
     const totalRows = validRows.length;
     const BATCH_SIZE = 20;
+    const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
     const failed = [...invalidRows];
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let processed = 0;
 
+    // Initialize progress with total set immediately
     setProgressState({
       current: 0,
       total: totalRows,
       successCount: 0,
       failCount: invalidRows.length,
       completed: false,
-      log: invalidRows.length > 0 ? [`${invalidRows.length} rows failed validation`] : []
+      log: invalidRows.length > 0 
+        ? [`${invalidRows.length} rows failed validation`, `Starting upload: ${totalRows} valid rows in ${totalBatches} batches...`] 
+        : [`Starting upload: ${totalRows} rows in ${totalBatches} batches...`]
     });
 
     try {
       // Process in batches
       for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+        const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
         const batch = validRows.slice(i, Math.min(i + BATCH_SIZE, validRows.length));
         const skuCodes = batch.map(row => row.sku_code);
+
+        // Update batch status
+        setProgressState(prev => ({
+          ...prev,
+          log: [`Uploading batch ${currentBatch}/${totalBatches}...`, ...prev.log.slice(0, 49)]
+        }));
 
         // Prefetch existing SKUs in one query
         const existingSKUs = await base44.entities.SKU.filter({
@@ -349,23 +406,26 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
               created++;
             }
 
+            processed++;
             setProgressState(prev => ({
               ...prev,
-              current: prev.current + 1,
-              successCount: prev.successCount + 1,
-              log: [...prev.log, `✓ Processed: ${row.sku_code}`]
+              current: processed,
+              successCount: created + updated + skipped,
+              log: [`✓ ${row.sku_code}`, ...prev.log.slice(0, 49)]
             }));
           } catch (error) {
+            console.error(`Failed to process SKU ${row.sku_code}:`, error);
             failed.push({
               ...row,
               error_reason: error.message || 'Database error'
             });
 
+            processed++;
             setProgressState(prev => ({
               ...prev,
-              current: prev.current + 1,
+              current: processed,
               failCount: prev.failCount + 1,
-              log: [...prev.log, `✗ Failed: ${row.sku_code} - ${error.message}`]
+              log: [`✗ ${row.sku_code}: ${error.message}`, ...prev.log.slice(0, 49)]
             }));
           }
         }
@@ -393,12 +453,18 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
         onComplete();
       }
     } catch (error) {
+      console.error('Upload process failed:', error);
+      setProgressState(prev => ({
+        ...prev,
+        completed: true,
+        log: [`❌ Upload failed: ${error.message}`, ...prev.log]
+      }));
       setResult({
         status: 'failed',
         total_rows: totalRows,
         success_rows: 0,
         failed_rows: totalRows,
-        error: error.message
+        error: `Upload failed: ${error.message}`
       });
     } finally {
       setUploading(false);
@@ -648,9 +714,14 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
       {/* Progress Modal */}
       <TaskProgressModal
         open={uploading}
-        progressState={progressState}
-        title="Uploading SKUs"
         onClose={() => {}}
+        title="Uploading SKUs"
+        current={progressState.current}
+        total={progressState.total}
+        successCount={progressState.successCount}
+        failCount={progressState.failCount}
+        completed={progressState.completed}
+        log={progressState.log}
         allowMinimize={false}
       />
     </>
