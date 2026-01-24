@@ -301,7 +301,8 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
     
     const { validRows, invalidRows } = parsedData;
     const totalRows = validRows.length;
-    const BATCH_SIZE = 20;
+    const BATCH_SIZE = 100; // Increased from 20 to 100
+    const CONCURRENCY = 4; // Process 4 batches concurrently
     const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
     const failed = [...invalidRows];
     let created = 0;
@@ -317,8 +318,8 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
       failCount: invalidRows.length,
       completed: false,
       log: invalidRows.length > 0 
-        ? [`${invalidRows.length} rows failed validation`, `Starting upload: ${totalRows} valid rows in ${totalBatches} batches...`] 
-        : [`Starting upload: ${totalRows} rows in ${totalBatches} batches...`]
+        ? [`${invalidRows.length} rows failed validation`, `Starting upload: ${totalRows} valid rows in ${totalBatches} batches (${BATCH_SIZE} rows/batch, ${CONCURRENCY} concurrent)...`] 
+        : [`Starting upload: ${totalRows} rows in ${totalBatches} batches (${BATCH_SIZE} rows/batch, ${CONCURRENCY} concurrent)...`]
     });
 
     try {
