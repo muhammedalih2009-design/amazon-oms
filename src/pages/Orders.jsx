@@ -788,9 +788,10 @@ export default function Orders() {
       stores.forEach(store => {
         const normalized = normalizeStoreName(store.name);
         storeMap.set(normalized, store);
-        // Also map base name (before parentheses)
-        const baseName = normalized.split('(')[0].trim();
-        if (baseName !== normalized) {
+        
+        // Also map base name (before parentheses) - normalized
+        const baseName = normalizeStoreName(normalized.split('(')[0]);
+        if (baseName && baseName !== normalized) {
           storeMap.set(baseName, store);
         }
       });
