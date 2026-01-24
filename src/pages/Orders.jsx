@@ -811,7 +811,7 @@ export default function Orders() {
       }
 
       // Continue with upload
-      await processOrdersUpload(rowsWithStores);
+      await processOrdersUpload(rowsWithStores, file.name);
     } catch (error) {
       setUploadResult({
         status: 'failed',
@@ -841,7 +841,7 @@ export default function Orders() {
       });
 
       // Continue with upload
-      await processOrdersUpload(updatedRows);
+      await processOrdersUpload(updatedRows, fallbackStoreData.file.name);
     } catch (error) {
       setUploadResult({
         status: 'failed',
