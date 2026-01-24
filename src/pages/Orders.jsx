@@ -2340,6 +2340,7 @@ export default function Orders() {
             batches={batches}
             loading={loading}
             onDelete={(batch) => setDeleteBatch(batch)}
+            onBatchUpdated={() => loadData(true)}
           />
         </TabsContent>
       </Tabs>
