@@ -869,15 +869,6 @@ export default function Orders() {
         total_rows: rows.length
       });
 
-      // Create batch
-      const batch = await base44.entities.ImportBatch.create({
-        tenant_id: tenantId,
-        batch_type: 'orders',
-        batch_name: `Orders Batch - ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
-        status: 'processing',
-        total_rows: rowsWithStores.length
-      });
-
       // Build SKU lookup map
       const skuMap = new Map();
       skus.forEach(sku => {
