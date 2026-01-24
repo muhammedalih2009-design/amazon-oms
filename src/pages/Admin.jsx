@@ -72,17 +72,27 @@ export default function Admin() {
 
   const loadData = async () => {
     setLoading(true);
-    const [tenantsData, usersData, membershipsData, subscriptionsData] = await Promise.all([
-      base44.entities.Tenant.list(),
-      base44.entities.User.list(),
-      base44.entities.Membership.list(),
-      base44.entities.Subscription.list()
-    ]);
-    setTenants(tenantsData);
-    setUsers(usersData);
-    setMemberships(membershipsData);
-    setSubscriptions(subscriptionsData);
-    setLoading(false);
+    try {
+      const [tenantsData, usersData, membershipsData, subscriptionsData] = await Promise.all([
+        base44.entities.Tenant.list(),
+        base44.entities.User.list().catch(() => []), // Handle User entity auth requirement
+        base44.entities.Membership.list(),
+        base44.entities.Subscription.list()
+      ]);
+      setTenants(tenantsData);
+      setUsers(usersData);
+      setMemberships(membershipsData);
+      setSubscriptions(subscriptionsData);
+    } catch (error) {
+      console.error('Error loading admin data:', error);
+      toast({
+        title: 'Error loading data',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateSubscription = async (tenantId, updates) => {
