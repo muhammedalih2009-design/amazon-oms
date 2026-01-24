@@ -104,6 +104,8 @@ export default function Orders() {
     lines: [{ sku_id: '', quantity: 1 }]
   });
   const [csvStoreId, setCsvStoreId] = useState('');
+  const [showStoreFallbackModal, setShowStoreFallbackModal] = useState(false);
+  const [fallbackStoreData, setFallbackStoreData] = useState(null);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -685,20 +687,14 @@ export default function Orders() {
   };
 
   const handleCSVUpload = async (file) => {
-    if (!csvStoreId) {
-      toast({ title: 'Please select a store', variant: 'destructive' });
-      return;
-    }
-    
     setProcessing(true);
     
     try {
-      const store = stores.find(s => s.id === csvStoreId);
       
       // Upload file
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       
-      // Extract data
+      // Extract data (including optional store column)
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
         file_url,
         json_schema: {
@@ -709,7 +705,8 @@ export default function Orders() {
               amazon_order_id: { type: 'string' },
               order_date: { type: 'string' },
               sku_code: { type: 'string' },
-              quantity: { type: ['number', 'string'] }
+              quantity: { type: ['number', 'string'] },
+              store: { type: 'string' }
             }
           }
         }
@@ -732,15 +729,135 @@ export default function Orders() {
         throw new Error('CSV file contains no valid data rows');
       }
 
-      // Normalize headers
+      // Normalize headers and map store column variants
       rows = rows.map(row => {
         const normalized = {};
         Object.keys(row).forEach(key => {
-          const normalizedKey = key.toLowerCase().trim();
-          normalized[normalizedKey] = row[key];
+          const normalizedKey = key.toLowerCase().trim().replace(/[\s_]/g, '');
+          // Map store column variations
+          if (normalizedKey === 'store' || normalizedKey === 'storename') {
+            normalized['store'] = row[key];
+          } else {
+            normalized[key.toLowerCase().trim()] = row[key];
+          }
         });
         return normalized;
       });
+
+      // Build store lookup map with normalization
+      const normalizeStoreName = (name) => {
+        if (!name) return '';
+        return name.toLowerCase().trim().replace(/\s+/g, ' ');
+      };
+      
+      const storeMap = new Map();
+      stores.forEach(store => {
+        const normalized = normalizeStoreName(store.name);
+        storeMap.set(normalized, store);
+        // Also map base name (before parentheses)
+        const baseName = normalized.split('(')[0].trim();
+        if (baseName !== normalized) {
+          storeMap.set(baseName, store);
+        }
+      });
+
+      // Resolve stores and track missing store rows
+      const rowsWithStores = rows.map((row, idx) => {
+        const rowStoreValue = row.store?.trim();
+        let resolvedStoreId = null;
+
+        if (rowStoreValue) {
+          // Try to match store from CSV
+          const normalized = normalizeStoreName(rowStoreValue);
+          const matchedStore = storeMap.get(normalized);
+          if (matchedStore) {
+            resolvedStoreId = matchedStore.id;
+          }
+        } else if (csvStoreId) {
+          // Use UI-selected store as fallback
+          resolvedStoreId = csvStoreId;
+        }
+
+        return {
+          ...row,
+          _rowIndex: idx,
+          _resolvedStoreId: resolvedStoreId,
+          _storeValue: rowStoreValue
+        };
+      });
+
+      // Check if any rows are missing stores
+      const rowsMissingStore = rowsWithStores.filter(r => !r._resolvedStoreId);
+      
+      if (rowsMissingStore.length > 0 && !csvStoreId) {
+        // Show fallback modal to select a store
+        setFallbackStoreData({
+          file,
+          rows: rowsWithStores,
+          rowsMissingStore: rowsMissingStore.length
+        });
+        setShowStoreFallbackModal(true);
+        setProcessing(false);
+        return;
+      }
+
+      // If UI store is selected, apply it to missing rows
+      if (csvStoreId) {
+        rowsWithStores.forEach(row => {
+          if (!row._resolvedStoreId) {
+            row._resolvedStoreId = csvStoreId;
+          }
+        });
+      }
+
+      // Continue with upload
+      await processOrdersUpload(rowsWithStores);
+    } catch (error) {
+      setUploadResult({
+        status: 'failed',
+        total_rows: 0,
+        success_rows: 0,
+        failed_rows: 0,
+        error: error.message || 'Upload failed'
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleFallbackStoreSelected = async (selectedStoreId) => {
+    if (!fallbackStoreData) return;
+    
+    setShowStoreFallbackModal(false);
+    setProcessing(true);
+
+    try {
+      // Apply fallback store to all rows missing store
+      const updatedRows = fallbackStoreData.rows.map(row => {
+        if (!row._resolvedStoreId) {
+          return { ...row, _resolvedStoreId: selectedStoreId };
+        }
+        return row;
+      });
+
+      // Continue with upload
+      await processOrdersUpload(updatedRows);
+    } catch (error) {
+      setUploadResult({
+        status: 'failed',
+        total_rows: 0,
+        success_rows: 0,
+        failed_rows: 0,
+        error: error.message || 'Upload failed'
+      });
+    } finally {
+      setProcessing(false);
+      setFallbackStoreData(null);
+    }
+  };
+
+  const processOrdersUpload = async (rowsWithStores) => {
+    try {
 
       // Create batch
       const batch = await base44.entities.ImportBatch.create({
@@ -750,6 +867,15 @@ export default function Orders() {
         filename: file.name,
         status: 'processing',
         total_rows: rows.length
+      });
+
+      // Create batch
+      const batch = await base44.entities.ImportBatch.create({
+        tenant_id: tenantId,
+        batch_type: 'orders',
+        batch_name: `Orders Batch - ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
+        status: 'processing',
+        total_rows: rowsWithStores.length
       });
 
       // Build SKU lookup map
@@ -769,8 +895,8 @@ export default function Orders() {
       const seenOrderIds = new Set();
 
       // Validate all rows
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+      for (let i = 0; i < rowsWithStores.length; i++) {
+        const row = rowsWithStores[i];
         
         try {
           // Convert quantity to number
@@ -801,6 +927,11 @@ export default function Orders() {
             throw new Error(`SKU not found: ${row.sku_code}`);
           }
 
+          // Validate store resolution
+          if (!row._resolvedStoreId) {
+            throw new Error(row._storeValue ? `Unknown store: ${row._storeValue}` : 'Store is required');
+          }
+
           // Check for duplicate order ID in existing orders
           const orderIdLower = row.amazon_order_id.toLowerCase().trim();
           if (existingOrderIds.has(orderIdLower)) {
@@ -809,9 +940,13 @@ export default function Orders() {
 
           // Track order for creation (group lines by order)
           if (!validOrders.has(orderIdLower)) {
+            const orderStore = stores.find(s => s.id === row._resolvedStoreId);
             validOrders.set(orderIdLower, {
               amazon_order_id: row.amazon_order_id.trim(),
               order_date: row.order_date,
+              store_id: row._resolvedStoreId,
+              store_name: orderStore?.name,
+              store_color: orderStore?.color,
               _rowNumber: i + 1
             });
             seenOrderIds.add(orderIdLower);
@@ -842,9 +977,6 @@ export default function Orders() {
       const ordersToCreate = Array.from(validOrders.values()).map(({ _rowNumber, ...order }) => ({
         tenant_id: tenantId,
         ...order,
-        store_id: csvStoreId,
-        store_name: store?.name,
-        store_color: store?.color,
         status: 'pending',
         import_batch_id: batch.id
       }));
@@ -944,15 +1076,7 @@ export default function Orders() {
 
       loadData();
     } catch (error) {
-      setUploadResult({
-        status: 'failed',
-        total_rows: 0,
-        success_rows: 0,
-        failed_rows: 0,
-        error: error.message || 'Upload failed'
-      });
-    } finally {
-      setProcessing(false);
+      throw error;
     }
   };
 
@@ -1553,7 +1677,7 @@ export default function Orders() {
     }
   ];
 
-  const csvTemplate = 'data:text/csv;charset=utf-8,amazon_order_id,order_date,sku_code,quantity\n111-1234567-1234567,2024-01-15,SKU001,2';
+  const csvTemplate = 'data:text/csv;charset=utf-8,amazon_order_id,order_date,sku_code,quantity,store\n111-1234567-1234567,2024-01-15,SKU001,2,Arexol';
 
   return (
     <div className="space-y-6">
@@ -2063,7 +2187,8 @@ export default function Orders() {
               { name: 'amazon_order_id', required: true },
               { name: 'order_date', required: true },
               { name: 'sku_code', required: true },
-              { name: 'quantity', required: true }
+              { name: 'quantity', required: true },
+              { name: 'store', required: false }
             ]}
           />
           <CSVUploader
@@ -2710,6 +2835,64 @@ export default function Orders() {
                 Confirm & Fulfill {bulkFulfillValidation.validOrders.length} Order(s)
               </AlertDialogAction>
             )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Store Fallback Modal */}
+      <AlertDialog open={showStoreFallbackModal} onOpenChange={setShowStoreFallbackModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Select Store for Orders Missing Store</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p className="text-slate-600">
+                  <strong>{fallbackStoreData?.rowsMissingStore || 0}</strong> orders in your CSV are missing a store assignment.
+                </p>
+                <p className="text-slate-600">
+                  Please select a store to assign to these orders:
+                </p>
+                <Select 
+                  value={csvStoreId} 
+                  onValueChange={setCsvStoreId}
+                >
+                  <SelectTrigger className="bg-white">
+                    <SelectValue placeholder="Choose a store" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stores.map(s => (
+                      <SelectItem key={s.id} value={s.id}>
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: s.color }}
+                          />
+                          {s.name} ({s.platform})
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Orders with a store specified in the CSV will use that store. Only orders missing a store value will use this fallback.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setShowStoreFallbackModal(false);
+              setFallbackStoreData(null);
+              setProcessing(false);
+            }}>
+              Cancel Import
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => handleFallbackStoreSelected(csvStoreId)}
+              disabled={!csvStoreId}
+            >
+              Continue Import
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
