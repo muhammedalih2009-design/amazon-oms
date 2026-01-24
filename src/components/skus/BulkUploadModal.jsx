@@ -115,7 +115,7 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
     return errors;
   };
 
-  // Parse CSV file
+  // Parse CSV file with support for multiline quoted fields
   const parseCSV = async (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -123,16 +123,69 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
       reader.onload = (e) => {
         try {
           const text = e.target.result;
-          const lines = text.split('\n').filter(line => line.trim());
           
-          if (lines.length < 2) {
+          // Parse CSV properly handling quoted multiline fields
+          const parseCSVLine = (text) => {
+            const rows = [];
+            let currentRow = [];
+            let currentField = '';
+            let insideQuotes = false;
+            
+            for (let i = 0; i < text.length; i++) {
+              const char = text[i];
+              const nextChar = text[i + 1];
+              
+              if (char === '"') {
+                if (insideQuotes && nextChar === '"') {
+                  // Escaped quote
+                  currentField += '"';
+                  i++; // Skip next quote
+                } else {
+                  // Toggle quote state
+                  insideQuotes = !insideQuotes;
+                }
+              } else if (char === ',' && !insideQuotes) {
+                // End of field
+                currentRow.push(currentField.trim());
+                currentField = '';
+              } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+                // End of row
+                if (char === '\r' && nextChar === '\n') {
+                  i++; // Skip \n after \r
+                }
+                if (currentField || currentRow.length > 0) {
+                  currentRow.push(currentField.trim());
+                  if (currentRow.some(f => f.length > 0)) {
+                    rows.push(currentRow);
+                  }
+                  currentRow = [];
+                  currentField = '';
+                }
+              } else {
+                currentField += char;
+              }
+            }
+            
+            // Add last field and row
+            if (currentField || currentRow.length > 0) {
+              currentRow.push(currentField.trim());
+              if (currentRow.some(f => f.length > 0)) {
+                rows.push(currentRow);
+              }
+            }
+            
+            return rows;
+          };
+          
+          const allRows = parseCSVLine(text);
+          
+          if (allRows.length < 2) {
             reject(new Error('CSV file must contain headers and at least one data row'));
             return;
           }
 
           // Parse headers
-          const headerLine = lines[0];
-          const rawHeaders = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          const rawHeaders = allRows[0];
           
           // Map headers
           const headerMapping = mapHeaders(rawHeaders);
@@ -149,37 +202,24 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
             return;
           }
 
-          // Parse data rows
+          // Parse data rows and sanitize
           const rows = [];
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-
-            // Simple CSV parsing (handles basic cases)
-            const values = [];
-            let currentValue = '';
-            let insideQuotes = false;
-
-            for (let j = 0; j < line.length; j++) {
-              const char = line[j];
-              
-              if (char === '"') {
-                insideQuotes = !insideQuotes;
-              } else if (char === ',' && !insideQuotes) {
-                values.push(currentValue.trim().replace(/^"|"$/g, ''));
-                currentValue = '';
-              } else {
-                currentValue += char;
-              }
-            }
-            values.push(currentValue.trim().replace(/^"|"$/g, ''));
-
+          for (let i = 1; i < allRows.length; i++) {
+            const values = allRows[i];
+            
             // Map values to internal fields
             const row = { _rowIndex: i };
             rawHeaders.forEach((header, index) => {
               const internalField = headerMapping[header];
-              if (internalField) {
-                row[internalField] = values[index] || '';
+              if (internalField && values[index] !== undefined) {
+                let value = values[index];
+                
+                // Sanitize text fields: replace newlines with spaces
+                if (internalField === 'product_name' || internalField === 'supplier') {
+                  value = value.replace(/[\r\n]+/g, ' ').trim();
+                }
+                
+                row[internalField] = value;
               }
             });
 
@@ -198,7 +238,7 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
       };
 
       reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file, 'utf-8'); // Handle UTF-8 with BOM
+      reader.readAsText(file, 'utf-8');
     });
   };
 
