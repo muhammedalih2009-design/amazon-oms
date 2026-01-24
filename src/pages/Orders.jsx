@@ -690,11 +690,10 @@ export default function Orders() {
     setProcessing(true);
     
     try {
-      
       // Upload file
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       
-      // Extract data (including optional store column)
+      // Extract data with all possible columns
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
         file_url,
         json_schema: {
@@ -705,8 +704,7 @@ export default function Orders() {
               amazon_order_id: { type: 'string' },
               order_date: { type: 'string' },
               sku_code: { type: 'string' },
-              quantity: { type: ['number', 'string'] },
-              store: { type: 'string' }
+              quantity: { type: ['number', 'string'] }
             }
           }
         }
@@ -714,33 +712,69 @@ export default function Orders() {
 
       let rows = result.output || [];
       
-      // Validate CSV is not empty
+      // Always show total row count - CRITICAL FIX for "0 Total Rows"
       if (!rows || rows.length === 0) {
-        throw new Error('CSV file is empty or has no valid data rows');
+        setUploadResult({
+          status: 'failed',
+          total_rows: 0,
+          success_rows: 0,
+          failed_rows: 0,
+          error: 'CSV file is empty or has no valid data rows'
+        });
+        setProcessing(false);
+        return;
       }
 
-      // Filter out empty rows
+      // Filter out completely empty rows
       rows = rows.filter(row => {
         const hasAnyData = Object.values(row).some(val => val !== null && val !== undefined && val !== '');
         return hasAnyData;
       });
 
       if (rows.length === 0) {
-        throw new Error('CSV file contains no valid data rows');
+        setUploadResult({
+          status: 'failed',
+          total_rows: 0,
+          success_rows: 0,
+          failed_rows: 0,
+          error: 'CSV file contains no valid data rows after filtering empty rows'
+        });
+        setProcessing(false);
+        return;
       }
 
-      // Normalize headers and map store column variants
-      rows = rows.map(row => {
+      // Fetch raw CSV to get all headers including store column
+      const rawResponse = await fetch(file_url);
+      const rawText = await rawResponse.text();
+      const rawLines = rawText.split('\n');
+      const rawHeaders = rawLines[0]?.split(',').map(h => h.trim().replace(/['"]/g, ''));
+
+      // Normalize headers and map store column variants (like SKU uploader)
+      const normalizeHeader = (header) => header.toLowerCase().trim().replace(/[\s_]/g, '');
+      
+      // Check if CSV has store column
+      const storeHeaderIndex = rawHeaders.findIndex(h => {
+        const norm = normalizeHeader(h);
+        return norm === 'store' || norm === 'storename';
+      });
+
+      const hasStoreColumn = storeHeaderIndex !== -1;
+
+      // Map rows with normalized headers
+      rows = rows.map((row, idx) => {
         const normalized = {};
         Object.keys(row).forEach(key => {
-          const normalizedKey = key.toLowerCase().trim().replace(/[\s_]/g, '');
-          // Map store column variations
-          if (normalizedKey === 'store' || normalizedKey === 'storename') {
-            normalized['store'] = row[key];
-          } else {
-            normalized[key.toLowerCase().trim()] = row[key];
-          }
+          normalized[key.toLowerCase().trim()] = row[key];
         });
+        
+        // Extract store value from raw CSV if column exists
+        if (hasStoreColumn) {
+          const rawRowData = rawLines[idx + 1]?.split(',');
+          if (rawRowData && rawRowData[storeHeaderIndex]) {
+            normalized['store'] = rawRowData[storeHeaderIndex].trim().replace(/['"]/g, '');
+          }
+        }
+        
         return normalized;
       });
 
@@ -761,7 +795,10 @@ export default function Orders() {
         }
       });
 
-      // Resolve stores and track missing store rows
+      // Check if CSV has store column with values
+      const csvHasStoreValues = hasStoreColumn && rows.some(r => r.store?.trim());
+
+      // Resolve stores for each row
       const rowsWithStores = rows.map((row, idx) => {
         const rowStoreValue = row.store?.trim();
         let resolvedStoreId = null;
@@ -773,9 +810,6 @@ export default function Orders() {
           if (matchedStore) {
             resolvedStoreId = matchedStore.id;
           }
-        } else if (csvStoreId) {
-          // Use UI-selected store as fallback
-          resolvedStoreId = csvStoreId;
         }
 
         return {
@@ -786,11 +820,27 @@ export default function Orders() {
         };
       });
 
-      // Check if any rows are missing stores
+      // Check requirements: CSV store OR UI store
       const rowsMissingStore = rowsWithStores.filter(r => !r._resolvedStoreId);
-      
-      if (rowsMissingStore.length > 0 && !csvStoreId) {
-        // Show fallback modal to select a store
+      const allRowsMissingStore = rowsMissingStore.length === rows.length;
+
+      // If ALL rows missing store AND no UI store selected, show error
+      if (allRowsMissingStore && !csvStoreId) {
+        setUploadResult({
+          status: 'failed',
+          total_rows: rows.length,
+          success_rows: 0,
+          failed_rows: rows.length,
+          error: csvHasStoreValues 
+            ? 'None of the store values in CSV match existing stores. Please check store names or select a default store.'
+            : 'Please select a store from the dropdown above, or add a "store" column in your CSV with valid store names.'
+        });
+        setProcessing(false);
+        return;
+      }
+
+      // If SOME rows missing store, show fallback modal
+      if (rowsMissingStore.length > 0 && rowsMissingStore.length < rows.length && !csvStoreId) {
         setFallbackStoreData({
           file,
           rows: rowsWithStores,
@@ -801,7 +851,7 @@ export default function Orders() {
         return;
       }
 
-      // If UI store is selected, apply it to missing rows
+      // Apply UI-selected store to ALL missing rows
       if (csvStoreId) {
         rowsWithStores.forEach(row => {
           if (!row._resolvedStoreId) {
@@ -856,17 +906,16 @@ export default function Orders() {
     }
   };
 
-  const processOrdersUpload = async (rowsWithStores) => {
+  const processOrdersUpload = async (rowsWithStores, filename) => {
     try {
-
       // Create batch
       const batch = await base44.entities.ImportBatch.create({
         tenant_id: tenantId,
         batch_type: 'orders',
         batch_name: `Orders Batch - ${format(new Date(), 'yyyy-MM-dd HH:mm')}`,
-        filename: file.name,
+        filename: filename,
         status: 'processing',
-        total_rows: rows.length
+        total_rows: rowsWithStores.length
       });
 
       // Build SKU lookup map
@@ -1059,7 +1108,7 @@ export default function Orders() {
 
       setUploadResult({
         status,
-        total_rows: rows.length,
+        total_rows: rowsWithStores.length,
         success_rows: successCount,
         failed_rows: failedCount,
         error_file_url: errorFileUrl
@@ -2149,10 +2198,10 @@ export default function Orders() {
 
         <TabsContent value="import" className="space-y-4">
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <Label className="text-sm font-medium text-blue-900 mb-2">Select Store *</Label>
+            <Label className="text-sm font-medium text-blue-900 mb-2">Select Store (Optional)</Label>
             <Select value={csvStoreId} onValueChange={setCsvStoreId}>
               <SelectTrigger className="bg-white">
-                <SelectValue placeholder="Choose a store for this import" />
+                <SelectValue placeholder="Choose a default store (optional if CSV has store column)" />
               </SelectTrigger>
               <SelectContent>
                 {stores.map(s => (
@@ -2169,7 +2218,9 @@ export default function Orders() {
               </SelectContent>
             </Select>
             <p className="text-xs text-blue-700 mt-2">
-              All orders in this CSV will be assigned to the selected store
+              • If your CSV has a "store" column with valid store names, those will be used<br />
+              • Select a store here as fallback for rows missing store, or if CSV has no store column<br />
+              • Without either, import will fail with clear error message
             </p>
           </div>
           
