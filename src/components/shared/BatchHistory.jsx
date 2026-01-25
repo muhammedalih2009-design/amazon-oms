@@ -48,9 +48,19 @@ export default function BatchHistory({
     
     try {
       // Update batch with new display_name
-      await base44.entities.ImportBatch.update(batch.id, {
+      const updatedBatch = await base44.entities.ImportBatch.update(batch.id, {
         display_name: trimmedValue || null
       });
+
+      // Verify response contains display_name
+      if (!updatedBatch || updatedBatch.display_name === undefined) {
+        console.warn('API response missing display_name field:', updatedBatch);
+        toast({ 
+          title: 'Warning',
+          description: 'Rename saved but not returned by server – refreshing data',
+          variant: 'destructive'
+        });
+      }
 
       // Notify parent to refresh
       if (onBatchUpdated) {

@@ -592,12 +592,33 @@ export default function Purchases() {
 
     setSavingBatchId(batch.id);
     
+    // Optimistic update
+    const previousBatches = [...batches];
+    setBatches(batches.map(b => 
+      b.id === batch.id ? { ...b, display_name: trimmedValue || null } : b
+    ));
+    
     try {
-      await base44.entities.ImportBatch.update(batch.id, {
+      const updatedBatch = await base44.entities.ImportBatch.update(batch.id, {
         display_name: trimmedValue || null
       });
 
-      loadData(true);
+      // Verify response contains display_name
+      if (!updatedBatch || updatedBatch.display_name === undefined) {
+        console.warn('API response missing display_name field:', updatedBatch);
+        toast({ 
+          title: 'Warning',
+          description: 'Rename saved but not returned by server – check API response fields',
+          variant: 'destructive'
+        });
+        // Refresh to get server state
+        loadData(true);
+      } else {
+        // Update with server response
+        setBatches(batches.map(b => 
+          b.id === batch.id ? updatedBatch : b
+        ));
+      }
 
       toast({ 
         title: 'Batch renamed successfully',
@@ -608,6 +629,8 @@ export default function Purchases() {
       setEditBatchValue('');
     } catch (error) {
       console.error('Failed to rename batch:', error);
+      // Rollback optimistic update
+      setBatches(previousBatches);
       toast({ 
         title: 'Failed to rename batch', 
         description: error.message,
