@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
@@ -85,11 +85,13 @@ export default function Purchases() {
     quantity_purchased: '',
     total_cost: '',
     purchase_date: format(new Date(), 'yyyy-MM-dd'),
-    supplier_id: ''
+    supplier_id: '',
+    product_name: '',
+    current_cost: ''
   });
+  const quantityInputRef = useRef(null);
   const [cartSupplier, setCartSupplier] = useState('');
   const [cartItems, setCartItems] = useState([]);
-  const quantityFieldRef = useRef(null);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -194,7 +196,9 @@ export default function Purchases() {
       quantity_purchased: '',
       total_cost: '',
       purchase_date: format(new Date(), 'yyyy-MM-dd'),
-      supplier_id: ''
+      supplier_id: '',
+      product_name: '',
+      current_cost: ''
     });
     loadData();
     toast({ title: 'Purchase recorded successfully' });
@@ -1142,16 +1146,30 @@ export default function Purchases() {
               skus={skus}
               value={formData.sku_id}
               onChange={(val) => setFormData({...formData, sku_id: val})}
-              onAutoFill={(data) => {
-                // Auto-fill is for display only, actual cost comes from user input
+              onProductInfo={(productName, costPrice) => {
+                setFormData(prev => ({
+                  ...prev,
+                  product_name: productName || '',
+                  current_cost: costPrice || ''
+                }));
               }}
-              quantityFieldRef={quantityFieldRef}
+              onEnterPress={() => {
+                // Focus quantity field on Enter
+                quantityInputRef.current?.focus();
+              }}
             />
+            {formData.product_name && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-indigo-900 mb-1">Product Info:</p>
+                <p className="text-sm text-indigo-800 font-medium">{formData.product_name}</p>
+                <p className="text-xs text-indigo-600 mt-1">Current cost: ${parseFloat(formData.current_cost || 0).toFixed(2)}</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Quantity *</Label>
                 <Input
-                  ref={quantityFieldRef}
+                  ref={quantityInputRef}
                   type="number"
                   min="1"
                   value={formData.quantity_purchased}

@@ -1,63 +1,121 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
+import { Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export default function SKUCombobox({ 
-  skus, 
-  value, 
-  onChange, 
-  onAutoFill,
-  quantityFieldRef,
-  label = "SKU",
-  required = true,
-  className 
-}) {
+export default function SKUCombobox({ skus, value, onChange, onProductInfo, onEnterPress }) {
   const [open, setOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
-  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+  const [selectedSKU, setSelectedSKU] = useState(null);
   const inputRef = useRef(null);
-  const selectedSKU = skus.find(s => s.id === value);
+  const dropdownRef = useRef(null);
 
-  // Filter SKUs based on search
-  const filteredSKUs = skus.filter(sku => {
-    const search = searchValue.toLowerCase();
-    return (
-      sku.sku_code.toLowerCase().includes(search) ||
-      sku.product_name.toLowerCase().includes(search)
+  // Update selected SKU when value changes
+  useEffect(() => {
+    if (value) {
+      const sku = skus.find(s => s.id === value);
+      setSelectedSKU(sku);
+      setSearch(sku?.sku_code || '');
+      setError('');
+    } else {
+      setSelectedSKU(null);
+      setSearch('');
+      setError('');
+    }
+  }, [value, skus]);
+
+  // Filter SKUs by search
+  const filteredSKUs = skus.filter(sku => 
+    sku.sku_code.toLowerCase().includes(search.toLowerCase()) ||
+    sku.product_name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Handle search input change
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearch(val);
+    setOpen(true);
+    setError('');
+    
+    // If search is empty, clear selection
+    if (!val) {
+      onChange('');
+      onProductInfo?.(null, null);
+      setSelectedSKU(null);
+      return;
+    }
+
+    // Check for exact match (case-insensitive, trimmed)
+    const exactMatch = skus.find(s => 
+      s.sku_code.toLowerCase().trim() === val.toLowerCase().trim()
     );
-  });
+    
+    if (exactMatch) {
+      // Auto-select on exact match
+      handleSelectSKU(exactMatch);
+    }
+  };
 
   // Handle SKU selection
-  const handleSelect = (skuId) => {
-    const sku = skus.find(s => s.id === skuId);
-    if (sku) {
-      onChange(skuId);
-      setSearchValue('');
-      setError(null);
+  const handleSelectSKU = (sku) => {
+    setSelectedSKU(sku);
+    setSearch(sku.sku_code);
+    onChange(sku.id);
+    onProductInfo?.(sku.product_name, sku.cost_price);
+    setOpen(false);
+    setError('');
+  };
+
+  // Handle blur - validate input
+  const handleBlur = () => {
+    // Delay to allow dropdown click to register
+    setTimeout(() => {
+      if (!selectedSKU && search) {
+        // Check if typed value matches any SKU
+        const match = skus.find(s => 
+          s.sku_code.toLowerCase().trim() === search.toLowerCase().trim()
+        );
+        
+        if (match) {
+          handleSelectSKU(match);
+        } else {
+          setError('SKU not found. Please check the code.');
+          onChange('');
+          onProductInfo?.(null, null);
+        }
+      }
       setOpen(false);
+    }, 200);
+  };
+
+  // Handle keyboard navigation
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
       
-      // Auto-fill product info
-      if (onAutoFill) {
-        onAutoFill({
-          product_name: sku.product_name,
-          cost_price: sku.cost_price
-        });
-      }
+      // If there's an exact match, select it
+      const exactMatch = skus.find(s => 
+        s.sku_code.toLowerCase().trim() === search.toLowerCase().trim()
+      );
       
-      // Move focus to quantity field after selection
-      if (quantityFieldRef?.current) {
-        setTimeout(() => {
-          quantityFieldRef.current?.focus();
-        }, 100);
+      if (exactMatch) {
+        handleSelectSKU(exactMatch);
+        // Call onEnterPress to move to next field
+        onEnterPress?.();
+      } else if (filteredSKUs.length === 1) {
+        // If only one result, select it
+        handleSelectSKU(filteredSKUs[0]);
+        onEnterPress?.();
+      } else if (selectedSKU) {
+        // If SKU already selected, move to next field
+        onEnterPress?.();
+      } else {
+        setError('SKU not found. Please check the code.');
       }
+    } else if (e.key === 'Escape') {
+      setOpen(false);
     }
   };
 
@@ -65,170 +123,92 @@ export default function SKUCombobox({
   const handlePaste = (e) => {
     const pastedText = e.clipboardData.getData('text').trim();
     
-    // Try to find exact SKU match
-    const matchedSKU = skus.find(s => 
-      s.sku_code.toLowerCase() === pastedText.toLowerCase()
+    // Check for exact match
+    const match = skus.find(s => 
+      s.sku_code.toLowerCase().trim() === pastedText.toLowerCase().trim()
     );
     
-    if (matchedSKU) {
+    if (match) {
       e.preventDefault();
-      handleSelect(matchedSKU.id);
+      handleSelectSKU(match);
     }
   };
-
-  // Handle input change
-  const handleInputChange = (e) => {
-    const newValue = e.target.value;
-    setSearchValue(newValue);
-    setError(null);
-    
-    // Auto-match exact SKU code
-    const exactMatch = skus.find(s => 
-      s.sku_code.toLowerCase() === newValue.toLowerCase().trim()
-    );
-    
-    if (exactMatch) {
-      handleSelect(exactMatch.id);
-    }
-  };
-
-  // Handle keyboard events
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && searchValue) {
-      e.preventDefault();
-      
-      // Try exact match first
-      const exactMatch = skus.find(s => 
-        s.sku_code.toLowerCase() === searchValue.toLowerCase().trim()
-      );
-      
-      if (exactMatch) {
-        handleSelect(exactMatch.id);
-      } else if (filteredSKUs.length === 1) {
-        // If only one result, select it
-        handleSelect(filteredSKUs[0].id);
-      } else if (filteredSKUs.length === 0) {
-        setError('SKU not found. Please check the code.');
-      } else {
-        // Multiple matches, keep dropdown open
-        setOpen(true);
-      }
-    }
-  };
-
-  // Handle input blur
-  const handleBlur = () => {
-    if (searchValue && !value) {
-      const exactMatch = skus.find(s => 
-        s.sku_code.toLowerCase() === searchValue.toLowerCase().trim()
-      );
-      
-      if (!exactMatch) {
-        setError('SKU not found. Please check the code.');
-      }
-    }
-  };
-
-  // Clear error when value changes
-  useEffect(() => {
-    if (value) {
-      setError(null);
-    }
-  }, [value]);
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <Label>
-        {label} {required && <span className="text-red-500">*</span>}
-      </Label>
-      
-      <Popover open={open} onOpenChange={setOpen}>
-        <div className="relative">
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              aria-expanded={open}
-              className={cn(
-                "w-full justify-between font-normal",
-                !value && "text-muted-foreground",
-                error && "border-red-500 focus:ring-red-500"
-              )}
-              onClick={() => {
-                setOpen(!open);
-                if (!open) {
-                  setTimeout(() => inputRef.current?.focus(), 100);
-                }
-              }}
-            >
-              {selectedSKU ? (
-                <span className="truncate">
-                  {selectedSKU.sku_code} - {selectedSKU.product_name}
-                </span>
-              ) : (
-                "Paste or type SKU code..."
-              )}
-              <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          
-          <PopoverContent className="w-full p-0" align="start" style={{ width: 'var(--radix-popover-trigger-width)' }}>
-            <div className="p-2 border-b">
-              <Input
-                ref={inputRef}
-                placeholder="Type or paste SKU code..."
-                value={searchValue}
-                onChange={handleInputChange}
-                onPaste={handlePaste}
-                onKeyDown={handleKeyDown}
-                onBlur={handleBlur}
-                className="h-9"
-                autoFocus
-              />
-            </div>
-            
-            <div className="max-h-64 overflow-y-auto">
-              {filteredSKUs.length === 0 ? (
-                <div className="p-4 text-center text-sm text-slate-500">
-                  No SKU found
-                </div>
-              ) : (
-                filteredSKUs.map((sku) => (
-                  <button
-                    key={sku.id}
-                    onClick={() => handleSelect(sku.id)}
-                    className={cn(
-                      "w-full flex items-center justify-between px-3 py-2 hover:bg-slate-100 transition-colors text-left",
-                      value === sku.id && "bg-slate-100"
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-slate-900 truncate">
-                        {sku.sku_code}
-                      </div>
-                      <div className="text-xs text-slate-500 truncate">
-                        {sku.product_name} • ${sku.cost_price.toFixed(2)}
-                      </div>
-                    </div>
-                    {value === sku.id && (
-                      <Check className="ml-2 h-4 w-4 text-indigo-600 shrink-0" />
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          </PopoverContent>
-        </div>
-      </Popover>
-      
+    <div className="space-y-2 relative">
+      <Label>SKU *</Label>
+      <div className="relative">
+        <Input
+          ref={inputRef}
+          value={search}
+          onChange={handleSearchChange}
+          onBlur={handleBlur}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder="Type or paste SKU code..."
+          className={cn(
+            "pr-10",
+            error && "border-red-500 focus-visible:ring-red-500"
+          )}
+          autoComplete="off"
+        />
+        {selectedSKU && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <Check className="w-4 h-4 text-emerald-600" />
+          </div>
+        )}
+        {error && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <AlertCircle className="w-4 h-4 text-red-500" />
+          </div>
+        )}
+      </div>
+
+      {/* Error message */}
       {error && (
-        <p className="text-sm text-red-600">{error}</p>
+        <p className="text-xs text-red-600 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3" />
+          {error}
+        </p>
       )}
-      
-      {selectedSKU && (
-        <div className="bg-slate-50 rounded-lg p-2 text-xs text-slate-600">
-          <div><strong>Product:</strong> {selectedSKU.product_name}</div>
-          <div><strong>Current Cost:</strong> ${selectedSKU.cost_price.toFixed(2)}</div>
+
+      {/* Dropdown */}
+      {open && filteredSKUs.length > 0 && (
+        <div
+          ref={dropdownRef}
+          className="absolute z-50 w-full mt-1 max-h-60 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg"
+        >
+          {filteredSKUs.map((sku) => (
+            <div
+              key={sku.id}
+              onClick={() => handleSelectSKU(sku)}
+              className={cn(
+                "px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors",
+                selectedSKU?.id === sku.id && "bg-indigo-50"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-900 truncate">{sku.sku_code}</p>
+                  <p className="text-xs text-slate-500 truncate">{sku.product_name}</p>
+                </div>
+                <div className="text-right ml-2">
+                  <p className="text-xs text-slate-500">${sku.cost_price.toFixed(2)}</p>
+                </div>
+                {selectedSKU?.id === sku.id && (
+                  <Check className="w-4 h-4 text-indigo-600 ml-2 shrink-0" />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* No results */}
+      {open && search && filteredSKUs.length === 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg p-3">
+          <p className="text-sm text-slate-500 text-center">No SKUs found</p>
         </div>
       )}
     </div>
