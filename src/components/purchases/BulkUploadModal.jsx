@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Upload, Download, AlertCircle, CheckCircle } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { format } from 'date-fns';
@@ -8,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 
 export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) {
   const [file, setFile] = useState(null);
+  const [batchName, setBatchName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const { toast } = useToast();
@@ -63,6 +66,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         tenant_id: tenantId,
         batch_type: 'purchases',
         batch_name: `Purchase Batch - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
+        display_name: batchName.trim() || null,
         filename: file.name,
         status: 'processing',
         total_rows: rows.length
@@ -303,6 +307,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
 
   const handleClose = () => {
     setFile(null);
+    setBatchName('');
     setResult(null);
     onClose();
   };
@@ -332,6 +337,18 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
                 <Download className="w-4 h-4 mr-2" />
                 Download CSV Template
               </Button>
+
+              <div className="space-y-2">
+                <Label htmlFor="batch-name">Batch Name (Optional)</Label>
+                <Input
+                  id="batch-name"
+                  placeholder="e.g., Main Warehouse - Jan 2026"
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
+                  maxLength={80}
+                />
+                <p className="text-xs text-slate-500">Give this batch a recognizable name for easier tracking</p>
+              </div>
 
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                 <input
