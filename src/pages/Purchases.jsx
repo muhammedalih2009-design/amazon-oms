@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format } from 'date-fns';
-import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle, ChevronDown, ChevronRight, Download, Package } from 'lucide-react';
+import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle, ChevronDown, ChevronRight, Download, Package, Pencil, Check, X } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import BatchDeletionProgress from '@/components/purchases/BatchDeletionProgress';
@@ -76,6 +76,9 @@ export default function Purchases() {
   const [deleteWarning, setDeleteWarning] = useState(null);
   const [deleteMode, setDeleteMode] = useState(null); // 'deduct' or 'keep'
   const [deletingPurchase, setDeletingPurchase] = useState(null);
+  const [editingBatchId, setEditingBatchId] = useState(null);
+  const [editBatchValue, setEditBatchValue] = useState('');
+  const [savingBatchId, setSavingBatchId] = useState(null);
   const [formData, setFormData] = useState({
     sku_id: '',
     quantity_purchased: '',
@@ -565,6 +568,64 @@ export default function Purchases() {
     setShowDeleteDialog(true);
   };
 
+  const handleStartEditBatch = (batch) => {
+    setEditingBatchId(batch.id);
+    setEditBatchValue(batch.display_name || batch.batch_name || '');
+  };
+
+  const handleCancelEditBatch = () => {
+    setEditingBatchId(null);
+    setEditBatchValue('');
+  };
+
+  const handleSaveEditBatch = async (batch) => {
+    const trimmedValue = editBatchValue.trim();
+    
+    if (trimmedValue.length > 80) {
+      toast({ 
+        title: 'Name too long', 
+        description: 'Display name must be 80 characters or less',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    setSavingBatchId(batch.id);
+    
+    try {
+      await base44.entities.ImportBatch.update(batch.id, {
+        display_name: trimmedValue || null
+      });
+
+      loadData(true);
+
+      toast({ 
+        title: 'Batch renamed successfully',
+        description: trimmedValue ? `Renamed to: ${trimmedValue}` : 'Reverted to default name'
+      });
+
+      setEditingBatchId(null);
+      setEditBatchValue('');
+    } catch (error) {
+      console.error('Failed to rename batch:', error);
+      toast({ 
+        title: 'Failed to rename batch', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    } finally {
+      setSavingBatchId(null);
+    }
+  };
+
+  const handleBatchKeyDown = (e, batch) => {
+    if (e.key === 'Enter') {
+      handleSaveEditBatch(batch);
+    } else if (e.key === 'Escape') {
+      handleCancelEditBatch();
+    }
+  };
+
   const exportBatchCSV = (batch) => {
     const batchPurchases = purchases.filter(p => p.import_batch_id === batch.id);
     
@@ -809,11 +870,62 @@ export default function Purchases() {
                       <div className="flex items-center gap-3 flex-1">
                         <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-90' : 'rotate-0'}`} />
                         <Package className="w-5 h-5 text-indigo-600" />
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-slate-900">{batch.batch_name || `Batch #${batch.id}`}</h3>
-                          <p className="text-sm text-slate-500">
-                            {format(new Date(batch.created_date), 'MMM d, yyyy h:mm a')} • {batchPurchases.length} items • {totalQty.toLocaleString()} units • ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
+                        <div className="flex-1 min-w-0">
+                          {editingBatchId === batch.id ? (
+                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                              <Input
+                                value={editBatchValue}
+                                onChange={(e) => setEditBatchValue(e.target.value)}
+                                onKeyDown={(e) => handleBatchKeyDown(e, batch)}
+                                placeholder="Enter batch name"
+                                className="h-9 text-sm"
+                                autoFocus
+                                disabled={savingBatchId === batch.id}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 shrink-0"
+                                onClick={() => handleSaveEditBatch(batch)}
+                                disabled={savingBatchId === batch.id}
+                              >
+                                {savingBatchId === batch.id ? (
+                                  <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Check className="w-4 h-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 text-slate-600 hover:text-slate-700 shrink-0"
+                                onClick={handleCancelEditBatch}
+                                disabled={savingBatchId === batch.id}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 group">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-slate-900 truncate">{batch.display_name || batch.batch_name || `Batch #${batch.id}`}</h3>
+                                <p className="text-sm text-slate-500">
+                                  {format(new Date(batch.created_date), 'MMM d, yyyy h:mm a')} • {batchPurchases.length} items • {totalQty.toLocaleString()} units • ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartEditBatch(batch);
+                                }}
+                              >
+                                <Pencil className="w-4 h-4 text-slate-500" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
