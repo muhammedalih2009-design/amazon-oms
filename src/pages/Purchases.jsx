@@ -6,6 +6,7 @@ import { Truck, Plus, Search, Edit, Trash2, ShoppingCart, Upload, AlertTriangle,
 import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import BatchDeletionProgress from '@/components/purchases/BatchDeletionProgress';
+import SKUCombobox from '@/components/purchases/SKUCombobox';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -88,6 +89,7 @@ export default function Purchases() {
   });
   const [cartSupplier, setCartSupplier] = useState('');
   const [cartItems, setCartItems] = useState([]);
+  const quantityFieldRef = useRef(null);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -1136,28 +1138,20 @@ export default function Purchases() {
             <DialogTitle>Record Purchase</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label>SKU *</Label>
-              <Select
-                value={formData.sku_id}
-                onValueChange={(val) => setFormData({...formData, sku_id: val})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select SKU" />
-                </SelectTrigger>
-                <SelectContent>
-                  {skus.map(s => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.sku_code} - {s.product_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <SKUCombobox
+              skus={skus}
+              value={formData.sku_id}
+              onChange={(val) => setFormData({...formData, sku_id: val})}
+              onAutoFill={(data) => {
+                // Auto-fill is for display only, actual cost comes from user input
+              }}
+              quantityFieldRef={quantityFieldRef}
+            />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Quantity *</Label>
                 <Input
+                  ref={quantityFieldRef}
                   type="number"
                   min="1"
                   value={formData.quantity_purchased}
