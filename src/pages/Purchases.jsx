@@ -7,6 +7,7 @@ import RefreshButton from '@/components/shared/RefreshButton';
 import BulkUploadModal from '@/components/purchases/BulkUploadModal';
 import BatchDeletionProgress from '@/components/purchases/BatchDeletionProgress';
 import SKUCombobox from '@/components/purchases/SKUCombobox';
+import BackfillSuppliers from '@/components/purchases/BackfillSuppliers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -159,6 +160,13 @@ export default function Purchases() {
       quantity_remaining: parseInt(formData.quantity_purchased)
     });
 
+    // Update SKU with latest supplier
+    if (formData.supplier_id) {
+      await base44.entities.SKU.update(formData.sku_id, {
+        supplier_id: formData.supplier_id
+      });
+    }
+
     // Update current stock
     const stock = await base44.entities.CurrentStock.filter({ 
       tenant_id: tenantId, 
@@ -227,6 +235,13 @@ export default function Purchases() {
         supplier_name: suppliers.find(s => s.id === cartSupplier)?.supplier_name,
         quantity_remaining: item.quantity
       });
+
+      // Update SKU with latest supplier
+      if (cartSupplier) {
+        await base44.entities.SKU.update(item.sku_id, {
+          supplier_id: cartSupplier
+        });
+      }
 
       // Update current stock
       const stock = await base44.entities.CurrentStock.filter({ 
@@ -830,6 +845,7 @@ export default function Purchases() {
         </div>
         <div className="flex flex-wrap gap-3">
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+          {isAdmin && <BackfillSuppliers tenantId={tenantId} onComplete={() => loadData(true)} />}
           {isAdmin && selectedPurchases.length > 0 && (
             <Button 
               variant="destructive"
@@ -1145,7 +1161,15 @@ export default function Purchases() {
             <SKUCombobox
               skus={skus}
               value={formData.sku_id}
-              onChange={(val) => setFormData({...formData, sku_id: val})}
+              onChange={(val) => {
+                const selectedSku = skus.find(s => s.id === val);
+                setFormData({
+                  ...formData, 
+                  sku_id: val,
+                  // Auto-fill supplier from SKU if available
+                  supplier_id: selectedSku?.supplier_id || formData.supplier_id
+                });
+              }}
               onProductInfo={(productName, costPrice) => {
                 setFormData(prev => ({
                   ...prev,
