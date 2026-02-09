@@ -385,115 +385,34 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         }
       }
 
-      // STEP 2: Create one purchase record per unique SKU
-      for (const [skuCode, agg] of aggregatedData) {
-        try {
-          // Calculate weighted average unit price
-          const avgUnitPrice = agg.weighted_cost_sum / agg.total_quantity;
-          const totalCostForSku = agg.weighted_cost_sum;
+      // Update batch status
+      await base44.entities.ImportBatch.update(batch.id, {
+        status: results.failed === 0 ? 'success' : (results.success > 0 ? 'partial' : 'failed'),
+        success_rows: results.success,
+        failed_rows: results.failed
+      });
 
-          // Handle supplier
-          let supplierId = null;
-          let supplierName = agg.supplier_name;
-          
-          if (agg.supplier_name && agg.supplier_name !== 'Generic') {
-            let supplier = suppliers.find(s => s.supplier_name.toLowerCase() === agg.supplier_name.toLowerCase());
-            if (!supplier) {
-              supplier = await base44.entities.Supplier.create({
-                tenant_id: tenantId,
-                supplier_name: agg.supplier_name
-              });
-              suppliers.push(supplier);
-            }
-            supplierId = supplier.id;
-          }
-
-          // Create aggregated Purchase record
-          const purchase = await base44.entities.Purchase.create({
-            tenant_id: tenantId,
-            sku_id: agg.sku_id,
-            sku_code: agg.sku_code,
-            quantity_purchased: agg.total_quantity,
-            total_cost: totalCostForSku,
-            cost_per_unit: avgUnitPrice,
-            purchase_date: agg.purchase_date,
-            supplier_id: supplierId,
-            supplier_name: supplierName,
-            quantity_remaining: agg.total_quantity,
-            import_batch_id: batch.id
-          });
-
-          totalQuantity += agg.total_quantity;
-          totalCost += totalCostForSku;
-
-          // Update CurrentStock
-          let stock = currentStocks.find(s => s.sku_id === agg.sku_id);
-          if (stock) {
-            await base44.entities.CurrentStock.update(stock.id, {
-              quantity_available: stock.quantity_available + agg.total_quantity
-            });
-            stock.quantity_available += agg.total_quantity;
-          } else {
-            const newStock = await base44.entities.CurrentStock.create({
-              tenant_id: tenantId,
-              sku_id: agg.sku_id,
-              sku_code: agg.sku_code,
-              quantity_available: agg.total_quantity
-            });
-            currentStocks.push(newStock);
-          }
-
-          // Create StockMovement record
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: agg.sku_id,
-            sku_code: agg.sku_code,
-            movement_type: 'purchase',
-            quantity: agg.total_quantity,
-            reference_type: 'purchase',
-            reference_id: purchase.id,
-            movement_date: agg.purchase_date,
-            notes: `Bulk upload from CSV (aggregated)`
-          });
-
-          successCount++;
-          skusUpdated.add(agg.sku_code);
-        } catch (error) {
-          errors.push({ 
-            sku_code: skuCode, 
-            row_number: 'Aggregated', 
-            error_reason: error.message || 'Failed to create aggregated purchase' 
-          });
-        }
+      // Generate error CSV if there are failures
+      if (results.errors.length > 0) {
+        const errorCsvContent = generateErrorCSV(results.errors);
+        const blob = new Blob(['\uFEFF' + errorCsvContent], { type: 'text/csv;charset=utf-8;' });
+        const errorFileUrl = URL.createObjectURL(blob);
+        
+        await base44.entities.ImportBatch.update(batch.id, {
+          error_file_url: errorFileUrl
+        });
       }
 
-      // Update batch status
-      const batchStatus = errors.length === 0 ? 'success' : 
-                          successCount === 0 ? 'failed' : 'partial';
+      setResult(results);
       
-      await base44.entities.ImportBatch.update(batch.id, {
-        status: batchStatus,
-        success_rows: successCount,
-        failed_rows: errors.length
+      toast({
+        title: 'Import completed',
+        description: `${results.success} succeeded, ${results.failed} failed`
       });
 
-      setResult({
-        total: rows.length,
-        success: successCount,
-        skusUpdated: skusUpdated.size,
-        uniqueRecords: successCount,
-        errors: errors.length,
-        errorData: errors
-      });
-
-      if (successCount > 0) {
+      if (results.success > 0) {
         onSuccess();
       }
-
-      toast({
-        title: 'Upload complete',
-        description: `Processed ${rows.length} rows into ${successCount} unique purchase record(s)`
-      });
 
     } catch (error) {
       console.error('Upload error:', error);
