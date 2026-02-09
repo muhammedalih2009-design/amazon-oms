@@ -515,135 +515,138 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Bulk Upload Purchases</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          {!result ? (
-            <>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">CSV Format Requirements:</h4>
-                <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                  <li><strong>sku_code</strong> - Required (must exist in system)</li>
-                  <li><strong>quantity</strong> - Required (number of units)</li>
-                  <li><strong>unit_price</strong> - Required (cost per unit)</li>
-                  <li><strong>supplier_name</strong> - Optional (defaults to "Generic")</li>
-                  <li><strong>purchase_date</strong> - Optional (format: YYYY-MM-DD, defaults to today)</li>
-                </ul>
-              </div>
+          {/* Instructions */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+            <h4 className="font-semibold text-blue-900 text-sm">CSV Format:</h4>
+            <ul className="text-xs text-blue-800 space-y-1">
+              <li>• <strong>sku_code</strong> (required) - must exist in SKU master</li>
+              <li>• <strong>quantity</strong> (required) - integer ≥ 1</li>
+              <li>• <strong>unit_price</strong> (optional) - falls back to SKU.cost if missing</li>
+              <li>• <strong>supplier_name</strong> (optional) - falls back to SKU supplier if missing</li>
+              <li>• <strong>purchase_date</strong> (optional) - defaults to today if missing</li>
+            </ul>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={downloadTemplate}
+              className="mt-2"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
 
-              <Button onClick={downloadTemplate} variant="outline" className="w-full">
-                <Download className="w-4 h-4 mr-2" />
-                Download CSV Template
-              </Button>
+          {/* File Upload */}
+          {!result && (
+            <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-indigo-400 transition-colors">
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileChange}
+                className="hidden"
+                id="csv-upload"
+                disabled={uploading}
+              />
+              <label htmlFor="csv-upload" className="cursor-pointer">
+                <Upload className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-700">
+                  {file ? file.name : 'Click to select CSV file'}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Supports UTF-8 encoding (Arabic compatible)
+                </p>
+              </label>
+            </div>
+          )}
 
-              <div className="space-y-2">
-                <Label htmlFor="batch-name">Batch Name (Optional)</Label>
-                <Input
-                  id="batch-name"
-                  placeholder="e.g., Main Warehouse - Jan 2026"
-                  value={batchName}
-                  onChange={(e) => setBatchName(e.target.value)}
-                  maxLength={80}
-                />
-                <p className="text-xs text-slate-500">Give this batch a recognizable name for easier tracking</p>
+          {/* Progress */}
+          {uploading && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>Processing...</span>
+                <span>{progress}%</span>
               </div>
+              <Progress value={progress} className="h-2" />
+            </div>
+          )}
 
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  id="csv-upload"
-                />
-                <label htmlFor="csv-upload" className="cursor-pointer">
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 mb-1">
-                    {file ? file.name : 'Click to upload CSV file'}
-                  </p>
-                  <p className="text-sm text-gray-400">CSV files only</p>
-                </label>
-              </div>
-
-              <div className="flex gap-3">
-                <Button onClick={handleClose} variant="outline" className="flex-1">
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleUpload} 
-                  disabled={!file || uploading}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                >
-                  {uploading ? 'Uploading...' : 'Upload & Process'}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-4">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                  <div>
-                    <h4 className="font-medium text-green-900">Upload Complete</h4>
-                    <p className="text-sm text-green-700 mt-1">
-                      Processed {result.total} rows into {result.uniqueRecords} unique purchase record(s)
-                    </p>
-                    <p className="text-sm text-green-700">
-                      Stock updated for {result.skusUpdated} SKU(s)
-                    </p>
-                  </div>
+          {/* Results */}
+          {result && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <FileText className="w-5 h-5 text-slate-500 mx-auto mb-1" />
+                  <p className="text-xs text-slate-500">Total</p>
+                  <p className="text-lg font-bold text-slate-900">{result.total}</p>
                 </div>
+                <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                  <p className="text-xs text-emerald-600">Success</p>
+                  <p className="text-lg font-bold text-emerald-700">{result.success}</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3 text-center">
+                  <XCircle className="w-5 h-5 text-red-600 mx-auto mb-1" />
+                  <p className="text-xs text-red-600">Failed</p>
+                  <p className="text-lg font-bold text-red-700">{result.failed}</p>
+                </div>
+              </div>
 
-                {result.errors > 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+              {result.failed > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <h4 className="font-medium text-amber-900">
-                        {result.errors} row(s) failed
-                      </h4>
-                      <p className="text-sm text-amber-700 mt-1">
-                        Download the error CSV to review and fix the issues
+                      <p className="text-sm font-semibold text-orange-900">
+                        {result.failed} row(s) failed
                       </p>
+                      <p className="text-xs text-orange-700 mt-1">
+                        Common issues: SKU not found, invalid quantity, missing unit_price and SKU.cost
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={downloadErrorCSV}
+                        className="mt-2 border-orange-300 text-orange-700 hover:bg-orange-100"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Error Report
+                      </Button>
                     </div>
                   </div>
-                )}
-
-                <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">Total Rows:</span>
-                    <span className="font-medium">{result.total}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-green-600">Successful:</span>
-                    <span className="font-medium text-green-600">{result.success}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-amber-600">Failed:</span>
-                    <span className="font-medium text-amber-600">{result.errors}</span>
-                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="flex gap-3">
-                {result.errors > 0 && (
-                  <Button 
-                    onClick={downloadErrorCSV} 
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Error CSV
-                  </Button>
-                )}
-                <Button onClick={handleClose} className="flex-1 bg-indigo-600 hover:bg-indigo-700">
-                  Done
-                </Button>
-              </div>
-            </>
+              {result.success > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                  <p className="text-sm text-emerald-800">
+                    ✓ {result.success} purchase(s) imported successfully
+                  </p>
+                </div>
+              )}
+            </div>
           )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="outline" onClick={handleClose}>
+              {result ? 'Close' : 'Cancel'}
+            </Button>
+            {!result && (
+              <Button 
+                onClick={handleUpload}
+                disabled={!file || uploading}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                {uploading ? 'Uploading...' : 'Upload & Import'}
+              </Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
