@@ -1286,6 +1286,7 @@ export default function Purchases() {
               <table className="w-full">
                 <thead className="bg-slate-50 sticky top-0 z-10">
                   <tr>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 w-16"></th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">SKU</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">Product</th>
                     <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">Quantity</th>
@@ -1294,34 +1295,50 @@ export default function Purchases() {
                   </tr>
                 </thead>
                 <tbody>
-                  {cartItems.map((item, i) => (
-                    <tr key={item.id} className="border-t hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-4 font-medium">{item.sku_code}</td>
-                      <td className="py-3 px-4 text-slate-600">{item.product_name}</td>
-                      <td className="py-3 px-4">
-                        <Input
-                          type="number"
-                          min="0"
-                          value={item.quantity}
-                          onChange={(e) => updateCartItem(i, 'quantity', e.target.value)}
-                          className="w-20 text-right ml-auto"
-                        />
-                      </td>
-                      <td className="py-3 px-4">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.unit_cost}
-                          onChange={(e) => updateCartItem(i, 'unit_cost', e.target.value)}
-                          className="w-24 text-right ml-auto"
-                        />
-                      </td>
-                      <td className="py-3 px-4 text-right font-medium">
-                        ${(item.quantity * item.unit_cost).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
+                  {cartItems.map((item, i) => {
+                    const sku = skus.find(s => s.id === item.sku_id);
+                    return (
+                      <tr key={item.id} className="border-t hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4">
+                          {sku?.image_url ? (
+                            <img 
+                              src={sku.image_url} 
+                              alt={item.product_name}
+                              className="w-12 h-12 object-cover rounded border border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-slate-100 rounded flex items-center justify-center border border-slate-200">
+                              <Package className="w-6 h-6 text-slate-400" />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-medium">{item.sku_code}</td>
+                        <td className="py-3 px-4 text-slate-600">{item.product_name}</td>
+                        <td className="py-3 px-4">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={item.quantity}
+                            onChange={(e) => updateCartItem(i, 'quantity', e.target.value)}
+                            className="w-20 text-right ml-auto"
+                          />
+                        </td>
+                        <td className="py-3 px-4">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.unit_cost}
+                            onChange={(e) => updateCartItem(i, 'unit_cost', e.target.value)}
+                            className="w-24 text-right ml-auto"
+                          />
+                        </td>
+                        <td className="py-3 px-4 text-right font-medium">
+                          ${(item.quantity * item.unit_cost).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
