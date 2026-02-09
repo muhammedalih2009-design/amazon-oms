@@ -154,76 +154,233 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         failed_rows: 0
       });
 
-      // STEP 1: Aggregate rows by SKU code
-      const aggregatedData = new Map();
+      const results = {
+        total: rows.length,
+        success: 0,
+        failed: 0,
+        errors: []
+      };
 
+      // Process each row
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const rowNumber = i + 2;
+        const rowNumber = i + 1;
+        
+        setProgress(Math.round(((i + 1) / rows.length) * 100));
 
         try {
-          // Validate required fields
-          if (!row.sku_code) {
-            errors.push({ ...row, row_number: rowNumber, error_reason: 'Missing sku_code' });
-            continue;
+          // 1. Validate and lookup SKU
+          const skuCodeRaw = row.sku_code?.trim();
+          if (!skuCodeRaw) {
+            throw new Error('SKU code is required');
           }
 
-          if (!row.quantity || isNaN(parseFloat(row.quantity))) {
-            errors.push({ ...row, row_number: rowNumber, error_reason: 'Invalid or missing quantity' });
-            continue;
+          const skuData = skuMap[skuCodeRaw.toLowerCase()];
+          if (!skuData) {
+            throw new Error('SKU not found');
           }
 
-          if (!row.unit_price || isNaN(parseFloat(row.unit_price))) {
-            errors.push({ ...row, row_number: rowNumber, error_reason: 'Invalid or missing unit_price' });
-            continue;
+          // Get historical purchase data for this SKU
+          const lastPurchaseData = lastPurchaseDataMap[skuCodeRaw.toLowerCase()];
+
+          // 2. RESOLVE unit_price BEFORE validation
+          const originalUnitPrice = row.unit_price?.trim();
+          let unitPrice = parseFloat(originalUnitPrice);
+          let unitPriceSource = 'csv';
+          let skuCostCandidate = skuData.cost_price > 0 ? skuData.cost_price : null;
+          let lastPurchaseCostCandidate = lastPurchaseData?.cost || null;
+          let resolvedUnitPrice = null;
+          
+          if (isNaN(unitPrice) || !originalUnitPrice) {
+            // Resolve candidate prices
+            if (skuCostCandidate && lastPurchaseCostCandidate) {
+              // Both available: use minimum
+              resolvedUnitPrice = Math.min(skuCostCandidate, lastPurchaseCostCandidate);
+              unitPriceSource = 'min(sku_cost,last_purchase)';
+            } else if (skuCostCandidate) {
+              // Only SKU cost available
+              resolvedUnitPrice = skuCostCandidate;
+              unitPriceSource = 'sku_cost';
+            } else if (lastPurchaseCostCandidate) {
+              // Only last purchase cost available
+              resolvedUnitPrice = lastPurchaseCostCandidate;
+              unitPriceSource = 'last_purchase';
+            } else {
+              throw new Error('Missing unit_price and no fallback price available');
+            }
+            unitPrice = resolvedUnitPrice;
+          } else {
+            resolvedUnitPrice = unitPrice;
           }
 
-          // Find SKU
-          const sku = skus.find(s => s.sku_code === row.sku_code);
-          if (!sku) {
-            errors.push({ ...row, row_number: rowNumber, error_reason: 'SKU not found' });
-            continue;
-          }
+          // 3. RESOLVE supplier_name BEFORE validation
+          const originalSupplierName = row.supplier_name?.trim();
+          let supplierName = originalSupplierName || null;
+          let supplierId = null;
+          let supplierSource = 'csv';
+          let resolvedSupplierName = null;
 
-          const quantity = parseFloat(row.quantity);
-          const unitPrice = parseFloat(row.unit_price);
-          const skuKey = sku.sku_code;
-
-          // Handle purchase date
-          let purchaseDate = row.purchase_date || format(new Date(), 'yyyy-MM-dd');
-          if (row.purchase_date) {
-            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-            if (!dateRegex.test(row.purchase_date)) {
-              purchaseDate = format(new Date(), 'yyyy-MM-dd');
+          if (!supplierName) {
+            // Fallback priority: SKU master -> Last purchase
+            if (skuData.supplier_id && supplierMap[skuData.supplier_id]) {
+              supplierId = skuData.supplier_id;
+              resolvedSupplierName = supplierMap[skuData.supplier_id];
+              supplierSource = 'sku_master';
+            } else if (lastPurchaseData?.supplier_name) {
+              resolvedSupplierName = lastPurchaseData.supplier_name;
+              supplierId = lastPurchaseData.supplier_id;
+              supplierSource = 'last_purchase';
+            } else {
+              resolvedSupplierName = null;
+              supplierSource = 'unresolved';
+            }
+            supplierName = resolvedSupplierName;
+          } else {
+            resolvedSupplierName = supplierName;
+            // Find supplier ID from name
+            const supplier = suppliers.find(s => 
+              s.supplier_name?.toLowerCase() === supplierName.toLowerCase()
+            );
+            if (supplier) {
+              supplierId = supplier.id;
             }
           }
 
-          // Aggregate by SKU
-          if (!aggregatedData.has(skuKey)) {
-            aggregatedData.set(skuKey, {
-              sku_id: sku.id,
-              sku_code: sku.sku_code,
-              total_quantity: 0,
-              weighted_cost_sum: 0,
-              supplier_name: row.supplier_name || 'Generic',
-              purchase_date: purchaseDate,
-              last_unit_price: unitPrice
+          // 4. NOW validate quantity
+          const quantity = parseInt(row.quantity);
+          if (isNaN(quantity) || quantity < 1) {
+            throw new Error('Invalid quantity (must be >= 1)');
+          }
+
+          // 5. Purchase date (default to today if missing)
+          let purchaseDate = row.purchase_date?.trim();
+          if (!purchaseDate) {
+            purchaseDate = format(new Date(), 'yyyy-MM-dd');
+          }
+
+          // Create purchase record (NEVER save empty string for supplier)
+          const totalCost = quantity * unitPrice;
+          
+          await base44.entities.Purchase.create({
+            tenant_id: tenantId,
+            sku_id: skuData.id,
+            sku_code: skuData.sku_code,
+            quantity_purchased: quantity,
+            total_cost: totalCost,
+            cost_per_unit: unitPrice,
+            purchase_date: purchaseDate,
+            supplier_id: supplierId || null,
+            supplier_name: supplierName || null,
+            quantity_remaining: quantity,
+            import_batch_id: batch.id
+          });
+
+          // Update current stock
+          const existingStock = await base44.entities.CurrentStock.filter({
+            tenant_id: tenantId,
+            sku_id: skuData.id
+          });
+
+          if (existingStock.length > 0) {
+            await base44.entities.CurrentStock.update(existingStock[0].id, {
+              quantity_available: (existingStock[0].quantity_available || 0) + quantity
+            });
+          } else {
+            await base44.entities.CurrentStock.create({
+              tenant_id: tenantId,
+              sku_id: skuData.id,
+              sku_code: skuData.sku_code,
+              quantity_available: quantity
             });
           }
 
-          const agg = aggregatedData.get(skuKey);
-          agg.total_quantity += quantity;
-          agg.weighted_cost_sum += (quantity * unitPrice);
-          agg.last_unit_price = unitPrice; // Keep last price as fallback
-          agg.purchase_date = purchaseDate; // Use latest date
-          if (row.supplier_name) {
-            agg.supplier_name = row.supplier_name; // Use latest supplier
-          }
+          // Create stock movement
+          const movementNotes = [
+            `Batch import: ${batch.batch_name}`,
+            unitPriceSource !== 'csv' ? `Price source: ${unitPriceSource}` : null,
+            supplierSource !== 'csv' ? `Supplier source: ${supplierSource}` : null,
+            !supplierName ? 'Warning: Supplier unresolved' : null
+          ].filter(Boolean).join(' | ');
+
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: skuData.id,
+            sku_code: skuData.sku_code,
+            movement_type: 'purchase',
+            quantity: quantity,
+            reference_type: 'batch',
+            reference_id: batch.id,
+            movement_date: purchaseDate,
+            notes: movementNotes
+          });
+
+          results.success++;
         } catch (error) {
-          errors.push({ 
-            ...row, 
-            row_number: rowNumber, 
-            error_reason: error.message || 'Processing failed' 
+          results.failed++;
+          
+          // Detailed error diagnostics
+          const skuData = skuMap[row.sku_code?.trim()?.toLowerCase()];
+          const lastPurchaseData = lastPurchaseDataMap[row.sku_code?.trim()?.toLowerCase()];
+          
+          const skuCostCandidate = skuData?.cost_price > 0 ? skuData.cost_price : null;
+          const lastPurchaseCostCandidate = lastPurchaseData?.cost || null;
+          
+          let errorUnitPriceSource = 'csv';
+          let resolvedUnitPrice = row.unit_price?.trim() || '';
+          
+          if (!row.unit_price?.trim()) {
+            if (skuCostCandidate && lastPurchaseCostCandidate) {
+              errorUnitPriceSource = 'min(sku_cost,last_purchase)';
+              resolvedUnitPrice = Math.min(skuCostCandidate, lastPurchaseCostCandidate);
+            } else if (skuCostCandidate) {
+              errorUnitPriceSource = 'sku_cost';
+              resolvedUnitPrice = skuCostCandidate;
+            } else if (lastPurchaseCostCandidate) {
+              errorUnitPriceSource = 'last_purchase';
+              resolvedUnitPrice = lastPurchaseCostCandidate;
+            } else {
+              errorUnitPriceSource = 'none_available';
+              resolvedUnitPrice = '';
+            }
+          }
+
+          let errorSupplierSource = 'csv';
+          let resolvedSupplierName = row.supplier_name?.trim() || '';
+          
+          if (!row.supplier_name?.trim()) {
+            if (skuData?.supplier_id && supplierMap[skuData.supplier_id]) {
+              errorSupplierSource = 'sku_master';
+              resolvedSupplierName = supplierMap[skuData.supplier_id];
+            } else if (lastPurchaseData?.supplier_name) {
+              errorSupplierSource = 'last_purchase';
+              resolvedSupplierName = lastPurchaseData.supplier_name;
+            } else {
+              errorSupplierSource = 'unresolved';
+              resolvedSupplierName = '';
+            }
+          }
+          
+          results.errors.push({
+            row: rowNumber,
+            data: row,
+            error: error.message,
+            original_unit_price: row.unit_price?.trim() || '',
+            resolved_unit_price: resolvedUnitPrice,
+            unit_price_source: errorUnitPriceSource,
+            sku_cost_candidate: skuCostCandidate || '',
+            last_purchase_cost_candidate: lastPurchaseCostCandidate || '',
+            original_supplier_name: row.supplier_name?.trim() || '',
+            resolved_supplier_name: resolvedSupplierName,
+            supplier_source: errorSupplierSource
+          });
+
+          // Log error to database
+          await base44.entities.ImportError.create({
+            tenant_id: tenantId,
+            batch_id: batch.id,
+            row_number: rowNumber,
+            raw_row_json: JSON.stringify(row),
+            error_reason: error.message
           });
         }
       }
