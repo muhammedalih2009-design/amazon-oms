@@ -85,13 +85,12 @@ export class BulkFulfillmentProcessor {
         throw new Error('No valid order lines found');
       }
 
-      // Step 2: Validate stock availability (re-check current stock) - UNLESS force mode
+      // Step 2: Validate stock availability (STRICT - no negative stock ever)
       let totalCost = 0;
       const stockDeductions = new Map(); // sku_id -> quantity to deduct
-      let forceFulfilledWarnings = [];
 
       for (const line of lines) {
-        // Fresh stock check
+        // Fresh stock check - always validate
         const stockRecords = await this.base44.entities.CurrentStock.filter({
           tenant_id: this.tenantId,
           sku_id: line.sku_id
@@ -99,24 +98,15 @@ export class BulkFulfillmentProcessor {
 
         const availableStock = stockRecords.length > 0 ? (stockRecords[0].quantity_available || 0) : 0;
         
-        // Only enforce stock validation if NOT in force mode
-        if (!forceMode && availableStock < line.quantity) {
+        // ALWAYS enforce stock validation (removed force mode bypass)
+        if (availableStock < line.quantity) {
           throw new Error(
-            `Insufficient stock for ${line.sku_code}: Need ${line.quantity}, Have ${availableStock}`
+            `Insufficient stock for ${line.sku_code}: Need ${line.quantity}, Have ${availableStock}. ` +
+            `Purchase more inventory before fulfilling this order.`
           );
         }
 
-        // Track if this was force-fulfilled with insufficient stock
-        if (forceMode && availableStock < line.quantity) {
-          forceFulfilledWarnings.push({
-            sku_code: line.sku_code,
-            required: line.quantity,
-            available: availableStock,
-            shortage: line.quantity - availableStock
-          });
-        }
-
-        // Accumulate deductions (will allow negative stock in force mode)
+        // Accumulate deductions (will NEVER allow negative stock)
         const currentDeduction = stockDeductions.get(line.sku_id) || 0;
         stockDeductions.set(line.sku_id, currentDeduction + line.quantity);
 
@@ -250,24 +240,27 @@ export class BulkFulfillmentProcessor {
         });
       }
 
-      // Step 6: Deduct stock (critical operation) - allow negative in force mode
-      // RACE CONDITION MITIGATION: Re-fetch stock immediately before update
+      // Step 6: ATOMIC stock deduction with validation (NO NEGATIVE STOCK ALLOWED)
+      // Re-fetch stock immediately before update to ensure latest values
       const stockUpdates = [];
       for (const [skuId, qtyToDeduct] of stockDeductions) {
-        // CRITICAL: Re-read stock value to get latest (pseudo-atomic behavior)
+        // CRITICAL: Re-read stock value to get latest (prevents race conditions)
         const stockRecords = await this.base44.entities.CurrentStock.filter({
           tenant_id: this.tenantId,
           sku_id: skuId
         });
 
         if (stockRecords.length > 0) {
-          // Get CURRENT value from database, not cached value
+          // Get CURRENT value from database (not cached)
           const currentQty = stockRecords[0].quantity_available || 0;
           const newQty = currentQty - qtyToDeduct;
 
-          // In force mode, allow negative stock. Otherwise, enforce validation.
-          if (!forceMode && newQty < 0) {
-            throw new Error(`Stock deduction failed: attempting to deduct ${qtyToDeduct} but only ${currentQty} available`);
+          // STRICT VALIDATION: NEVER allow negative stock (even in force mode)
+          if (newQty < 0) {
+            throw new Error(
+              `Stock deduction blocked: attempting to deduct ${qtyToDeduct} from ${currentQty} available. ` +
+              `This would create negative stock (${newQty}). Purchase more inventory first.`
+            );
           }
 
           await this.base44.entities.CurrentStock.update(stockRecords[0].id, {
@@ -309,9 +302,7 @@ export class BulkFulfillmentProcessor {
           reference_type: 'order_line',
           reference_id: line.id,
           movement_date: format(new Date(), 'yyyy-MM-dd'),
-          notes: forceMode 
-            ? `Force fulfilled (Order ${amazonOrderId}) - bypassed stock validation` 
-            : `Order fulfillment: ${amazonOrderId}`
+          notes: `Order fulfillment: ${amazonOrderId}`
         });
       }
 
@@ -327,17 +318,13 @@ export class BulkFulfillmentProcessor {
         throw new Error(`CRITICAL: Failed to create stock movements for order ${amazonOrderId}: ${movementError.message}. Stock deducted but audit trail incomplete.`);
       }
 
-      // Success message with force-fulfill indication
-      let successMessage = `Successfully fulfilled with cost: $${totalCost.toFixed(2)}`;
-      if (forceMode && forceFulfilledWarnings.length > 0) {
-        successMessage += ` (FORCE FULFILLED - Negative stock created)`;
-      }
+      // Success message
+      const successMessage = `Successfully fulfilled with cost: $${totalCost.toFixed(2)}`;
 
       return {
         success: true,
         orderId: amazonOrderId,
-        details: successMessage,
-        forceMode: forceMode
+        details: successMessage
       };
 
     } catch (error) {
@@ -386,41 +373,57 @@ export class BulkFulfillmentProcessor {
   }
 
   /**
-   * Process orders in chunks with throttling to prevent rate limiting
+   * Process orders SEQUENTIALLY with FIFO ordering to prevent race conditions
+   * Ensures earliest orders get stock priority and no double allocation
    */
   async processOrdersInChunks(ordersToProcess, orderLines, purchases, currentStock, skus, format, onProgress, forceMode = false) {
     const results = [];
-    const totalOrders = ordersToProcess.length;
-    const totalChunks = Math.ceil(totalOrders / this.CHUNK_SIZE);
+    
+    // CRITICAL: Sort orders by order_date ASC, then created_date ASC for FIFO
+    const sortedOrders = [...ordersToProcess].sort((a, b) => {
+      const dateA = new Date(a.order_date);
+      const dateB = new Date(b.order_date);
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateA - dateB;
+      }
+      // If order dates are the same, sort by creation time
+      return new Date(a.created_date) - new Date(b.created_date);
+    });
 
-    console.log(`📦 Starting bulk fulfillment: ${totalOrders} orders in ${totalChunks} chunks of ${this.CHUNK_SIZE}`);
+    const totalOrders = sortedOrders.length;
 
-    for (let i = 0; i < totalOrders; i += this.CHUNK_SIZE) {
-      const chunkNumber = Math.floor(i / this.CHUNK_SIZE) + 1;
-      const chunk = ordersToProcess.slice(i, i + this.CHUNK_SIZE);
+    console.log(`📦 Starting FIFO bulk fulfillment: ${totalOrders} orders (sorted by order date)`);
+
+    // Process SEQUENTIALLY (not in parallel) to prevent race conditions
+    for (let i = 0; i < sortedOrders.length; i++) {
+      const order = sortedOrders[i];
+      const orderNumber = i + 1;
       
-      console.log(`⚡ Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} orders)...`);
+      console.log(`⚡ Processing order ${orderNumber}/${totalOrders}: ${order.amazon_order_id} (${order.order_date})...`);
       
-      // Process all orders in this chunk in parallel
-      const chunkPromises = chunk.map(order =>
-        this.processSingleOrder(order, orderLines, purchases, currentStock, skus, format, forceMode)
+      // SEQUENTIAL: Process one order at a time - prevents double allocation
+      const result = await this.processSingleOrder(
+        order, 
+        orderLines, 
+        purchases, 
+        currentStock, 
+        skus, 
+        format, 
+        forceMode
       );
+      
+      results.push(result);
 
-      const chunkResults = await Promise.all(chunkPromises);
-      results.push(...chunkResults);
+      // Update progress after each order
+      onProgress(i + 1, results);
 
-      // Update progress after each chunk
-      const processed = Math.min(i + this.CHUNK_SIZE, totalOrders);
-      onProgress(processed, results);
-
-      // Throttle: Wait between chunks to prevent rate limiting (except for the last chunk)
-      if (i + this.CHUNK_SIZE < totalOrders) {
-        console.log(`⏳ Throttling: waiting ${this.CHUNK_DELAY_MS}ms before next chunk...`);
-        await new Promise(resolve => setTimeout(resolve, this.CHUNK_DELAY_MS));
+      // Small delay between orders to allow database to commit
+      if (i < sortedOrders.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 
-    console.log(`✅ Bulk fulfillment complete: ${results.filter(r => r.success).length}/${totalOrders} succeeded`);
+    console.log(`✅ FIFO bulk fulfillment complete: ${results.filter(r => r.success).length}/${totalOrders} succeeded`);
     return results;
   }
 }
