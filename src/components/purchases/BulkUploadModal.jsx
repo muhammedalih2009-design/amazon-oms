@@ -426,47 +426,90 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
     }
   };
 
-  const downloadErrorCSV = () => {
-    if (!result || !result.errorData || result.errorData.length === 0) return;
+  const generateErrorCSV = (errors) => {
+    if (errors.length === 0) return '';
 
-    const headers = ['Row Number', 'SKU Code', 'Quantity', 'Unit Price', 'Supplier Name', 'Purchase Date', 'Error Reason'];
-    const csvContent = [
-      headers.join(','),
-      ...result.errorData.map(row => [
-        row.row_number,
-        row.sku_code || '',
-        row.quantity || '',
-        row.unit_price || '',
-        row.supplier_name || '',
-        row.purchase_date || '',
-        row.error_reason || ''
-      ].join(','))
+    const headers = [
+      'row',
+      'sku_code',
+      'quantity',
+      'original_unit_price',
+      'resolved_unit_price',
+      'unit_price_source',
+      'sku_cost_candidate',
+      'last_purchase_cost_candidate',
+      'original_supplier_name',
+      'resolved_supplier_name',
+      'supplier_source',
+      'purchase_date',
+      'error_reason'
+    ];
+
+    const rows = errors.map(e => [
+      e.row,
+      e.data.sku_code || '',
+      e.data.quantity || '',
+      e.original_unit_price,
+      e.resolved_unit_price,
+      e.unit_price_source,
+      e.sku_cost_candidate,
+      e.last_purchase_cost_candidate,
+      e.original_supplier_name,
+      e.resolved_supplier_name,
+      e.supplier_source,
+      e.data.purchase_date || '',
+      e.error
+    ]);
+
+    const escapeCsvCell = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    return [
+      headers.map(h => escapeCsvCell(h)).join(','),
+      ...rows.map(row => row.map(cell => escapeCsvCell(cell)).join(','))
     ].join('\n');
+  };
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
+  const downloadErrorCSV = () => {
+    if (!result || result.errors.length === 0) return;
+
+    const csvContent = generateErrorCSV(result.errors);
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `purchase_upload_errors_${format(new Date(), 'yyyy-MM-dd_HHmmss')}.csv`;
+    a.download = `purchase_import_errors_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
     a.click();
-    window.URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
   };
 
   const downloadTemplate = () => {
-    const template = 'sku_code,quantity,unit_price,supplier_name,purchase_date\nSKU001,100,15.50,Acme Corp,2026-01-18\nSKU002,50,22.00,Tech Supplies,2026-01-18';
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
+    const template = [
+      'sku_code,quantity,unit_price,supplier_name,purchase_date',
+      'SKU001,10,15.50,Supplier A,2026-02-09',
+      'SKU002,5,,Warehouse,2026-02-09',
+      'SKU003,20,,,2026-02-09'
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'purchase_upload_template.csv';
+    a.download = 'purchases_template.csv';
     a.click();
-    window.URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
   };
 
   const handleClose = () => {
     setFile(null);
-    setBatchName('');
     setResult(null);
+    setProgress(0);
     onClose();
   };
 
