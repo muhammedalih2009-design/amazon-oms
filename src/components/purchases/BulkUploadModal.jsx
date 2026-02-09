@@ -20,17 +20,56 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       setFile(selectedFile);
       setResult(null);
     } else {
-      toast({ title: 'Invalid file', description: 'Please select a CSV file', variant: 'destructive' });
+      toast({ 
+        title: 'Invalid file type', 
+        description: 'Please select a CSV file',
+        variant: 'destructive' 
+      });
     }
+  };
+
+  const normalizeHeader = (header) => {
+    // Normalize header: lowercase, remove spaces/underscores
+    const normalized = header.toLowerCase().replace(/[\s_]+/g, '');
+    
+    // Map to canonical keys
+    const headerMap = {
+      'skucode': 'sku_code',
+      'unitprice': 'unit_price',
+      'suppliername': 'supplier_name',
+      'quantity': 'quantity',
+      'purchasedate': 'purchase_date'
+    };
+    
+    return headerMap[normalized] || normalized;
   };
 
   const parseCSV = (text) => {
     const lines = text.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    if (lines.length < 2) return [];
+
+    const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    const headers = rawHeaders.map(h => normalizeHeader(h));
     const rows = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let j = 0; j < lines[i].length; j++) {
+        const char = lines[i][j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim().replace(/^"|"$/g, ''));
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim().replace(/^"|"$/g, ''));
+
       const row = {};
       headers.forEach((header, index) => {
         row[header] = values[index] || '';
