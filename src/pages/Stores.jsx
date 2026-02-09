@@ -31,9 +31,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/components/ui/use-toast';
 import DataTable from '@/components/shared/DataTable';
+import WorkspacePackageManager from '@/components/stores/WorkspacePackageManager';
+import PaywallBanner from '@/components/ui/PaywallBanner';
 
 export default function Stores() {
-  const { tenantId } = useTenant();
+  const { tenantId, tenant, subscription } = useTenant();
   const { toast } = useToast();
   const [stores, setStores] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -224,6 +226,14 @@ export default function Stores() {
 
   return (
     <div className="space-y-6">
+      <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
+
+      <WorkspacePackageManager 
+        tenantId={tenantId} 
+        tenantName={tenant?.name || 'Workspace'}
+        onComplete={() => loadData(true)}
+      />
+
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Stores & Sales Channels</h1>
