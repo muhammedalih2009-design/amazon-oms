@@ -81,33 +81,77 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file) {
+      toast({ title: 'No file selected', variant: 'destructive' });
+      return;
+    }
 
     setUploading(true);
-    const errors = [];
-    let successCount = 0;
-    let skusUpdated = new Set();
-    let totalQuantity = 0;
-    let totalCost = 0;
+    setProgress(0);
+    setResult(null);
 
     try {
+      // Read file with UTF-8-sig encoding support
       const text = await file.text();
-      const rows = parseCSV(text);
+      const textUtf8 = text.replace(/^\uFEFF/, ''); // Remove BOM if present
+      const rows = parseCSV(textUtf8);
 
-      // Fetch all SKUs and suppliers for validation
+      if (rows.length === 0) {
+        toast({ title: 'Empty CSV file', variant: 'destructive' });
+        setUploading(false);
+        return;
+      }
+
+      // Preload SKUs, Suppliers, and recent Purchases for efficient lookup
       const skus = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const suppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
-      const currentStocks = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+      const allPurchases = await base44.entities.Purchase.filter({ tenant_id: tenantId });
+      
+      // Create lookup maps
+      const skuMap = {};
+      skus.forEach(sku => {
+        skuMap[sku.sku_code?.trim()?.toLowerCase()] = {
+          id: sku.id,
+          sku_code: sku.sku_code,
+          cost_price: sku.cost_price,
+          supplier_id: sku.supplier_id,
+          product_name: sku.product_name,
+          image_url: sku.image_url
+        };
+      });
+
+      const supplierMap = {};
+      suppliers.forEach(supplier => {
+        supplierMap[supplier.id] = supplier.supplier_name;
+      });
+
+      // Create map of most recent purchase cost AND supplier per SKU
+      const lastPurchaseDataMap = {};
+      allPurchases.forEach(purchase => {
+        const skuKey = purchase.sku_code?.trim()?.toLowerCase();
+        if (skuKey) {
+          if (!lastPurchaseDataMap[skuKey] || 
+              new Date(purchase.purchase_date) > new Date(lastPurchaseDataMap[skuKey].date)) {
+            lastPurchaseDataMap[skuKey] = {
+              cost: purchase.cost_per_unit > 0 ? purchase.cost_per_unit : null,
+              supplier_name: purchase.supplier_name || null,
+              supplier_id: purchase.supplier_id || null,
+              date: purchase.purchase_date
+            };
+          }
+        }
+      });
 
       // Create batch record
       const batch = await base44.entities.ImportBatch.create({
         tenant_id: tenantId,
         batch_type: 'purchases',
-        batch_name: `Purchase Batch - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
-        display_name: batchName.trim() || null,
+        batch_name: `purchases_${format(new Date(), 'yyyyMMdd_HHmmss')}`,
         filename: file.name,
         status: 'processing',
-        total_rows: rows.length
+        total_rows: rows.length,
+        success_rows: 0,
+        failed_rows: 0
       });
 
       // STEP 1: Aggregate rows by SKU code
