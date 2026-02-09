@@ -8,11 +8,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { Progress } from '@/components/ui/progress';
 
 export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) {
-  const [file, setFile] = useState(null);
-  const [batchName, setBatchName] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState(null);
   const { toast } = useToast();
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState(null);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
