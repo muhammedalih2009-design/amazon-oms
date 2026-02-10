@@ -1304,13 +1304,19 @@ export default function Purchases() {
                             <img 
                               src={sku.image_url} 
                               alt={item.product_name}
-                              className="w-12 h-12 object-cover rounded border border-slate-200"
+                              className="w-10 h-10 object-cover rounded border border-slate-200"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'flex';
+                              }}
                             />
-                          ) : (
-                            <div className="w-12 h-12 bg-slate-100 rounded flex items-center justify-center border border-slate-200">
-                              <Package className="w-6 h-6 text-slate-400" />
-                            </div>
-                          )}
+                          ) : null}
+                          <div 
+                            className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center border border-slate-200"
+                            style={{ display: sku?.image_url ? 'none' : 'flex' }}
+                          >
+                            <Package className="w-5 h-5 text-slate-400" />
+                          </div>
                         </td>
                         <td className="py-3 px-4 font-medium">{item.sku_code}</td>
                         <td className="py-3 px-4 text-slate-600">{item.product_name}</td>

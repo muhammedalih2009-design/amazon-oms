@@ -193,8 +193,6 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   };
 
   const reconcileAllStock = async () => {
-    if (!reconcilePreview) return;
-
     setReconciling(true);
     setShowReconcileDialog(false);
 
@@ -202,41 +200,89 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       const timestamp = new Date().toISOString();
       const referenceId = `reconcile_all_${timestamp}`;
       
+      // FETCH ALL SKUs and stock movements to recalculate from scratch
+      const [allSKUs, allMovements, allCurrentStock] = await Promise.all([
+        base44.entities.SKU.filter({ tenant_id: tenantId }),
+        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
+        base44.entities.CurrentStock.filter({ tenant_id: tenantId })
+      ]);
+
+      // Build map: sku_id -> calculated_stock from movement history
+      const calculatedStockMap = new Map();
+      allSKUs.forEach(sku => calculatedStockMap.set(sku.id, 0));
+
+      allMovements.forEach(movement => {
+        const current = calculatedStockMap.get(movement.sku_id) || 0;
+        calculatedStockMap.set(movement.sku_id, current + (movement.quantity || 0));
+      });
+
+      // Build map: sku_id -> current stock record
+      const currentStockMap = new Map();
+      allCurrentStock.forEach(stock => {
+        currentStockMap.set(stock.sku_id, stock);
+      });
+
       let successCount = 0;
       let failCount = 0;
       const errors = [];
+      const reconciliationActions = [];
 
       // Process in batches with retry logic
       const BATCH_SIZE = 10;
       const BATCH_DELAY = 500;
       const MAX_RETRIES = 3;
 
-      const reconcileSKU = async (issue, retryCount = 0) => {
+      // Prepare reconciliation actions for ALL SKUs
+      for (const [skuId, calculatedStock] of calculatedStockMap) {
+        // NEVER allow negative stock - clamp to 0
+        const desiredStock = Math.max(0, calculatedStock);
+        const stockRecord = currentStockMap.get(skuId);
+        const currentStock = stockRecord?.quantity_available || 0;
+        
+        // Only reconcile if there's a difference
+        if (currentStock !== desiredStock) {
+          const sku = allSKUs.find(s => s.id === skuId);
+          reconciliationActions.push({
+            sku_id: skuId,
+            sku_code: sku?.sku_code || 'Unknown',
+            current_stock: currentStock,
+            calculated_stock: calculatedStock,
+            desired_stock: desiredStock,
+            difference: desiredStock - currentStock,
+            stock_record_id: stockRecord?.id
+          });
+        }
+      }
+
+      const reconcileSKU = async (action, retryCount = 0) => {
         try {
-          const { sku_id, calculated_stock, current_stock, difference } = issue;
-
           // Create movement record for audit trail
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: sku_id,
-            sku_code: issue.sku_code,
-            movement_type: 'manual',
-            quantity: difference,
-            reference_type: 'manual',
-            reference_id: referenceId,
-            movement_date: new Date().toISOString().split('T')[0],
-            notes: `Stock Integrity Checker: bulk reconcile. Adjusted from ${current_stock} to ${calculated_stock}`
-          });
+          if (action.difference !== 0) {
+            await base44.entities.StockMovement.create({
+              tenant_id: tenantId,
+              sku_id: action.sku_id,
+              sku_code: action.sku_code,
+              movement_type: 'manual',
+              quantity: action.difference,
+              reference_type: 'manual',
+              reference_id: referenceId,
+              movement_date: new Date().toISOString().split('T')[0],
+              notes: `Global stock reconciliation: ${action.current_stock} → ${action.desired_stock} (history: ${action.calculated_stock}, clamped to 0 if negative)`
+            });
+          }
 
-          // Update CurrentStock to match history
-          const stockRecord = await base44.entities.CurrentStock.filter({
-            tenant_id: tenantId,
-            sku_id: sku_id
-          });
-
-          if (stockRecord && stockRecord.length > 0) {
-            await base44.entities.CurrentStock.update(stockRecord[0].id, {
-              quantity_available: calculated_stock
+          // Update CurrentStock to desired value (clamped at 0)
+          if (action.stock_record_id) {
+            await base44.entities.CurrentStock.update(action.stock_record_id, {
+              quantity_available: action.desired_stock
+            });
+          } else {
+            // Create stock record if missing
+            await base44.entities.CurrentStock.create({
+              tenant_id: tenantId,
+              sku_id: action.sku_id,
+              sku_code: action.sku_code,
+              quantity_available: action.desired_stock
             });
           }
 
@@ -248,7 +294,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
           if (isRateLimit && retryCount < MAX_RETRIES) {
             const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
             await new Promise(resolve => setTimeout(resolve, backoffDelay));
-            return reconcileSKU(issue, retryCount + 1);
+            return reconcileSKU(action, retryCount + 1);
           }
           
           return { success: false, error: error.message };
@@ -256,26 +302,25 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       };
 
       // Process in batches
-      const issues = reconcilePreview.issues;
-      for (let i = 0; i < issues.length; i += BATCH_SIZE) {
-        const batch = issues.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < reconciliationActions.length; i += BATCH_SIZE) {
+        const batch = reconciliationActions.slice(i, i + BATCH_SIZE);
         
-        for (const issue of batch) {
-          const result = await reconcileSKU(issue);
+        for (const action of batch) {
+          const result = await reconcileSKU(action);
           
           if (result.success) {
             successCount++;
           } else {
             failCount++;
             errors.push({
-              sku_code: issue.sku_code,
+              sku_code: action.sku_code,
               error: result.error
             });
           }
         }
 
         // Delay between batches to avoid rate limits
-        if (i + BATCH_SIZE < issues.length) {
+        if (i + BATCH_SIZE < reconciliationActions.length) {
           await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
         }
       }
