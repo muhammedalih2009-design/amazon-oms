@@ -4,7 +4,7 @@
  * Fixes ALL integrity issues in a single transaction
  */
 
-export default async function resetStockToZero(request, context) {
+export default async function handler(request, context) {
   const { tenantId } = request.body;
   
   if (!tenantId) {
