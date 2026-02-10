@@ -197,8 +197,8 @@ export default function Dashboard() {
     <PagePermissionGuard pageKey="dashboard">
       <div className="space-y-6">
         <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
-      
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
         <div className="flex items-center gap-3">
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
@@ -206,8 +206,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="Total Orders"
           value={kpis.totalOrders}
@@ -273,18 +273,18 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <OrdersChart data={ordersChartData} />
         <RevenueChart data={revenueChartData} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <TopSKUsChart data={topSKUsData} />
-        <RecentOrdersTable orders={orders.sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))} />
-        <PendingTasksWidget tenantId={tenantId} userId={user?.id} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <TopSKUsChart data={topSKUsData} />
+          <RecentOrdersTable orders={orders.sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))} />
+          <PendingTasksWidget tenantId={tenantId} userId={user?.id} />
+        </div>
       </div>
-    </div>
     </PagePermissionGuard>
   );
 }
