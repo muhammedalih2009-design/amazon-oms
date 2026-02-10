@@ -303,71 +303,95 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
         stockMap.set(stock.sku_id, stock);
       });
 
-      // Process in batches
-      const BATCH_SIZE = 50;
+      // Process sequentially with retry logic to avoid rate limits
+      const BATCH_DELAY = 500; // 500ms delay between batches
+      const BATCH_SIZE = 10; // Process 10 items per batch
+      const MAX_RETRIES = 3;
+
+      const updateWithRetry = async (row, retryCount = 0) => {
+        try {
+          const updateData = {};
+          
+          // Handle supplier - ONLY if it's in changes (meaning it was selected)
+          if (row.changes.supplier) {
+            const newSupplierName = row.changes.supplier.new.replace(' (new)', '');
+            let supplier = supplierMap.get(newSupplierName.toLowerCase());
+            
+            if (!supplier) {
+              // Create new supplier
+              supplier = await base44.entities.Supplier.create({
+                tenant_id: tenantId,
+                supplier_name: newSupplierName
+              });
+              supplierMap.set(newSupplierName.toLowerCase(), supplier);
+            }
+            
+            updateData.supplier_id = supplier.id;
+          }
+
+          // Handle other fields - ONLY if they're in changes
+          if (row.changes.cost) {
+            updateData.cost_price = row.changes.cost.new;
+          }
+          if (row.changes.product_name) {
+            updateData.product_name = row.changes.product_name.new;
+          }
+          if (row.changes.image_url) {
+            updateData.image_url = row.changes.image_url.new;
+          }
+
+          // Only update if there are actual changes
+          if (Object.keys(updateData).length > 0) {
+            await base44.entities.SKU.update(row.existingSKU.id, updateData);
+          }
+
+          // Handle stock update if provided
+          if (row.changes.stock) {
+            const stockRecord = stockMap.get(row.existingSKU.id);
+            if (stockRecord) {
+              await base44.entities.CurrentStock.update(stockRecord.id, {
+                quantity_available: row.changes.stock.new
+              });
+            } else {
+              await base44.entities.CurrentStock.create({
+                tenant_id: tenantId,
+                sku_id: row.existingSKU.id,
+                sku_code: row.sku_code,
+                quantity_available: row.changes.stock.new
+              });
+            }
+          }
+
+          return { success: true };
+        } catch (error) {
+          const isRateLimit = error.message?.toLowerCase().includes('rate limit') || 
+                             error.message?.toLowerCase().includes('too many requests');
+          
+          if (isRateLimit && retryCount < MAX_RETRIES) {
+            const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            return updateWithRetry(row, retryCount + 1);
+          }
+          
+          return { success: false, error: error.message };
+        }
+      };
+
+      // Process in batches with delays
       for (let i = 0; i < updateRows.length; i += BATCH_SIZE) {
         const batch = updateRows.slice(i, i + BATCH_SIZE);
         
-        await Promise.all(batch.map(async (row) => {
-          try {
-            const updateData = {};
-            
-            // Handle supplier - ONLY if it's in changes (meaning it was selected)
-            if (row.changes.supplier) {
-              const newSupplierName = row.changes.supplier.new.replace(' (new)', '');
-              let supplier = supplierMap.get(newSupplierName.toLowerCase());
-              
-              if (!supplier) {
-                // Create new supplier
-                supplier = await base44.entities.Supplier.create({
-                  tenant_id: tenantId,
-                  supplier_name: newSupplierName
-                });
-                supplierMap.set(newSupplierName.toLowerCase(), supplier);
-              }
-              
-              updateData.supplier_id = supplier.id;
-            }
-
-            // Handle other fields - ONLY if they're in changes
-            if (row.changes.cost) {
-              updateData.cost_price = row.changes.cost.new;
-            }
-            if (row.changes.product_name) {
-              updateData.product_name = row.changes.product_name.new;
-            }
-            if (row.changes.image_url) {
-              updateData.image_url = row.changes.image_url.new;
-            }
-
-            // Only update if there are actual changes
-            if (Object.keys(updateData).length > 0) {
-              await base44.entities.SKU.update(row.existingSKU.id, updateData);
-            }
-
-            // Handle stock update if provided
-            if (row.changes.stock) {
-              const stockRecord = stockMap.get(row.existingSKU.id);
-              if (stockRecord) {
-                await base44.entities.CurrentStock.update(stockRecord.id, {
-                  quantity_available: row.changes.stock.new
-                });
-              } else {
-                await base44.entities.CurrentStock.create({
-                  tenant_id: tenantId,
-                  sku_id: row.existingSKU.id,
-                  sku_code: row.sku_code,
-                  quantity_available: row.changes.stock.new
-                });
-              }
-            }
-
+        // Process batch items sequentially
+        for (const row of batch) {
+          const result = await updateWithRetry(row);
+          
+          if (result.success) {
             successCount++;
-          } catch (error) {
+          } else {
             failCount++;
             errors.push({
               sku_code: row.sku_code,
-              error_message: error.message
+              error_message: result.error
             });
           }
 
@@ -377,7 +401,12 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
             successCount, 
             failCount 
           });
-        }));
+        }
+
+        // Delay between batches to avoid rate limits
+        if (i + BATCH_SIZE < updateRows.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        }
       }
 
       // Generate error CSV if needed
