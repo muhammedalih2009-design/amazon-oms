@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [orderLines, setOrderLines] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
   const [skus, setSkus] = useState([]);
+  const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dateRange, setDateRange] = useState({
@@ -59,16 +60,18 @@ export default function Dashboard() {
     } else {
       setLoading(true);
     }
-    const [ordersData, linesData, stockData, skusData] = await Promise.all([
+    const [ordersData, linesData, stockData, skusData, purchasesData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
       base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-      base44.entities.SKU.filter({ tenant_id: tenantId })
+      base44.entities.SKU.filter({ tenant_id: tenantId }),
+      base44.entities.Purchase.filter({ tenant_id: tenantId })
     ]);
     setOrders(ordersData);
     setOrderLines(linesData);
     setCurrentStock(stockData);
     setSkus(skusData);
+    setPurchases(purchasesData);
     if (isRefresh) {
       setRefreshing(false);
     } else {
@@ -85,6 +88,15 @@ export default function Dashboard() {
     });
   }, [orders, dateRange]);
 
+  const filteredPurchases = useMemo(() => {
+    if (!dateRange?.from || !dateRange?.to) return purchases;
+    return purchases.filter(purchase => {
+      if (!purchase.purchase_date) return false;
+      const purchaseDate = parseISO(purchase.purchase_date);
+      return isWithinInterval(purchaseDate, { start: dateRange.from, end: dateRange.to });
+    });
+  }, [purchases, dateRange]);
+
   const kpis = useMemo(() => {
     const pending = filteredOrders.filter(o => o.status === 'pending').length;
     const fulfilled = filteredOrders.filter(o => o.status === 'fulfilled').length;
@@ -96,6 +108,15 @@ export default function Dashboard() {
     }, 0);
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
+    // Calculate purchased stock costs
+    const purchasedCostSuppliers = filteredPurchases
+      .filter(p => p.supplier_id)
+      .reduce((sum, p) => sum + (p.total_cost || 0), 0);
+    
+    const purchasedCostWarehouse = filteredPurchases
+      .filter(p => !p.supplier_id)
+      .reduce((sum, p) => sum + (p.total_cost || 0), 0);
+
     return {
       totalOrders: filteredOrders.length,
       pending,
@@ -103,9 +124,11 @@ export default function Dashboard() {
       revenue,
       profit,
       stockValue,
-      margin
+      margin,
+      purchasedCostSuppliers,
+      purchasedCostWarehouse
     };
-  }, [filteredOrders, currentStock, skus]);
+  }, [filteredOrders, filteredPurchases, currentStock, skus]);
 
   const ordersChartData = useMemo(() => {
     const dateMap = {};
@@ -208,9 +231,20 @@ export default function Dashboard() {
           iconBg="bg-violet-100"
           iconColor="text-violet-600"
         />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <KPICard
+          title="Purchased Stock Cost (Suppliers)"
+          value={`$${kpis.purchasedCostSuppliers.toLocaleString()}`}
+          icon={Package}
+          iconBg="bg-blue-100"
+          iconColor="text-blue-600"
+        />
+        <KPICard
+          title="Purchased Stock Cost (Warehouse)"
+          value={`$${kpis.purchasedCostWarehouse.toLocaleString()}`}
+          icon={Package}
+          iconBg="bg-slate-100"
+          iconColor="text-slate-600"
+        />
         <KPICard
           title="Monthly Revenue"
           value={`$${kpis.revenue.toLocaleString()}`}
