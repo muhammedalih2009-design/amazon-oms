@@ -42,6 +42,7 @@ import SKUKPICards from '@/components/skus/SKUKPICards';
 import SKUSearchBar from '@/components/skus/SKUSearchBar';
 import AddSKUModal from '@/components/skus/AddSKUModal';
 import BulkUploadModal from '@/components/skus/BulkUploadModal';
+import BulkUpdateModal from '@/components/skus/BulkUpdateModal';
 import SKUDetailsDrawer from '@/components/skus/SKUDetailsDrawer';
 import StockIntegrityChecker from '@/components/skus/StockIntegrityChecker';
 import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
@@ -66,6 +67,7 @@ export default function SKUsPage() {
   const [selectedRows, setSelectedRows] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showClearStockDialog, setShowClearStockDialog] = useState(false);
   const [selectedSKU, setSelectedSKU] = useState(null);
@@ -902,6 +904,15 @@ export default function SKUsPage() {
             Bulk Upload
           </Button>
           <Button 
+            variant="outline" 
+            onClick={() => setShowUpdateModal(true)}
+            disabled={!isActive || !canEdit}
+            className="border-purple-200 text-purple-600 hover:bg-purple-50"
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Bulk Update
+          </Button>
+          <Button 
             onClick={() => setShowAddModal(true)}
             disabled={!isActive || !canEdit}
             className="bg-indigo-600 hover:bg-indigo-700"
@@ -1217,6 +1228,16 @@ export default function SKUsPage() {
         open={showUploadModal}
         onClose={() => setShowUploadModal(false)}
         onUpload={handleBulkUpload}
+      />
+
+      <BulkUpdateModal
+        open={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        onComplete={() => {
+          setShowUpdateModal(false);
+          loadData();
+        }}
+        tenantId={tenantId}
       />
 
       <SKUDetailsDrawer
