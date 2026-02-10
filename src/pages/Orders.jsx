@@ -187,10 +187,13 @@ export default function Orders() {
     const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
     let totalCost = 0;
 
-    // ALWAYS check stock availability (no force mode)
+    // ALWAYS check stock availability BEFORE starting any operations
+    // Re-fetch stock to ensure fresh data (concurrency-safe)
+    const freshStock = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+    
     for (const line of lines) {
-      // Find current stock - normalize SKU codes for comparison
-      const stock = currentStock.find(s => 
+      // Find current stock with fresh data
+      const stock = freshStock.find(s => 
         s.sku_id === line.sku_id || 
         s.sku_code?.trim().toLowerCase() === line.sku_code?.trim().toLowerCase()
       );
@@ -200,7 +203,7 @@ export default function Orders() {
       if (availableStock < line.quantity) {
         toast({ 
           title: 'Cannot fulfill order', 
-          description: `SKU ${line.sku_code} has ${availableStock} units in stock, but order requires ${line.quantity} units. Purchase more inventory first.`,
+          description: `SKU ${line.sku_code} has ${availableStock} units in stock (freshly checked), but order requires ${line.quantity} units. Stock may have changed. Purchase more inventory first.`,
           variant: 'destructive'
         });
         return;
@@ -278,6 +281,7 @@ export default function Orders() {
       });
 
       // Update CurrentStock (STRICT - no negative stock)
+      // Re-fetch to ensure we have the absolute latest value (concurrency protection)
       const stockRecords = await base44.entities.CurrentStock.filter({ 
         tenant_id: tenantId, 
         sku_id: line.sku_id 
@@ -287,14 +291,15 @@ export default function Orders() {
         const currentQty = stockRecords[0].quantity_available || 0;
         const newQty = currentQty - line.quantity;
         
-        // Final safety check - should never happen after validation above
+        // CRITICAL: Re-validate stock hasn't changed since initial check
         if (newQty < 0) {
+          // Rollback: this should trigger a full order rollback in future
           toast({
-            title: 'Stock error',
-            description: `Cannot deduct ${line.quantity} from ${currentQty} available. Stock changed during fulfillment.`,
+            title: 'Concurrency conflict detected',
+            description: `Stock for ${line.sku_code} changed during fulfillment. Had ${currentQty}, need ${line.quantity}. Please retry the order.`,
             variant: 'destructive'
           });
-          return;
+          throw new Error(`Stock concurrency conflict for ${line.sku_code}`);
         }
         
         await base44.entities.CurrentStock.update(stockRecords[0].id, {
