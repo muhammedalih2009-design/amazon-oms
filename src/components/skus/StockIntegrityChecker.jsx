@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { AlertTriangle, CheckCircle, Search, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Dialog,
@@ -26,29 +28,50 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [reconciling, setReconciling] = useState(false);
   const [showReconcileDialog, setShowReconcileDialog] = useState(false);
   const [reconcilePreview, setReconcilePreview] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
     setChecking(true);
     try {
-      // Fetch all data
-      const [orders, orderLines, movements, currentStock, skus] = await Promise.all([
+      // Fetch all data including tenant for last_stock_reset_at
+      const [orders, orderLines, movements, currentStock, skus, tenantData] = await Promise.all([
         base44.entities.Order.filter({ tenant_id: tenantId }),
         base44.entities.OrderLine.filter({ tenant_id: tenantId }),
         base44.entities.StockMovement.filter({ tenant_id: tenantId }),
         base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-        base44.entities.SKU.filter({ tenant_id: tenantId })
+        base44.entities.SKU.filter({ tenant_id: tenantId }),
+        base44.entities.Tenant.filter({ id: tenantId })
       ]);
+
+      const tenant = tenantData[0];
+      const lastResetAt = tenant?.last_stock_reset_at ? new Date(tenant.last_stock_reset_at) : null;
+      
+      // Filter to only non-archived movements
+      const activeMovements = movements.filter(m => !m.is_archived);
 
       const issues = [];
 
       // Check 1: Fulfilled orders without OUT movements
-      const fulfilledOrders = orders.filter(o => o.status === 'fulfilled');
+      // Only check orders created/fulfilled AFTER last reset
+      const fulfilledOrders = orders.filter(o => {
+        if (o.status !== 'fulfilled') return false;
+        
+        // If there was a reset, only check orders after that reset
+        if (lastResetAt) {
+          const orderDate = new Date(o.order_date || o.created_date);
+          return orderDate > lastResetAt;
+        }
+        
+        return true;
+      });
+      
       for (const order of fulfilledOrders) {
         const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
         
         for (const line of lines) {
-          const hasMovement = movements.some(m => 
+          const hasMovement = activeMovements.some(m => 
             m.reference_type === 'order_line' && 
             m.reference_id === line.id &&
             m.movement_type === 'order_fulfillment'
@@ -69,10 +92,10 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         }
       }
 
-      // Check 2: Stock vs Movement History mismatch
+      // Check 2: Stock vs Movement History mismatch (using only active movements)
       for (const stock of currentStock) {
         const sku = skus.find(s => s.id === stock.sku_id);
-        const skuMovements = movements.filter(m => m.sku_id === stock.sku_id);
+        const skuMovements = activeMovements.filter(m => m.sku_id === stock.sku_id);
         const calculatedStock = skuMovements.reduce((sum, m) => sum + (m.quantity || 0), 0);
         
         if (calculatedStock !== stock.quantity_available) {
@@ -90,7 +113,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         }
       }
 
-      // Check 3: Ghost items (negative or very small positive discrepancies)
+      // Check 3: Negative stock (should NEVER happen)
       for (const stock of currentStock) {
         if (stock.quantity_available < 0) {
           issues.push({
@@ -192,6 +215,48 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     setShowReconcileDialog(true);
   };
 
+  const handleFullReset = async () => {
+    if (resetConfirmText !== 'RESET') {
+      toast({
+        title: 'Confirmation required',
+        description: 'Please type RESET to confirm',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setShowResetConfirm(false);
+    setReconciling(true);
+
+    try {
+      // Call backend function for atomic reset
+      const response = await base44.functions.resetStockToZero({ tenantId });
+
+      if (response.ok) {
+        toast({
+          title: '✓ Stock reset complete',
+          description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs.`
+        });
+
+        // Auto re-run integrity check
+        setTimeout(() => {
+          runIntegrityCheck();
+        }, 1000);
+      } else {
+        throw new Error(response.details || 'Reset failed');
+      }
+    } catch (error) {
+      toast({
+        title: 'Reset failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setReconciling(false);
+      setResetConfirmText('');
+    }
+  };
+
   const reconcileAllStock = async () => {
     setReconciling(true);
     setShowReconcileDialog(false);
@@ -200,10 +265,10 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       const timestamp = new Date().toISOString();
       const referenceId = `reconcile_all_${timestamp}`;
       
-      // FETCH ALL SKUs and stock movements to recalculate from scratch
+      // FETCH ALL SKUs and stock movements (only active/non-archived)
       const [allSKUs, allMovements, allCurrentStock] = await Promise.all([
         base44.entities.SKU.filter({ tenant_id: tenantId }),
-        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
+        base44.entities.StockMovement.filter({ tenant_id: tenantId, is_archived: false }),
         base44.entities.CurrentStock.filter({ tenant_id: tenantId })
       ]);
 
@@ -267,7 +332,8 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               reference_type: 'manual',
               reference_id: referenceId,
               movement_date: new Date().toISOString().split('T')[0],
-              notes: `Global stock reconciliation: ${action.current_stock} → ${action.desired_stock} (history: ${action.calculated_stock}, clamped to 0 if negative)`
+              notes: `Global stock reconciliation: ${action.current_stock} → ${action.desired_stock} (history: ${action.calculated_stock}, clamped to 0 if negative)`,
+              is_archived: false
             });
           }
 
@@ -424,6 +490,15 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                       Found {results.issues.length} issue(s)
                     </p>
                     <div className="flex gap-2">
+                      <Button 
+                        size="sm"
+                        onClick={() => setShowResetConfirm(true)}
+                        disabled={reconciling}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
+                        {reconciling ? 'Resetting...' : 'Full Reset to Zero (Fix All)'}
+                      </Button>
                       {results.issues.some(i => i.type === 'stock_mismatch') && (
                         <Button 
                           size="sm"
@@ -432,7 +507,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
-                          {reconciling ? 'Reconciling...' : 'Reconcile All Stock'}
+                          {reconciling ? 'Reconciling...' : 'Reconcile Stock (Keep Values)'}
                         </Button>
                       )}
                       <Button variant="outline" size="sm" onClick={exportResults}>
@@ -520,10 +595,10 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       <AlertDialog open={showReconcileDialog} onOpenChange={setShowReconcileDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reconcile All Stock?</AlertDialogTitle>
+            <AlertDialogTitle>Reconcile Stock (Keep Values)?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-4">
               <p>
-                This will automatically fix all stock mismatches by adjusting current stock to match movement history.
+                This will adjust current stock to match movement history without resetting to zero.
               </p>
               
               {reconcilePreview && (
@@ -544,7 +619,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               )}
 
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
-                <strong>Note:</strong> This action will create audit trail movement records for each adjustment. The operation processes in batches with retry logic to ensure reliability.
+                <strong>Note:</strong> This keeps existing stock values but adjusts them to match history.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -555,6 +630,62 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               className="bg-green-600 hover:bg-green-700"
             >
               Reconcile All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Full Reset Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Stock & Fix All Integrity Issues?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-900 mb-2">This will:</p>
+                      <ul className="text-xs text-red-800 space-y-1 list-disc list-inside">
+                        <li>Set ALL SKU stock to 0</li>
+                        <li>Archive all previous movement history</li>
+                        <li>Fix all integrity issues (mismatches, negative stock, missing movements)</li>
+                        <li>Integrity Checker will show 0 issues after reset</li>
+                        <li>This action is atomic but cannot be easily undone</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Recommended:</strong> Export your data or create a backup before proceeding. This is useful for starting fresh inventory counts or fixing corrupted data.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-slate-700">
+                    Type <strong className="text-red-600">RESET</strong> to confirm:
+                  </Label>
+                  <Input
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Type RESET"
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setResetConfirmText('')}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleFullReset}
+              disabled={resetConfirmText !== 'RESET'}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Reset All Stock to Zero
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

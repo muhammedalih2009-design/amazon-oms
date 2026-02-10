@@ -72,6 +72,7 @@ export default function SKUsPage() {
   const [showClearStockDialog, setShowClearStockDialog] = useState(false);
   const [showResetStockDialog, setShowResetStockDialog] = useState(false);
   const [resettingStock, setResettingStock] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
   const [selectedSKU, setSelectedSKU] = useState(null);
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
   const [showIntegrityChecker, setShowIntegrityChecker] = useState(false);
@@ -538,41 +539,20 @@ export default function SKUsPage() {
     setShowResetStockDialog(false);
 
     try {
-      const timestamp = new Date().toISOString();
-      const referenceId = `reset_all_stock_${timestamp}`;
-      let resetCount = 0;
+      // Call atomic backend function
+      const response = await base44.functions.resetStockToZero({ tenantId });
 
-      // Process all SKUs with stock > 0
-      for (const stock of currentStock) {
-        if (stock.quantity_available > 0) {
-          // Create negative movement to bring stock to 0
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: stock.sku_id,
-            sku_code: stock.sku_code,
-            movement_type: 'manual',
-            quantity: -stock.quantity_available,
-            reference_type: 'manual',
-            reference_id: referenceId,
-            movement_date: new Date().toISOString().split('T')[0],
-            notes: `Stock reset to zero - Manual operation`
-          });
+      if (response.ok) {
+        toast({
+          title: '✓ Stock reset complete',
+          description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs. Integrity fixed.`
+        });
 
-          // Set stock to 0
-          await base44.entities.CurrentStock.update(stock.id, {
-            quantity_available: 0
-          });
-
-          resetCount++;
-        }
+        // Auto refresh
+        loadData();
+      } else {
+        throw new Error(response.details || 'Reset failed');
       }
-
-      toast({
-        title: '✓ All stock reset to zero',
-        description: `Reset ${resetCount} SKUs. Stock Integrity Checker will show 0 issues.`
-      });
-
-      loadData();
     } catch (error) {
       toast({
         title: 'Reset failed',
@@ -1387,36 +1367,54 @@ export default function SKUsPage() {
       </AlertDialog>
 
       {/* Reset All Stock Confirmation */}
-      <AlertDialog open={showResetStockDialog} onOpenChange={setShowResetStockDialog}>
+      <AlertDialog open={showResetStockDialog} onOpenChange={(open) => {
+        setShowResetStockDialog(open);
+        if (!open) setResetConfirmText('');
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset All Stock to Zero?</AlertDialogTitle>
+            <AlertDialogTitle>Reset Stock & Fix All Integrity Issues?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-4">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-semibold text-red-900 mb-2">Warning: This will reset ALL inventory to zero</p>
+                      <p className="text-sm font-semibold text-red-900 mb-2">This atomic operation will:</p>
                       <ul className="text-xs text-red-800 space-y-1 list-disc list-inside">
-                        <li>All {currentStock.filter(s => s.quantity_available > 0).length} SKUs with stock will be set to 0</li>
-                        <li>Proper stock movement records will be created for audit trail</li>
+                        <li>Set ALL {currentStock.length} SKUs stock to 0</li>
+                        <li>Archive all previous movement history</li>
+                        <li>Fix ALL integrity issues (mismatches, negative stock, missing movements)</li>
                         <li>Stock Integrity Checker will show 0 issues after reset</li>
-                        <li>This action cannot be undone easily</li>
+                        <li>Create baseline audit trail for future operations</li>
                       </ul>
                     </div>
                   </div>
                 </div>
-                <p className="text-sm text-slate-600">
-                  This is useful for starting fresh or performing physical inventory counts.
-                </p>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Recommended:</strong> Consider manual backup first. This is useful for starting fresh inventory counts or fixing corrupted data.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-slate-700">
+                    Type <strong className="text-red-600">RESET</strong> to confirm:
+                  </Label>
+                  <Input
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Type RESET"
+                    className="font-mono"
+                  />
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setResetConfirmText('')}>Cancel</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleResetAllStock}
+              disabled={resetConfirmText !== 'RESET'}
               className="bg-red-600 hover:bg-red-700"
             >
               Reset All Stock to Zero
