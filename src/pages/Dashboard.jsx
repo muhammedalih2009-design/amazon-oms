@@ -55,27 +55,32 @@ export default function Dashboard() {
   }, [tenantId]);
 
   const loadData = async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    const [ordersData, linesData, stockData, skusData, purchasesData] = await Promise.all([
-      base44.entities.Order.filter({ tenant_id: tenantId }),
-      base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-      base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-      base44.entities.SKU.filter({ tenant_id: tenantId }),
-      base44.entities.Purchase.filter({ tenant_id: tenantId })
-    ]);
-    setOrders(ordersData);
-    setOrderLines(linesData);
-    setCurrentStock(stockData);
-    setSkus(skusData);
-    setPurchases(purchasesData);
-    if (isRefresh) {
-      setRefreshing(false);
-    } else {
-      setLoading(false);
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      const [ordersData, linesData, stockData, skusData, purchasesData] = await Promise.all([
+        base44.entities.Order.filter({ tenant_id: tenantId }),
+        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
+        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
+        base44.entities.SKU.filter({ tenant_id: tenantId }),
+        base44.entities.Purchase.filter({ tenant_id: tenantId })
+      ]);
+      setOrders(ordersData);
+      setOrderLines(linesData);
+      setCurrentStock(stockData);
+      setSkus(skusData);
+      setPurchases(purchasesData);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      if (isRefresh) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
