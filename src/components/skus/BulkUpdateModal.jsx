@@ -9,7 +9,15 @@ import { Progress } from '@/components/ui/progress';
 export default function BulkUpdateModal({ open, onClose, onComplete, tenantId }) {
   const { toast } = useToast();
   const [file, setFile] = useState(null);
-  const [step, setStep] = useState('upload'); // 'upload', 'preview', 'processing', 'complete'
+  const [step, setStep] = useState('upload'); // 'upload', 'fields', 'preview', 'processing', 'complete'
+  const [detectedColumns, setDetectedColumns] = useState([]);
+  const [selectedFields, setSelectedFields] = useState({
+    supplier: false,
+    cost: false,
+    stock: false,
+    product_name: false,
+    image_url: false
+  });
   const [previewData, setPreviewData] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, successCount: 0, failCount: 0 });
@@ -67,7 +75,7 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
 
   const parseCSV = (text) => {
     const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length < 2) return [];
+    if (lines.length < 2) return { rows: [], headers: [], rawHeaders: [] };
 
     const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
     const headers = rawHeaders.map(normalizeHeader);
@@ -88,15 +96,48 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
       }
     }
     
-    return rows;
+    return { rows, headers, rawHeaders };
   };
 
-  const handlePreview = async () => {
+  const handleDetectColumns = async () => {
     if (!file) return;
 
     try {
       const text = await file.text();
-      const rows = parseCSV(text);
+      const { rows, headers, rawHeaders } = parseCSV(text);
+
+      if (rows.length === 0) {
+        throw new Error('CSV file is empty or has no valid rows with sku_code');
+      }
+
+      // Detect which columns are present (excluding sku_code)
+      const detected = headers.filter(h => h !== 'sku_code');
+      setDetectedColumns(detected);
+
+      // Auto-select fields based on what's in CSV
+      const autoSelect = {
+        supplier: detected.includes('supplier'),
+        cost: detected.includes('cost'),
+        stock: detected.includes('stock'),
+        product_name: detected.includes('product_name'),
+        image_url: detected.includes('image_url')
+      };
+      setSelectedFields(autoSelect);
+
+      setStep('fields');
+    } catch (error) {
+      toast({
+        title: 'Failed to read file',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handlePreview = async () => {
+    try {
+      const text = await file.text();
+      const { rows } = parseCSV(text);
 
       if (rows.length === 0) {
         throw new Error('CSV file is empty or has no valid rows with sku_code');
@@ -141,8 +182,8 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
         const changes = {};
         let hasChanges = false;
 
-        // Check supplier
-        if (row.supplier) {
+        // Check supplier - ONLY if selected
+        if (selectedFields.supplier && row.supplier) {
           const supplierName = row.supplier.trim();
           let supplier = supplierMap.get(supplierName.toLowerCase());
           
@@ -156,8 +197,8 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
           }
         }
 
-        // Check cost
-        if (row.cost !== undefined) {
+        // Check cost - ONLY if selected
+        if (selectedFields.cost && row.cost !== undefined) {
           const newCost = parseFloat(row.cost);
           if (isNaN(newCost) || newCost <= 0) {
             preview.push({
@@ -174,8 +215,8 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
           }
         }
 
-        // Check stock
-        if (row.stock !== undefined) {
+        // Check stock - ONLY if selected
+        if (selectedFields.stock && row.stock !== undefined) {
           const newStock = parseInt(row.stock);
           if (isNaN(newStock) || newStock < 0) {
             preview.push({
@@ -190,14 +231,14 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
           hasChanges = true;
         }
 
-        // Check product_name
-        if (row.product_name && row.product_name !== existingSKU.product_name) {
+        // Check product_name - ONLY if selected
+        if (selectedFields.product_name && row.product_name && row.product_name !== existingSKU.product_name) {
           changes.product_name = { old: existingSKU.product_name, new: row.product_name };
           hasChanges = true;
         }
 
-        // Check image_url
-        if (row.image_url && row.image_url !== existingSKU.image_url) {
+        // Check image_url - ONLY if selected
+        if (selectedFields.image_url && row.image_url && row.image_url !== existingSKU.image_url) {
           changes.image_url = { old: existingSKU.image_url || '-', new: row.image_url };
           hasChanges = true;
         }
@@ -271,7 +312,7 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
           try {
             const updateData = {};
             
-            // Handle supplier
+            // Handle supplier - ONLY if it's in changes (meaning it was selected)
             if (row.changes.supplier) {
               const newSupplierName = row.changes.supplier.new.replace(' (new)', '');
               let supplier = supplierMap.get(newSupplierName.toLowerCase());
@@ -288,7 +329,7 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
               updateData.supplier_id = supplier.id;
             }
 
-            // Handle other fields
+            // Handle other fields - ONLY if they're in changes
             if (row.changes.cost) {
               updateData.cost_price = row.changes.cost.new;
             }
@@ -299,8 +340,10 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
               updateData.image_url = row.changes.image_url.new;
             }
 
-            // Update SKU
-            await base44.entities.SKU.update(row.existingSKU.id, updateData);
+            // Only update if there are actual changes
+            if (Object.keys(updateData).length > 0) {
+              await base44.entities.SKU.update(row.existingSKU.id, updateData);
+            }
 
             // Handle stock update if provided
             if (row.changes.stock) {
@@ -377,6 +420,14 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
   const handleClose = () => {
     setFile(null);
     setStep('upload');
+    setDetectedColumns([]);
+    setSelectedFields({
+      supplier: false,
+      cost: false,
+      stock: false,
+      product_name: false,
+      image_url: false
+    });
     setPreviewData(null);
     setResult(null);
     setProgress({ current: 0, total: 0, successCount: 0, failCount: 0 });
@@ -436,7 +487,125 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
 
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handlePreview} disabled={!file}>
+              <Button onClick={handleDetectColumns} disabled={!file}>
+                Next: Select Fields
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'fields' && (
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-semibold text-blue-900 mb-2">Detected Columns:</h4>
+              <div className="flex flex-wrap gap-2">
+                {detectedColumns.map(col => (
+                  <span key={col} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-lg p-6">
+              <h4 className="font-semibold text-slate-900 mb-4">Select Fields to Update:</h4>
+              <p className="text-sm text-slate-600 mb-4">
+                Only checked fields will be updated. Unchecked fields will remain unchanged even if present in the CSV.
+              </p>
+              
+              <div className="space-y-3">
+                {detectedColumns.includes('supplier') && (
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFields.supplier}
+                      onChange={(e) => setSelectedFields(prev => ({ ...prev, supplier: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900">Supplier</div>
+                      <div className="text-xs text-slate-500">Update supplier/vendor assignments</div>
+                    </div>
+                  </label>
+                )}
+
+                {detectedColumns.includes('cost') && (
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFields.cost}
+                      onChange={(e) => setSelectedFields(prev => ({ ...prev, cost: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900">Cost</div>
+                      <div className="text-xs text-slate-500">Update unit cost prices</div>
+                    </div>
+                  </label>
+                )}
+
+                {detectedColumns.includes('stock') && (
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFields.stock}
+                      onChange={(e) => setSelectedFields(prev => ({ ...prev, stock: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900">Stock</div>
+                      <div className="text-xs text-slate-500">Update inventory quantities</div>
+                    </div>
+                  </label>
+                )}
+
+                {detectedColumns.includes('product_name') && (
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFields.product_name}
+                      onChange={(e) => setSelectedFields(prev => ({ ...prev, product_name: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900">Product Name</div>
+                      <div className="text-xs text-slate-500">Update product names</div>
+                    </div>
+                  </label>
+                )}
+
+                {detectedColumns.includes('image_url') && (
+                  <label className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFields.image_url}
+                      onChange={(e) => setSelectedFields(prev => ({ ...prev, image_url: e.target.checked }))}
+                      className="w-4 h-4 text-indigo-600"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-900">Image URL</div>
+                      <div className="text-xs text-slate-500">Update product images</div>
+                    </div>
+                  </label>
+                )}
+              </div>
+
+              {Object.values(selectedFields).every(v => !v) && (
+                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-800">
+                    Please select at least one field to update
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setStep('upload')}>Back</Button>
+              <Button 
+                onClick={handlePreview}
+                disabled={Object.values(selectedFields).every(v => !v)}
+              >
                 Preview Changes
               </Button>
             </div>
@@ -513,7 +682,7 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setStep('upload')}>Back</Button>
+              <Button variant="outline" onClick={() => setStep('fields')}>Back</Button>
               <Button 
                 onClick={handleApplyUpdates} 
                 disabled={previewData.willUpdateCount === 0}
