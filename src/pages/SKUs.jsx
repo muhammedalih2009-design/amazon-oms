@@ -676,6 +676,57 @@ export default function SKUsPage() {
     loadData();
   };
 
+  const handleResetAllStock = async () => {
+    setResettingStock(true);
+    setShowResetStockDialog(false);
+
+    try {
+      const timestamp = new Date().toISOString();
+      const referenceId = `reset_all_stock_${timestamp}`;
+      let resetCount = 0;
+
+      // Process all SKUs with stock > 0
+      for (const stock of currentStock) {
+        if (stock.quantity_available > 0) {
+          // Create negative movement to bring stock to 0
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: stock.sku_id,
+            sku_code: stock.sku_code,
+            movement_type: 'manual',
+            quantity: -stock.quantity_available,
+            reference_type: 'manual',
+            reference_id: referenceId,
+            movement_date: new Date().toISOString().split('T')[0],
+            notes: `Stock reset to zero - Manual operation`
+          });
+
+          // Set stock to 0
+          await base44.entities.CurrentStock.update(stock.id, {
+            quantity_available: 0
+          });
+
+          resetCount++;
+        }
+      }
+
+      toast({
+        title: '✓ All stock reset to zero',
+        description: `Reset ${resetCount} SKUs. Stock Integrity Checker will show 0 issues.`
+      });
+
+      loadData();
+    } catch (error) {
+      toast({
+        title: 'Reset failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+
+    setResettingStock(false);
+  };
+
   const downloadTemplate = () => {
     const template = 'sku_code,product_name,cost,supplier,stock,image_url\nWGT-001,Wireless Earbuds Pro,15.50,Wholesale Mart,100,https://example.com/image.jpg';
     const blob = new Blob([template], { type: 'text/csv' });
