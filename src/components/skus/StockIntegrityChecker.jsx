@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { AlertTriangle, CheckCircle, Search, Download } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Search, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -9,10 +9,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [checking, setChecking] = useState(false);
   const [results, setResults] = useState(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [showReconcileDialog, setShowReconcileDialog] = useState(false);
+  const [reconcilePreview, setReconcilePreview] = useState(null);
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
@@ -143,6 +156,169 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     URL.revokeObjectURL(url);
   };
 
+  const prepareReconcilePreview = () => {
+    if (!results || results.issues.length === 0) return;
+
+    // Only get stock_mismatch issues
+    const stockMismatches = results.issues.filter(i => i.type === 'stock_mismatch');
+    
+    if (stockMismatches.length === 0) {
+      toast({
+        title: 'No stock mismatches to reconcile',
+        description: 'Only stock mismatches can be auto-reconciled',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    let totalPositiveDelta = 0;
+    let totalNegativeDelta = 0;
+
+    stockMismatches.forEach(issue => {
+      if (issue.difference > 0) {
+        totalPositiveDelta += issue.difference;
+      } else {
+        totalNegativeDelta += Math.abs(issue.difference);
+      }
+    });
+
+    setReconcilePreview({
+      affectedSkus: stockMismatches.length,
+      totalPositiveDelta,
+      totalNegativeDelta,
+      issues: stockMismatches
+    });
+
+    setShowReconcileDialog(true);
+  };
+
+  const reconcileAllStock = async () => {
+    if (!reconcilePreview) return;
+
+    setReconciling(true);
+    setShowReconcileDialog(false);
+
+    try {
+      const timestamp = new Date().toISOString();
+      const referenceId = `reconcile_all_${timestamp}`;
+      
+      let successCount = 0;
+      let failCount = 0;
+      const errors = [];
+
+      // Process in batches with retry logic
+      const BATCH_SIZE = 10;
+      const BATCH_DELAY = 500;
+      const MAX_RETRIES = 3;
+
+      const reconcileSKU = async (issue, retryCount = 0) => {
+        try {
+          const { sku_id, calculated_stock, current_stock, difference } = issue;
+
+          // Create movement record for audit trail
+          await base44.entities.StockMovement.create({
+            tenant_id: tenantId,
+            sku_id: sku_id,
+            sku_code: issue.sku_code,
+            movement_type: 'manual',
+            quantity: difference,
+            reference_type: 'manual',
+            reference_id: referenceId,
+            movement_date: new Date().toISOString().split('T')[0],
+            notes: `Stock Integrity Checker: bulk reconcile. Adjusted from ${current_stock} to ${calculated_stock}`
+          });
+
+          // Update CurrentStock to match history
+          const stockRecord = await base44.entities.CurrentStock.filter({
+            tenant_id: tenantId,
+            sku_id: sku_id
+          });
+
+          if (stockRecord && stockRecord.length > 0) {
+            await base44.entities.CurrentStock.update(stockRecord[0].id, {
+              quantity_available: calculated_stock
+            });
+          }
+
+          return { success: true };
+        } catch (error) {
+          const isRateLimit = error.message?.toLowerCase().includes('rate limit') || 
+                             error.message?.toLowerCase().includes('too many requests');
+          
+          if (isRateLimit && retryCount < MAX_RETRIES) {
+            const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            return reconcileSKU(issue, retryCount + 1);
+          }
+          
+          return { success: false, error: error.message };
+        }
+      };
+
+      // Process in batches
+      const issues = reconcilePreview.issues;
+      for (let i = 0; i < issues.length; i += BATCH_SIZE) {
+        const batch = issues.slice(i, i + BATCH_SIZE);
+        
+        for (const issue of batch) {
+          const result = await reconcileSKU(issue);
+          
+          if (result.success) {
+            successCount++;
+          } else {
+            failCount++;
+            errors.push({
+              sku_code: issue.sku_code,
+              error: result.error
+            });
+          }
+        }
+
+        // Delay between batches to avoid rate limits
+        if (i + BATCH_SIZE < issues.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        }
+      }
+
+      if (failCount === 0) {
+        toast({
+          title: '✓ Reconciliation Complete',
+          description: `Successfully reconciled ${successCount} SKUs`
+        });
+
+        // Refresh the integrity check
+        setTimeout(() => runIntegrityCheck(), 1000);
+      } else if (successCount > 0) {
+        toast({
+          title: 'Partial Success',
+          description: `Reconciled ${successCount} SKUs, ${failCount} failed. Check console for details.`,
+          variant: 'destructive'
+        });
+        console.error('Reconciliation errors:', errors);
+        
+        // Still refresh to show updated state
+        setTimeout(() => runIntegrityCheck(), 1000);
+      } else {
+        toast({
+          title: 'Reconciliation Failed',
+          description: `All ${failCount} SKUs failed to reconcile. Please try again or contact support.`,
+          variant: 'destructive'
+        });
+        console.error('Reconciliation errors:', errors);
+      }
+    } catch (error) {
+      toast({
+        title: 'Reconciliation Failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+      console.error('Reconciliation error:', error);
+    } finally {
+      setReconciling(false);
+      setReconcilePreview(null);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-4xl max-h-[80vh] overflow-y-auto">
@@ -198,14 +374,27 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               {/* Issues List */}
               {results.issues.length > 0 ? (
                 <>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-slate-700">
                       Found {results.issues.length} issue(s)
                     </p>
-                    <Button variant="outline" size="sm" onClick={exportResults}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Export CSV
-                    </Button>
+                    <div className="flex gap-2">
+                      {results.issues.some(i => i.type === 'stock_mismatch') && (
+                        <Button 
+                          size="sm"
+                          onClick={prepareReconcilePreview}
+                          disabled={reconciling}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
+                          {reconciling ? 'Reconciling...' : 'Reconcile All Stock'}
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={exportResults}>
+                        <Download className="w-4 h-4 mr-2" />
+                        Export CSV
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -281,6 +470,50 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
           )}
         </div>
       </DialogContent>
+
+      {/* Reconcile Confirmation Dialog */}
+      <AlertDialog open={showReconcileDialog} onOpenChange={setShowReconcileDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reconcile All Stock?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4">
+              <p>
+                This will automatically fix all stock mismatches by adjusting current stock to match movement history.
+              </p>
+              
+              {reconcilePreview && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-slate-700">SKUs to reconcile:</span>
+                    <span className="text-sm font-bold text-slate-900">{reconcilePreview.affectedSkus}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-slate-700">Total stock to add:</span>
+                    <span className="text-sm font-bold text-green-700">+{reconcilePreview.totalPositiveDelta}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium text-slate-700">Total stock to remove:</span>
+                    <span className="text-sm font-bold text-red-700">-{reconcilePreview.totalNegativeDelta}</span>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+                <strong>Note:</strong> This action will create audit trail movement records for each adjustment. The operation processes in batches with retry logic to ensure reliability.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={reconcileAllStock}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Reconcile All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
