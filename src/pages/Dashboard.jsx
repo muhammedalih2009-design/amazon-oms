@@ -108,13 +108,13 @@ export default function Dashboard() {
     }, 0);
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
 
-    // Calculate purchased stock costs
+    // Calculate purchased stock costs - FIXED: filter by supplier_name exact match
     const purchasedCostSuppliers = filteredPurchases
-      .filter(p => p.supplier_id)
+      .filter(p => p.supplier_name && p.supplier_name !== 'Warehouse')
       .reduce((sum, p) => sum + (p.total_cost || 0), 0);
     
     const purchasedCostWarehouse = filteredPurchases
-      .filter(p => !p.supplier_id)
+      .filter(p => p.supplier_name === 'Warehouse')
       .reduce((sum, p) => sum + (p.total_cost || 0), 0);
 
     return {

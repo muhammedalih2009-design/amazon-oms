@@ -476,18 +476,31 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
             }
           }
 
-          // Bulk update existing SKUs (parallel with concurrency limit)
+          // Bulk update existing SKUs with Smart Patch (only update non-empty fields)
           if (toUpdate.length > 0) {
             const updatePromises = toUpdate.map(async (skuData) => {
               try {
-                await base44.entities.SKU.update(skuData._id, {
-                  tenant_id: skuData.tenant_id,
-                  sku_code: skuData.sku_code,
-                  product_name: skuData.product_name,
-                  cost_price: skuData.cost_price,
-                  supplier_id: skuData.supplier_id,
-                  image_url: skuData.image_url
-                });
+                // Smart Patch: only update fields that are non-empty in CSV
+                const updatePayload = { tenant_id: skuData.tenant_id };
+                
+                // Always update sku_code
+                updatePayload.sku_code = skuData.sku_code;
+                
+                // Only update other fields if they're non-empty in the CSV
+                if (skuData.product_name && skuData.product_name.trim()) {
+                  updatePayload.product_name = skuData.product_name;
+                }
+                if (skuData.cost_price > 0) {
+                  updatePayload.cost_price = skuData.cost_price;
+                }
+                if (skuData.supplier_id) {
+                  updatePayload.supplier_id = skuData.supplier_id;
+                }
+                if (skuData.image_url && skuData.image_url.trim()) {
+                  updatePayload.image_url = skuData.image_url;
+                }
+                
+                await base44.entities.SKU.update(skuData._id, updatePayload);
 
                 // Update stock
                 const stockQty = skuData._stock;

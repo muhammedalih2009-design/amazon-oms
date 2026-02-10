@@ -32,6 +32,7 @@ import {
 import { useToast } from '@/components/ui/use-toast';
 import DataTable from '@/components/shared/DataTable';
 import WorkspacePackageManager from '@/components/stores/WorkspacePackageManager';
+import BackupManager from '@/components/stores/BackupManager';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 
 export default function Stores() {
@@ -233,6 +234,8 @@ export default function Stores() {
         tenantName={tenant?.name || 'Workspace'}
         onComplete={() => loadData(true)}
       />
+
+      <BackupManager tenantId={tenantId} />
 
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
