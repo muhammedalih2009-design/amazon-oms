@@ -26,31 +26,38 @@ Deno.serve(async (req) => {
     let skusReset = 0;
     let movementsDeleted = 0;
 
-    const BATCH_SIZE = 5;
-    const DELAY_MS = 200;
-
-    // Reset all CurrentStock to 0
-    for (let i = 0; i < allCurrentStock.length; i += BATCH_SIZE) {
-      const batch = allCurrentStock.slice(i, i + BATCH_SIZE);
-      await Promise.all(
-        batch.map(stock => db.entities.CurrentStock.update(stock.id, { quantity_available: 0 }))
-      );
-      skusReset += batch.length;
-      if (i + BATCH_SIZE < allCurrentStock.length) {
-        await delay(DELAY_MS);
+    // Sequential processing with retry logic
+    const DELAY_MS = 300;
+    const MAX_RETRIES = 3;
+    
+    async function processWithRetry(operation, retries = 0) {
+      try {
+        await operation();
+      } catch (error) {
+        if (error.status === 429 && retries < MAX_RETRIES) {
+          await delay(1000 * (retries + 1)); // Exponential backoff
+          return processWithRetry(operation, retries + 1);
+        }
+        throw error;
       }
     }
 
-    // Delete all movements
-    for (let i = 0; i < allMovements.length; i += BATCH_SIZE) {
-      const batch = allMovements.slice(i, i + BATCH_SIZE);
-      await Promise.all(
-        batch.map(movement => db.entities.StockMovement.delete(movement.id))
-      );
-      movementsDeleted += batch.length;
-      if (i + BATCH_SIZE < allMovements.length) {
-        await delay(DELAY_MS);
-      }
+    // Reset all CurrentStock to 0 - one at a time
+    for (const stock of allCurrentStock) {
+      await processWithRetry(async () => {
+        await db.entities.CurrentStock.update(stock.id, { quantity_available: 0 });
+      });
+      skusReset++;
+      await delay(DELAY_MS);
+    }
+
+    // Delete all movements - one at a time
+    for (const movement of allMovements) {
+      await processWithRetry(async () => {
+        await db.entities.StockMovement.delete(movement.id);
+      });
+      movementsDeleted++;
+      await delay(DELAY_MS);
     }
 
     // Update workspace timestamp
