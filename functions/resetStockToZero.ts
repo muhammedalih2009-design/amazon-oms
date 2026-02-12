@@ -1,7 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -16,48 +14,28 @@ Deno.serve(async (req) => {
 
     const db = base44.asServiceRole;
 
-    // Fetch all data for this workspace
+    // Fetch counts before reset
     const [allCurrentStock, allMovements, workspace] = await Promise.all([
       db.entities.CurrentStock.filter({ tenant_id: workspace_id }),
       db.entities.StockMovement.filter({ tenant_id: workspace_id }),
       db.entities.Tenant.filter({ id: workspace_id })
     ]);
 
-    let skusReset = 0;
-    let movementsDeleted = 0;
+    const skusReset = allCurrentStock.length;
+    const movementsDeleted = allMovements.length;
 
-    // Sequential processing with retry logic
-    const DELAY_MS = 300;
-    const MAX_RETRIES = 3;
-    
-    async function processWithRetry(operation, retries = 0) {
-      try {
-        await operation();
-      } catch (error) {
-        if (error.status === 429 && retries < MAX_RETRIES) {
-          await delay(1000 * (retries + 1)); // Exponential backoff
-          return processWithRetry(operation, retries + 1);
-        }
-        throw error;
+    // Bulk reset all CurrentStock to 0
+    if (skusReset > 0) {
+      for (const stock of allCurrentStock) {
+        await db.entities.CurrentStock.update(stock.id, { quantity_available: 0 });
       }
     }
 
-    // Reset all CurrentStock to 0 - one at a time
-    for (const stock of allCurrentStock) {
-      await processWithRetry(async () => {
-        await db.entities.CurrentStock.update(stock.id, { quantity_available: 0 });
-      });
-      skusReset++;
-      await delay(DELAY_MS);
-    }
-
-    // Delete all movements - one at a time
-    for (const movement of allMovements) {
-      await processWithRetry(async () => {
+    // Bulk delete all movements
+    if (movementsDeleted > 0) {
+      for (const movement of allMovements) {
         await db.entities.StockMovement.delete(movement.id);
-      });
-      movementsDeleted++;
-      await delay(DELAY_MS);
+      }
     }
 
     // Update workspace timestamp
