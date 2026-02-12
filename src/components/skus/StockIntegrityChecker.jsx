@@ -31,7 +31,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [fixingFlagged, setFixingFlagged] = useState(false);
-  const [fixProgress, setFixProgress] = useState({ current: 0, total: 0 });
+  const [fixProgress, setFixProgress] = useState({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
@@ -217,7 +217,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     setShowReconcileDialog(true);
   };
 
-  const handleFixFlaggedSkus = async () => {
+  const handleFixFlaggedSkus = async (resumeFromIndex = 0) => {
     if (!results || results.issues.length === 0) return;
 
     setFixingFlagged(true);
@@ -226,35 +226,108 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       // Extract unique SKU codes from issues
       const skuCodes = [...new Set(results.issues.map(issue => issue.sku_code).filter(Boolean))];
       
-      setFixProgress({ current: 0, total: skuCodes.length });
+      console.log(`[Frontend] Starting fix for ${skuCodes.length} SKUs, resume from ${resumeFromIndex}`);
+      
+      setFixProgress({ current: resumeFromIndex, total: skuCodes.length, canResume: false, resumeIndex: resumeFromIndex });
 
       toast({
         title: 'Fixing flagged SKUs...',
-        description: `Processing ${skuCodes.length} SKUs in batches`,
+        description: `Processing ${skuCodes.length} SKUs in batches of 25`,
       });
 
-      // Process in batches of 50
-      const BATCH_SIZE = 50;
-      let totalProcessed = 0;
+      const BATCH_SIZE = 25;
+      const REQUEST_TIMEOUT = 25000; // 25 second timeout
+      const MAX_RETRIES = 3;
+      
+      let currentIndex = resumeFromIndex;
+      let totalProcessed = resumeFromIndex;
       let totalFailed = 0;
+      let allFailedSkus = [];
 
-      for (let i = 0; i < skuCodes.length; i += BATCH_SIZE) {
-        const batch = skuCodes.slice(i, i + BATCH_SIZE);
+      while (currentIndex < skuCodes.length) {
+        let retryCount = 0;
+        let batchSuccess = false;
         
-        const { data } = await base44.functions.invoke('fixFlaggedSkusToZero', {
-          workspace_id: tenantId,
-          sku_codes: batch,
-          batch_size: BATCH_SIZE
-        });
+        while (retryCount < MAX_RETRIES && !batchSuccess) {
+          try {
+            console.log(`[Frontend] Batch ${Math.floor(currentIndex/BATCH_SIZE) + 1}: Processing from index ${currentIndex} (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            const batchStartTime = Date.now();
+            
+            // Create timeout promise
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Request timeout (25s)')), REQUEST_TIMEOUT)
+            );
+            
+            // Make the request with timeout
+            const requestPromise = base44.functions.invoke('fixFlaggedSkusToZero', {
+              workspace_id: tenantId,
+              sku_codes: skuCodes,
+              start_index: currentIndex,
+              batch_size: BATCH_SIZE
+            });
 
-        if (data.ok) {
-          totalProcessed += data.processed;
-          totalFailed += data.failed || 0;
-          setFixProgress({ current: totalProcessed + totalFailed, total: skuCodes.length });
-        } else {
-          throw new Error(data.details || data.error || 'Batch failed');
+            const { data } = await Promise.race([requestPromise, timeoutPromise]);
+            
+            const batchDuration = Date.now() - batchStartTime;
+            console.log(`[Frontend] Batch completed in ${batchDuration}ms:`, data);
+
+            if (data.ok) {
+              totalProcessed += data.processedCount || 0;
+              totalFailed += data.failedCount || 0;
+              
+              if (data.failedSkuCodes) {
+                allFailedSkus.push(...data.failedSkuCodes);
+              }
+              
+              currentIndex = data.nextIndex;
+              
+              setFixProgress({ 
+                current: totalProcessed + totalFailed, 
+                total: skuCodes.length,
+                canResume: false,
+                resumeIndex: currentIndex
+              });
+              
+              batchSuccess = true;
+              
+              if (data.done) {
+                console.log('[Frontend] All batches completed');
+                break;
+              }
+            } else {
+              throw new Error(data.details || data.error || 'Batch failed');
+            }
+            
+          } catch (error) {
+            retryCount++;
+            const isTimeout = error.message?.includes('timeout');
+            
+            console.error(`[Frontend] Batch attempt ${retryCount} failed:`, error.message);
+            
+            if (retryCount < MAX_RETRIES) {
+              const backoffDelay = retryCount * 500; // 0.5s, 1s, 1.5s
+              console.log(`[Frontend] Retrying in ${backoffDelay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            } else {
+              // Max retries reached
+              setFixProgress({ 
+                current: totalProcessed + totalFailed, 
+                total: skuCodes.length,
+                canResume: true,
+                resumeIndex: currentIndex
+              });
+              
+              throw new Error(
+                `Failed after ${MAX_RETRIES} retries. ${isTimeout ? 'Request timed out.' : error.message}\n\nClick "Resume Fix" to continue from where it stopped.`
+              );
+            }
+          }
         }
       }
+
+      // All done
+      setFixProgress({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
 
       if (totalFailed === 0) {
         toast({
@@ -264,11 +337,12 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         });
       } else {
         toast({
-          title: 'Partially completed',
-          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed`,
+          title: 'Completed with some failures',
+          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed. Check console for details.`,
           variant: 'destructive',
-          duration: 6000
+          duration: 8000
         });
+        console.error('Failed SKUs:', allFailedSkus);
       }
 
       // Auto re-run integrity check
@@ -277,19 +351,18 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       }, 1000);
 
     } catch (error) {
-      const errorMsg = error.response?.data?.details || error.message || 'Unknown error';
+      const errorMsg = error.message || 'Unknown error';
       
       toast({
         title: 'Fix failed',
         description: errorMsg,
         variant: 'destructive',
-        duration: 10000
+        duration: 15000
       });
       
       console.error('Fix flagged SKUs error:', error);
     } finally {
       setFixingFlagged(false);
-      setFixProgress({ current: 0, total: 0 });
     }
   };
 
@@ -583,15 +656,27 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                       Found {results.issues.length} issue(s)
                     </p>
                     <div className="flex gap-2 flex-wrap">
-                      <Button 
-                        size="sm"
-                        onClick={handleFixFlaggedSkus}
-                        disabled={fixingFlagged || reconciling}
-                        className="bg-orange-600 hover:bg-orange-700"
-                      >
-                        <RefreshCw className={`w-4 h-4 mr-2 ${fixingFlagged ? 'animate-spin' : ''}`} />
-                        {fixingFlagged ? `Fixing ${fixProgress.current}/${fixProgress.total}...` : 'Fix Only Flagged SKUs → Set to Zero'}
-                      </Button>
+                      {fixProgress.canResume ? (
+                        <Button 
+                          size="sm"
+                          onClick={() => handleFixFlaggedSkus(fixProgress.resumeIndex)}
+                          disabled={fixingFlagged || reconciling}
+                          className="bg-blue-600 hover:bg-blue-700 animate-pulse"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Resume Fix from {fixProgress.resumeIndex}/{fixProgress.total}
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm"
+                          onClick={() => handleFixFlaggedSkus(0)}
+                          disabled={fixingFlagged || reconciling}
+                          className="bg-orange-600 hover:bg-orange-700"
+                        >
+                          <RefreshCw className={`w-4 h-4 mr-2 ${fixingFlagged ? 'animate-spin' : ''}`} />
+                          {fixingFlagged ? `Fixing ${fixProgress.current}/${fixProgress.total}...` : 'Fix Only Flagged SKUs → Set to Zero'}
+                        </Button>
+                      )}
                       <Button 
                         size="sm"
                         onClick={() => setShowResetConfirm(true)}

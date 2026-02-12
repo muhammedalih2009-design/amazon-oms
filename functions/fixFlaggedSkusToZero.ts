@@ -7,7 +7,9 @@ Deno.serve(async (req) => {
   
   try {
     const base44 = createClientFromRequest(req);
-    const { workspace_id, sku_codes, batch_size = 50 } = await req.json();
+    const { workspace_id, sku_codes, start_index = 0, batch_size = 25 } = await req.json();
+    
+    console.log(`[fixFlaggedSkus] START - Workspace: ${workspace_id}, Start: ${start_index}, BatchSize: ${batch_size}, Total SKUs: ${sku_codes?.length || 0}`);
     
     if (!workspace_id) {
       return Response.json({ 
@@ -19,7 +21,7 @@ Deno.serve(async (req) => {
     if (!sku_codes || !Array.isArray(sku_codes) || sku_codes.length === 0) {
       return Response.json({ 
         ok: false,
-        error: 'sku_codes array is required' 
+        error: 'sku_codes array is required and cannot be empty' 
       }, { status: 400 });
     }
 
@@ -33,15 +35,24 @@ Deno.serve(async (req) => {
 
     const db = base44.asServiceRole;
 
-    console.log(`Processing ${sku_codes.length} flagged SKUs for workspace: ${workspace_id}`);
+    // Get batch to process
+    const endIndex = Math.min(start_index + batch_size, sku_codes.length);
+    const batchSkuCodes = sku_codes.slice(start_index, endIndex);
+    
+    console.log(`[fixFlaggedSkus] Processing batch: ${start_index} to ${endIndex} (${batchSkuCodes.length} SKUs)`);
 
-    let processed = 0;
-    let failed = 0;
-    const errors = [];
+    let processedCount = 0;
+    let failedCount = 0;
+    const processedSkuCodes = [];
+    const failedSkuCodes = [];
 
-    // Process each SKU one by one with throttling
-    for (const skuCode of sku_codes) {
+    // Process each SKU in batch
+    for (const skuCode of batchSkuCodes) {
+      const skuStartTime = Date.now();
+      
       try {
+        console.log(`[fixFlaggedSkus] Processing SKU: ${skuCode}`);
+        
         // Find the SKU
         const skus = await db.entities.SKU.filter({ 
           tenant_id: workspace_id, 
@@ -49,12 +60,14 @@ Deno.serve(async (req) => {
         });
 
         if (skus.length === 0) {
-          console.warn(`SKU not found: ${skuCode}`);
-          failed++;
+          console.warn(`[fixFlaggedSkus] SKU not found: ${skuCode}`);
+          failedCount++;
+          failedSkuCodes.push({ sku_code: skuCode, reason: 'SKU not found' });
           continue;
         }
 
         const sku = skus[0];
+        console.log(`[fixFlaggedSkus] Found SKU ID: ${sku.id}`);
 
         // Get current stock record
         const stockRecords = await db.entities.CurrentStock.filter({ 
@@ -64,11 +77,12 @@ Deno.serve(async (req) => {
 
         // Reset stock to 0
         if (stockRecords.length > 0) {
+          console.log(`[fixFlaggedSkus] Updating stock to 0 for ${skuCode}`);
           await db.entities.CurrentStock.update(stockRecords[0].id, { 
             quantity_available: 0 
           });
         } else {
-          // Create stock record if missing
+          console.log(`[fixFlaggedSkus] Creating stock record at 0 for ${skuCode}`);
           await db.entities.CurrentStock.create({
             tenant_id: workspace_id,
             sku_id: sku.id,
@@ -77,47 +91,63 @@ Deno.serve(async (req) => {
           });
         }
 
-        // Delete all movements for this SKU to clear history
+        // Delete all movements for this SKU
         const movements = await db.entities.StockMovement.filter({ 
           tenant_id: workspace_id, 
           sku_id: sku.id 
         });
 
+        console.log(`[fixFlaggedSkus] Deleting ${movements.length} movements for ${skuCode}`);
+        
         for (const movement of movements) {
           await db.entities.StockMovement.delete(movement.id);
-          await sleep(20); // Small delay between deletions
+          await sleep(10); // Small delay between deletions
         }
 
-        processed++;
+        processedCount++;
+        processedSkuCodes.push(skuCode);
         
-        // Throttle to avoid rate limits
-        await sleep(50);
+        const skuDuration = Date.now() - skuStartTime;
+        console.log(`[fixFlaggedSkus] ✓ Completed ${skuCode} in ${skuDuration}ms`);
+        
+        // Throttle between SKUs
+        await sleep(30);
         
       } catch (error) {
-        console.error(`Failed to process SKU ${skuCode}:`, error.message);
-        failed++;
-        errors.push({ sku_code: skuCode, error: error.message });
+        const skuDuration = Date.now() - skuStartTime;
+        console.error(`[fixFlaggedSkus] ✗ Failed ${skuCode} after ${skuDuration}ms:`, error.message);
+        failedCount++;
+        failedSkuCodes.push({ sku_code: skuCode, reason: error.message });
       }
     }
 
+    const nextIndex = endIndex;
+    const done = nextIndex >= sku_codes.length;
     const tookMs = Date.now() - startTime;
-    console.log(`Batch complete: ${processed} processed, ${failed} failed in ${tookMs}ms`);
+
+    console.log(`[fixFlaggedSkus] BATCH COMPLETE - Processed: ${processedCount}, Failed: ${failedCount}, Next: ${nextIndex}/${sku_codes.length}, Done: ${done}, Duration: ${tookMs}ms`);
 
     return Response.json({
       ok: true,
-      processed,
-      failed,
-      errors: errors.length > 0 ? errors : undefined,
+      processedCount,
+      failedCount,
+      totalCount: sku_codes.length,
+      processedSkuCodes,
+      failedSkuCodes: failedCount > 0 ? failedSkuCodes : undefined,
+      nextIndex,
+      done,
       took_ms: tookMs
     });
 
   } catch (error) {
-    console.error('Fix flagged SKUs error:', error);
+    const tookMs = Date.now() - startTime;
+    console.error(`[fixFlaggedSkus] ERROR after ${tookMs}ms:`, error);
     
     return Response.json({ 
       ok: false,
       error: 'Failed to fix flagged SKUs',
-      details: error.message
+      details: error.message,
+      took_ms: tookMs
     }, { status: 500 });
   }
 });
