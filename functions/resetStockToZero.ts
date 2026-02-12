@@ -4,17 +4,21 @@
  * Runs in a single atomic operation - all or nothing
  */
 
-export default async function handler(request, context) {
-  const { workspace_id } = request.body;
-  
-  if (!workspace_id) {
-    return {
-      status: 400,
-      body: { error: 'workspace_id is required' }
-    };
-  }
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-  const db = context.base44.asServiceRole;
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const { workspace_id } = await req.json();
+    
+    if (!workspace_id) {
+      return Response.json({ 
+        ok: false,
+        error: 'workspace_id is required' 
+      }, { status: 400 });
+    }
+
+    const db = base44.asServiceRole;
   
   try {
     // Fetch all workspace data
@@ -59,25 +63,19 @@ export default async function handler(request, context) {
     });
 
     // Return success summary
-    return {
-      status: 200,
-      body: {
-        ok: true,
-        skus_reset: skusReset,
-        movements_archived: movementsArchived,
-        movements_deleted: movementsDeleted
-      }
-    };
+    return Response.json({
+      ok: true,
+      skus_reset: skusReset,
+      movements_archived: movementsArchived,
+      movements_deleted: movementsDeleted
+    });
 
   } catch (error) {
     console.error('Stock reset error:', error);
-    return {
-      status: 500,
-      body: { 
-        ok: false,
-        error: 'Stock reset failed',
-        details: error.message 
-      }
-    };
+    return Response.json({ 
+      ok: false,
+      error: 'Stock reset failed',
+      details: error.message 
+    }, { status: 500 });
   }
-}
+});
