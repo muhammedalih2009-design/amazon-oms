@@ -544,17 +544,13 @@ export default function SKUsPage() {
       // Call atomic backend function
       const response = await base44.functions.resetStockToZero({ tenantId });
 
-      if (response.ok) {
-        toast({
-          title: '✓ Stock reset complete',
-          description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs. Integrity fixed.`
-        });
+      toast({
+        title: '✓ Stock reset complete',
+        description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs. Integrity fixed.`
+      });
 
-        // Auto refresh
-        loadData();
-      } else {
-        throw new Error(response.details || 'Reset failed');
-      }
+      // Auto refresh
+      loadData();
     } catch (error) {
       toast({
         title: 'Reset failed',
