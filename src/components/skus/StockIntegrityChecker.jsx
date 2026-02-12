@@ -30,23 +30,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [reconcilePreview, setReconcilePreview] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
-  const [backendFunctionsAvailable, setBackendFunctionsAvailable] = useState(true);
   const { toast } = useToast();
-
-  // Check if backend functions are available on mount
-  React.useEffect(() => {
-    const checkBackendFunctions = async () => {
-      try {
-        // Test if the function exists
-        if (typeof base44?.functions?.resetStockToZero !== 'function') {
-          setBackendFunctionsAvailable(false);
-        }
-      } catch (error) {
-        setBackendFunctionsAvailable(false);
-      }
-    };
-    checkBackendFunctions();
-  }, []);
 
   const runIntegrityCheck = async () => {
     setChecking(true);
@@ -510,24 +494,15 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                       Found {results.issues.length} issue(s)
                     </p>
                     <div className="flex gap-2">
-                      {!backendFunctionsAvailable ? (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                          <AlertTriangle className="w-4 h-4 text-amber-600" />
-                          <span className="text-xs text-amber-700">
-                            Backend functions not enabled. Enable in <strong>Dashboard → Settings → App Settings</strong>
-                          </span>
-                        </div>
-                      ) : (
-                        <Button 
-                          size="sm"
-                          onClick={() => setShowResetConfirm(true)}
-                          disabled={reconciling}
-                          className="bg-red-600 hover:bg-red-700"
-                        >
-                          <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
-                          {reconciling ? 'Resetting...' : 'Full Reset to Zero (Fix All)'}
-                        </Button>
-                      )}
+                      <Button 
+                        size="sm"
+                        onClick={() => setShowResetConfirm(true)}
+                        disabled={reconciling}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
+                        {reconciling ? 'Resetting...' : 'Full Reset to Zero (Fix All)'}
+                      </Button>
                       {results.issues.some(i => i.type === 'stock_mismatch') && (
                         <Button 
                           size="sm"
