@@ -246,26 +246,27 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
     try {
       // Call backend function for atomic reset
-      const response = await base44.functions.resetStockToZero({ tenantId });
+      const response = await base44.functions.resetStockToZero({ 
+        tenantId,
+        workspace_id: tenantId 
+      });
 
-      if (response.ok) {
-        toast({
-          title: '✓ Stock reset complete',
-          description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs.`
-        });
+      toast({
+        title: '✓ Stock reset complete',
+        description: `Reset ${response.skus_reset} SKUs to 0. Archived ${response.archived_movements_count} movements. Integrity fixed.`,
+        duration: 6000
+      });
 
-        // Auto re-run integrity check
-        setTimeout(() => {
-          runIntegrityCheck();
-        }, 1000);
-      } else {
-        throw new Error(response.details || 'Reset failed');
-      }
+      // Auto re-run integrity check
+      setTimeout(() => {
+        runIntegrityCheck();
+      }, 1000);
     } catch (error) {
       toast({
         title: 'Reset failed',
-        description: error.message,
-        variant: 'destructive'
+        description: error.message || 'Backend functions may not be enabled. Enable in Dashboard → Settings → App Settings',
+        variant: 'destructive',
+        duration: 8000
       });
     } finally {
       setReconciling(false);
