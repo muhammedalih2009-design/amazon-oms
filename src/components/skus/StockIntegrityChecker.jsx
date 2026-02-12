@@ -230,14 +230,14 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
     try {
       // Call backend function for atomic reset
-      const response = await base44.functions.resetStockToZero({ 
+      const { data } = await base44.functions.invoke('resetStockToZero', { 
         workspace_id: tenantId 
       });
 
-      if (response.ok) {
+      if (data.ok) {
         toast({
           title: '✓ Stock reset complete',
-          description: `Reset ${response.skus_reset} SKUs to 0. Archived & deleted ${response.movements_deleted} movements.`,
+          description: `Reset ${data.skus_reset} SKUs to 0. Archived & deleted ${data.movements_deleted} movements.`,
           duration: 6000
         });
 
@@ -246,7 +246,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
           runIntegrityCheck();
         }, 1000);
       } else {
-        throw new Error(response.details || response.error || 'Reset failed');
+        throw new Error(data.details || data.error || 'Reset failed');
       }
     } catch (error) {
       toast({
