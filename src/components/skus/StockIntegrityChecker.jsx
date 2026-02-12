@@ -33,6 +33,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [fixingFlagged, setFixingFlagged] = useState(false);
   const [fixProgress, setFixProgress] = useState({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
   const [fixResults, setFixResults] = useState(null);
+  const [beforeAfterStats, setBeforeAfterStats] = useState(null);
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
@@ -242,6 +243,18 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
     setFixingFlagged(true);
 
+    // Store before state
+    if (resumeFromIndex === 0) {
+      setBeforeAfterStats({
+        before: {
+          total_issues: results.total_issues,
+          high_severity: results.high_severity,
+          medium_severity: results.medium_severity
+        },
+        after: null
+      });
+    }
+
     try {
       // Extract unique SKU codes from issues
       const skuCodes = [...new Set(results.issues.map(issue => issue.sku_code).filter(Boolean))];
@@ -372,10 +385,19 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         console.error('Failed SKUs:', allFailedSkus);
       }
 
-      // Auto re-run integrity check
-      setTimeout(() => {
-        runIntegrityCheck();
-      }, 1000);
+      // Auto re-run integrity check and capture after state
+      setTimeout(async () => {
+        await runIntegrityCheck();
+        // Update after stats
+        setBeforeAfterStats(prev => ({
+          ...prev,
+          after: {
+            total_issues: results?.total_issues || 0,
+            high_severity: results?.high_severity || 0,
+            medium_severity: results?.medium_severity || 0
+          }
+        }));
+      }, 1500);
 
     } catch (error) {
       const errorMsg = error.message || 'Unknown error';
@@ -701,7 +723,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                           className="bg-orange-600 hover:bg-orange-700"
                         >
                           <RefreshCw className={`w-4 h-4 mr-2 ${fixingFlagged ? 'animate-spin' : ''}`} />
-                          {fixingFlagged ? `Fixing ${fixProgress.current}/${fixProgress.total}...` : 'Fix Only Flagged SKUs → Set to Zero'}
+                          {fixingFlagged ? `Fixing ${fixProgress.current}/${fixProgress.total}...` : 'Hard Reset (Fix Issues Only)'}
                         </Button>
                       )}
                       <Button 
@@ -789,6 +811,41 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                 </div>
               )}
 
+              {beforeAfterStats && beforeAfterStats.after && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                  <h4 className="font-semibold text-blue-900">Before vs After</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white rounded p-3 border border-blue-200">
+                      <p className="text-xs text-slate-600 mb-1">Total Issues</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-red-700">{beforeAfterStats.before.total_issues}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="text-lg font-bold text-emerald-700">{beforeAfterStats.after.total_issues}</span>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded p-3 border border-blue-200">
+                      <p className="text-xs text-slate-600 mb-1">High Severity</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-orange-700">{beforeAfterStats.before.high_severity}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="text-lg font-bold text-emerald-700">{beforeAfterStats.after.high_severity}</span>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded p-3 border border-blue-200">
+                      <p className="text-xs text-slate-600 mb-1">Medium Severity</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-yellow-700">{beforeAfterStats.before.medium_severity}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="text-lg font-bold text-emerald-700">{beforeAfterStats.after.medium_severity}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {beforeAfterStats.after.total_issues === 0 && (
+                    <p className="text-sm text-emerald-700 font-semibold">✓ All issues resolved!</p>
+                  )}
+                </div>
+              )}
+
               {fixResults && fixResults.failedSkus && fixResults.failedSkus.length > 0 && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -830,6 +887,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                 onClick={() => {
                   setResults(null);
                   setFixResults(null);
+                  setBeforeAfterStats(null);
                   runIntegrityCheck();
                 }}
                 className="w-full"
