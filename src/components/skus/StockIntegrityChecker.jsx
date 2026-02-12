@@ -237,7 +237,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       if (data.ok) {
         toast({
           title: '✓ Stock reset complete',
-          description: `Reset ${data.skus_reset} SKUs to 0. Archived & deleted ${data.movements_deleted} movements.`,
+          description: `Reset ${data.skus_reset} SKUs to 0. Deleted ${data.movements_deleted} movements in ${Math.round(data.took_ms / 1000)}s.`,
           duration: 6000
         });
 
@@ -249,12 +249,23 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         throw new Error(data.details || data.error || 'Reset failed');
       }
     } catch (error) {
+      // Extract detailed error message
+      const errorMsg = error.response?.data?.details || 
+                      error.response?.data?.error || 
+                      error.message || 
+                      'Unknown error';
+      
+      const hint = error.response?.data?.hint || 
+                  'Check logs: Dashboard → Code → Functions → resetStockToZero';
+      
       toast({
         title: 'Reset failed',
-        description: error.message || 'Backend functions may not be enabled. Enable in Dashboard → Settings → App Settings',
+        description: `${errorMsg}\n\n${hint}`,
         variant: 'destructive',
-        duration: 8000
+        duration: 10000
       });
+      
+      console.error('Reset error details:', error.response?.data || error);
     } finally {
       setReconciling(false);
       setResetConfirmText('');
