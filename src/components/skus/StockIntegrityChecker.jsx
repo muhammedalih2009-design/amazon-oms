@@ -247,20 +247,23 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     try {
       // Call backend function for atomic reset
       const response = await base44.functions.resetStockToZero({ 
-        tenantId,
         workspace_id: tenantId 
       });
 
-      toast({
-        title: '✓ Stock reset complete',
-        description: `Reset ${response.skus_reset} SKUs to 0. Archived ${response.archived_movements_count} movements. Integrity fixed.`,
-        duration: 6000
-      });
+      if (response.ok) {
+        toast({
+          title: '✓ Stock reset complete',
+          description: `Reset ${response.skus_reset} SKUs to 0. Archived & deleted ${response.movements_deleted} movements.`,
+          duration: 6000
+        });
 
-      // Auto re-run integrity check
-      setTimeout(() => {
-        runIntegrityCheck();
-      }, 1000);
+        // Auto re-run integrity check
+        setTimeout(() => {
+          runIntegrityCheck();
+        }, 1000);
+      } else {
+        throw new Error(response.details || response.error || 'Reset failed');
+      }
     } catch (error) {
       toast({
         title: 'Reset failed',

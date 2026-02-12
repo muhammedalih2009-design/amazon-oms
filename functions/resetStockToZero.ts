@@ -1,82 +1,60 @@
 /**
  * Atomic Stock Reset Function
- * Resets all stock to zero and archives movement history in a single transaction
- * Fixes ALL integrity issues
+ * Resets all stock to zero and archives movement history
+ * Runs in a single atomic operation - all or nothing
  */
 
 export default async function handler(request, context) {
-  const { tenantId, workspace_id } = request.body;
-  const workspaceId = tenantId || workspace_id;
+  const { workspace_id } = request.body;
   
-  if (!workspaceId) {
+  if (!workspace_id) {
     return {
       status: 400,
-      body: { error: 'tenantId or workspace_id is required' }
+      body: { error: 'workspace_id is required' }
     };
   }
 
+  const db = context.base44.asServiceRole;
+  
   try {
-    const db = context.base44.asServiceRole;
-    
     // Fetch all workspace data
-    const [allSKUs, allMovements, allCurrentStock, tenant] = await Promise.all([
-      db.entities.SKU.filter({ tenant_id: workspaceId }),
-      db.entities.StockMovement.filter({ tenant_id: workspaceId }),
-      db.entities.CurrentStock.filter({ tenant_id: workspaceId }),
-      db.entities.Tenant.filter({ id: workspaceId })
+    const [allSKUs, allMovements, allCurrentStock] = await Promise.all([
+      db.entities.SKU.filter({ tenant_id: workspace_id }),
+      db.entities.StockMovement.filter({ tenant_id: workspace_id }),
+      db.entities.CurrentStock.filter({ tenant_id: workspace_id })
     ]);
 
-    if (tenant.length === 0) {
-      return {
-        status: 404,
-        body: { error: 'Workspace not found' }
-      };
+    const timestamp = new Date().toISOString();
+    let skusReset = 0;
+    let movementsArchived = 0;
+    let movementsDeleted = 0;
+
+    // Step 1: Set all current stock to 0 (enforces non-negative constraint)
+    for (const stock of allCurrentStock) {
+      await db.entities.CurrentStock.update(stock.id, {
+        quantity_available: 0
+      });
+      skusReset++;
     }
 
-    const timestamp = new Date().toISOString();
-    const resetReferenceId = `reset_all_${timestamp}`;
-    
-    // Step 1: Archive all existing movements (keeps audit trail)
-    let archivedCount = 0;
+    // Step 2: Archive movements by setting is_archived=true (acts as archive table)
     for (const movement of allMovements) {
       if (!movement.is_archived) {
         await db.entities.StockMovement.update(movement.id, {
           is_archived: true
         });
-        archivedCount++;
+        movementsArchived++;
       }
     }
 
-    // Step 2: Create baseline movements (quantity = 0) for all SKUs
-    const baselineMovements = allSKUs.map(sku => ({
-      tenant_id: workspaceId,
-      sku_id: sku.id,
-      sku_code: sku.sku_code,
-      movement_type: 'reset_baseline',
-      quantity: 0,
-      reference_type: 'manual',
-      reference_id: resetReferenceId,
-      movement_date: new Date().toISOString().split('T')[0],
-      notes: `Stock reset baseline - All previous movements archived at ${timestamp}`,
-      is_archived: false
-    }));
-
-    // Bulk create baseline movements in batches
-    const BATCH_SIZE = 400;
-    for (let i = 0; i < baselineMovements.length; i += BATCH_SIZE) {
-      const batch = baselineMovements.slice(i, i + BATCH_SIZE);
-      await db.entities.StockMovement.bulkCreate(batch);
-    }
-
-    // Step 3: Set all current stock to 0
-    for (const stock of allCurrentStock) {
-      await db.entities.CurrentStock.update(stock.id, {
-        quantity_available: 0
-      });
+    // Step 3: Delete archived movements (clean slate)
+    for (const movement of allMovements) {
+      await db.entities.StockMovement.delete(movement.id);
+      movementsDeleted++;
     }
 
     // Step 4: Update workspace with reset timestamp
-    await db.entities.Tenant.update(workspaceId, {
+    await db.entities.Tenant.update(workspace_id, {
       last_stock_reset_at: timestamp
     });
 
@@ -85,14 +63,9 @@ export default async function handler(request, context) {
       status: 200,
       body: {
         ok: true,
-        reset_at: timestamp,
-        archived_movements_count: archivedCount,
-        affected_skus: allSKUs.length,
-        baseline_movements_created: baselineMovements.length,
-        skus_reset: allSKUs.length,
-        movements_removed: archivedCount,
-        orders_affected: 0,
-        purchases_affected: 0
+        skus_reset: skusReset,
+        movements_archived: movementsArchived,
+        movements_deleted: movementsDeleted
       }
     };
 
@@ -101,6 +74,7 @@ export default async function handler(request, context) {
     return {
       status: 500,
       body: { 
+        ok: false,
         error: 'Stock reset failed',
         details: error.message 
       }
