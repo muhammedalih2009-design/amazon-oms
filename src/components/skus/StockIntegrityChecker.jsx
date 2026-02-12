@@ -30,6 +30,8 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [reconcilePreview, setReconcilePreview] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
+  const [fixingFlagged, setFixingFlagged] = useState(false);
+  const [fixProgress, setFixProgress] = useState({ current: 0, total: 0 });
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
@@ -213,6 +215,82 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     });
 
     setShowReconcileDialog(true);
+  };
+
+  const handleFixFlaggedSkus = async () => {
+    if (!results || results.issues.length === 0) return;
+
+    setFixingFlagged(true);
+
+    try {
+      // Extract unique SKU codes from issues
+      const skuCodes = [...new Set(results.issues.map(issue => issue.sku_code).filter(Boolean))];
+      
+      setFixProgress({ current: 0, total: skuCodes.length });
+
+      toast({
+        title: 'Fixing flagged SKUs...',
+        description: `Processing ${skuCodes.length} SKUs in batches`,
+      });
+
+      // Process in batches of 50
+      const BATCH_SIZE = 50;
+      let totalProcessed = 0;
+      let totalFailed = 0;
+
+      for (let i = 0; i < skuCodes.length; i += BATCH_SIZE) {
+        const batch = skuCodes.slice(i, i + BATCH_SIZE);
+        
+        const { data } = await base44.functions.invoke('fixFlaggedSkusToZero', {
+          workspace_id: tenantId,
+          sku_codes: batch,
+          batch_size: BATCH_SIZE
+        });
+
+        if (data.ok) {
+          totalProcessed += data.processed;
+          totalFailed += data.failed || 0;
+          setFixProgress({ current: totalProcessed + totalFailed, total: skuCodes.length });
+        } else {
+          throw new Error(data.details || data.error || 'Batch failed');
+        }
+      }
+
+      if (totalFailed === 0) {
+        toast({
+          title: '✓ Fixed all flagged SKUs',
+          description: `Successfully reset ${totalProcessed} SKUs to 0 and cleared their history`,
+          duration: 6000
+        });
+      } else {
+        toast({
+          title: 'Partially completed',
+          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed`,
+          variant: 'destructive',
+          duration: 6000
+        });
+      }
+
+      // Auto re-run integrity check
+      setTimeout(() => {
+        runIntegrityCheck();
+      }, 1000);
+
+    } catch (error) {
+      const errorMsg = error.response?.data?.details || error.message || 'Unknown error';
+      
+      toast({
+        title: 'Fix failed',
+        description: errorMsg,
+        variant: 'destructive',
+        duration: 10000
+      });
+      
+      console.error('Fix flagged SKUs error:', error);
+    } finally {
+      setFixingFlagged(false);
+      setFixProgress({ current: 0, total: 0 });
+    }
   };
 
   const handleFullReset = async () => {
@@ -504,11 +582,20 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                     <p className="text-sm font-semibold text-slate-700">
                       Found {results.issues.length} issue(s)
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                      <Button 
+                        size="sm"
+                        onClick={handleFixFlaggedSkus}
+                        disabled={fixingFlagged || reconciling}
+                        className="bg-orange-600 hover:bg-orange-700"
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${fixingFlagged ? 'animate-spin' : ''}`} />
+                        {fixingFlagged ? `Fixing ${fixProgress.current}/${fixProgress.total}...` : 'Fix Only Flagged SKUs → Set to Zero'}
+                      </Button>
                       <Button 
                         size="sm"
                         onClick={() => setShowResetConfirm(true)}
-                        disabled={reconciling}
+                        disabled={reconciling || fixingFlagged}
                         className="bg-red-600 hover:bg-red-700"
                       >
                         <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
@@ -518,7 +605,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                         <Button 
                           size="sm"
                           onClick={prepareReconcilePreview}
-                          disabled={reconciling}
+                          disabled={reconciling || fixingFlagged}
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? 'animate-spin' : ''}`} />
