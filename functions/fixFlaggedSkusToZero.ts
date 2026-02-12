@@ -49,11 +49,13 @@ Deno.serve(async (req) => {
     // Process each SKU in batch
     for (const skuCode of batchSkuCodes) {
       const skuStartTime = Date.now();
+      let step = 'init';
       
       try {
         console.log(`[fixFlaggedSkus] Processing SKU: ${skuCode}`);
         
-        // Find the SKU
+        // STEP 1: Find the SKU
+        step = 'read_sku_record';
         const skus = await db.entities.SKU.filter({ 
           tenant_id: workspace_id, 
           sku_code: skuCode 
@@ -62,36 +64,58 @@ Deno.serve(async (req) => {
         if (skus.length === 0) {
           console.warn(`[fixFlaggedSkus] SKU not found: ${skuCode}`);
           failedCount++;
-          failedSkuCodes.push({ sku_code: skuCode, reason: 'SKU not found' });
+          failedSkuCodes.push({ 
+            sku_code: skuCode, 
+            error_code: 'SKU_NOT_FOUND',
+            reason: 'SKU record not found in database',
+            details: `No SKU with code "${skuCode}" exists in workspace ${workspace_id}`,
+            step: 'read_sku_record'
+          });
           continue;
         }
 
         const sku = skus[0];
         console.log(`[fixFlaggedSkus] Found SKU ID: ${sku.id}`);
 
-        // Get current stock record
+        // STEP 2: Get current stock record
+        step = 'read_stock_record';
         const stockRecords = await db.entities.CurrentStock.filter({ 
           tenant_id: workspace_id, 
           sku_id: sku.id 
         });
 
-        // Reset stock to 0
-        if (stockRecords.length > 0) {
-          console.log(`[fixFlaggedSkus] Updating stock to 0 for ${skuCode}`);
-          await db.entities.CurrentStock.update(stockRecords[0].id, { 
-            quantity_available: 0 
+        // STEP 3: Reset stock to 0
+        step = 'update_stock';
+        try {
+          if (stockRecords.length > 0) {
+            console.log(`[fixFlaggedSkus] Updating stock to 0 for ${skuCode}`);
+            await db.entities.CurrentStock.update(stockRecords[0].id, { 
+              quantity_available: 0 
+            });
+          } else {
+            console.log(`[fixFlaggedSkus] Creating stock record at 0 for ${skuCode}`);
+            await db.entities.CurrentStock.create({
+              tenant_id: workspace_id,
+              sku_id: sku.id,
+              sku_code: skuCode,
+              quantity_available: 0
+            });
+          }
+        } catch (stockError) {
+          console.error(`[fixFlaggedSkus] Stock update failed for ${skuCode}:`, stockError.message);
+          failedCount++;
+          failedSkuCodes.push({ 
+            sku_code: skuCode, 
+            error_code: 'DB_WRITE_FAILED',
+            reason: 'Failed to update stock record',
+            details: stockError.message,
+            step: 'update_stock'
           });
-        } else {
-          console.log(`[fixFlaggedSkus] Creating stock record at 0 for ${skuCode}`);
-          await db.entities.CurrentStock.create({
-            tenant_id: workspace_id,
-            sku_id: sku.id,
-            sku_code: skuCode,
-            quantity_available: 0
-          });
+          continue;
         }
 
-        // Delete all movements for this SKU
+        // STEP 4: Delete all movements for this SKU
+        step = 'delete_movements';
         const movements = await db.entities.StockMovement.filter({ 
           tenant_id: workspace_id, 
           sku_id: sku.id 
@@ -99,9 +123,20 @@ Deno.serve(async (req) => {
 
         console.log(`[fixFlaggedSkus] Deleting ${movements.length} movements for ${skuCode}`);
         
+        let movementDeleteFailed = false;
         for (const movement of movements) {
-          await db.entities.StockMovement.delete(movement.id);
-          await sleep(10); // Small delay between deletions
+          try {
+            await db.entities.StockMovement.delete(movement.id);
+            await sleep(10);
+          } catch (movementError) {
+            console.error(`[fixFlaggedSkus] Failed to delete movement ${movement.id} for ${skuCode}:`, movementError.message);
+            movementDeleteFailed = true;
+            // Continue trying other movements
+          }
+        }
+
+        if (movementDeleteFailed) {
+          console.warn(`[fixFlaggedSkus] Some movements failed to delete for ${skuCode}, but stock was reset to 0`);
         }
 
         processedCount++;
@@ -115,9 +150,30 @@ Deno.serve(async (req) => {
         
       } catch (error) {
         const skuDuration = Date.now() - skuStartTime;
-        console.error(`[fixFlaggedSkus] ✗ Failed ${skuCode} after ${skuDuration}ms:`, error.message);
+        console.error(`[fixFlaggedSkus] ✗ Failed ${skuCode} at step "${step}" after ${skuDuration}ms:`, error.message);
+        
+        // Determine error code based on error type
+        let errorCode = 'UNKNOWN_ERROR';
+        if (error.message?.toLowerCase().includes('timeout')) {
+          errorCode = 'TIMEOUT';
+        } else if (error.message?.toLowerCase().includes('rate limit')) {
+          errorCode = 'RATE_LIMIT';
+        } else if (step === 'read_sku_record') {
+          errorCode = 'SKU_READ_FAILED';
+        } else if (step === 'update_stock') {
+          errorCode = 'DB_WRITE_FAILED';
+        } else if (step === 'delete_movements') {
+          errorCode = 'MOVEMENT_DELETE_FAILED';
+        }
+        
         failedCount++;
-        failedSkuCodes.push({ sku_code: skuCode, reason: error.message });
+        failedSkuCodes.push({ 
+          sku_code: skuCode, 
+          error_code: errorCode,
+          reason: `Failed at step: ${step}`,
+          details: error.message,
+          step
+        });
       }
     }
 
@@ -133,7 +189,7 @@ Deno.serve(async (req) => {
       failedCount,
       totalCount: sku_codes.length,
       processedSkuCodes,
-      failedSkuCodes: failedCount > 0 ? failedSkuCodes : undefined,
+      failed: failedCount > 0 ? failedSkuCodes : [],
       nextIndex,
       done,
       took_ms: tookMs

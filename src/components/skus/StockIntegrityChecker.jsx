@@ -32,6 +32,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [fixingFlagged, setFixingFlagged] = useState(false);
   const [fixProgress, setFixProgress] = useState({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
+  const [fixResults, setFixResults] = useState(null);
   const { toast } = useToast();
 
   const runIntegrityCheck = async () => {
@@ -181,6 +182,25 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     URL.revokeObjectURL(url);
   };
 
+  const exportFailedSkus = () => {
+    if (!fixResults || !fixResults.failedSkus || fixResults.failedSkus.length === 0) return;
+
+    const csv = [
+      'SKU Code,Error Code,Reason,Failed Step,Details',
+      ...fixResults.failedSkus.map(failed => {
+        return `"${failed.sku_code}","${failed.error_code}","${failed.reason}","${failed.step}","${failed.details?.replace(/"/g, '""') || ''}"`;
+      })
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `failed_skus_fix_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const prepareReconcilePreview = () => {
     if (!results || results.issues.length === 0) return;
 
@@ -276,8 +296,8 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               totalProcessed += data.processedCount || 0;
               totalFailed += data.failedCount || 0;
               
-              if (data.failedSkuCodes) {
-                allFailedSkus.push(...data.failedSkuCodes);
+              if (data.failed && data.failed.length > 0) {
+                allFailedSkus.push(...data.failed);
               }
               
               currentIndex = data.nextIndex;
@@ -329,6 +349,13 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       // All done
       setFixProgress({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
 
+      // Store results for display and export
+      setFixResults({
+        totalProcessed,
+        totalFailed,
+        failedSkus: allFailedSkus
+      });
+
       if (totalFailed === 0) {
         toast({
           title: '✓ Fixed all flagged SKUs',
@@ -337,8 +364,8 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         });
       } else {
         toast({
-          title: 'Completed with some failures',
-          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed. Check console for details.`,
+          title: 'Completed with failures',
+          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed. See details below.`,
           variant: 'destructive',
           duration: 8000
         });
@@ -762,10 +789,47 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                 </div>
               )}
 
+              {fixResults && fixResults.failedSkus && fixResults.failedSkus.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold text-red-900">Failed SKUs Report</h4>
+                      <p className="text-sm text-red-700">
+                        {fixResults.totalFailed} SKU(s) failed to fix. Review details below.
+                      </p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={exportFailedSkus}
+                      className="border-red-300 text-red-700 hover:bg-red-100"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Export Failed SKUs
+                    </Button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {fixResults.failedSkus.map((failed, idx) => (
+                      <div key={idx} className="bg-white rounded border border-red-200 p-3 text-sm">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-red-900">{failed.sku_code}</span>
+                          <span className="px-2 py-0.5 text-xs bg-red-200 text-red-800 rounded">
+                            {failed.error_code}
+                          </span>
+                        </div>
+                        <p className="text-red-700">{failed.reason}</p>
+                        <p className="text-xs text-red-600 mt-1">Step: {failed.step} | {failed.details}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <Button 
                 variant="outline" 
                 onClick={() => {
                   setResults(null);
+                  setFixResults(null);
                   runIntegrityCheck();
                 }}
                 className="w-full"
