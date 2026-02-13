@@ -45,6 +45,10 @@ export default function AdminPage() {
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showEditWorkspace, setShowEditWorkspace] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [showMembersModal, setShowMembersModal] = useState(null);
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [addMemberEmail, setAddMemberEmail] = useState('');
+  const [addMemberRole, setAddMemberRole] = useState('member');
   
   const [formData, setFormData] = useState({
     name: '',
@@ -203,6 +207,103 @@ export default function AdminPage() {
 
   const getWorkspaceSubscription = (workspaceId) => {
     return subscriptions.find(s => s.tenant_id === workspaceId);
+  };
+
+  const handleViewWorkspace = (workspace) => {
+    // Switch to this workspace
+    localStorage.setItem('active_workspace_id', workspace.id);
+    window.location.href = '/';
+  };
+
+  const loadWorkspaceMembers = async (workspaceId) => {
+    try {
+      const { data } = await base44.functions.invoke('manageWorkspaceMembers', {
+        action: 'list',
+        workspace_id: workspaceId
+      });
+
+      if (data.ok) {
+        setWorkspaceMembers(data.members);
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to load members',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleAddMember = async (workspaceId) => {
+    try {
+      const { data } = await base44.functions.invoke('manageWorkspaceMembers', {
+        action: 'add',
+        workspace_id: workspaceId,
+        user_email: addMemberEmail,
+        role: addMemberRole
+      });
+
+      if (data.ok) {
+        toast({
+          title: 'Member added',
+          description: `${addMemberEmail} has been added to the workspace`
+        });
+        setAddMemberEmail('');
+        setAddMemberRole('member');
+        loadWorkspaceMembers(workspaceId);
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to add member',
+        description: error.response?.data?.error || error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleUpdateMemberRole = async (memberId, workspaceId, newRole) => {
+    try {
+      await base44.functions.invoke('manageWorkspaceMembers', {
+        action: 'update_role',
+        member_id: memberId,
+        role: newRole
+      });
+
+      toast({
+        title: 'Role updated',
+        description: 'Member role has been updated'
+      });
+      loadWorkspaceMembers(workspaceId);
+    } catch (error) {
+      toast({
+        title: 'Failed to update role',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleRemoveMember = async (memberId, workspaceId) => {
+    try {
+      const { data } = await base44.functions.invoke('manageWorkspaceMembers', {
+        action: 'remove',
+        member_id: memberId
+      });
+
+      if (data.ok) {
+        toast({
+          title: 'Member removed',
+          description: 'Member has been removed from the workspace'
+        });
+        loadWorkspaceMembers(workspaceId);
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to remove member',
+        description: error.response?.data?.error || error.message,
+        variant: 'destructive'
+      });
+    }
   };
 
   if (!isPlatformAdmin) {
@@ -376,6 +477,26 @@ export default function AdminPage() {
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewWorkspace(workspace)}
+                          className="text-indigo-600 hover:text-indigo-700"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowMembersModal(workspace);
+                            loadWorkspaceMembers(workspace.id);
+                          }}
+                        >
+                          <Users className="w-4 h-4 mr-1" />
+                          Members
+                        </Button>
+                        <Button
+                          variant="ghost"
                           size="icon"
                           onClick={() => setShowDeleteConfirm(workspace)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -465,6 +586,97 @@ export default function AdminPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Members Management Modal */}
+      <Dialog open={!!showMembersModal} onOpenChange={() => setShowMembersModal(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manage Members: {showMembersModal?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Add Member */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <Label className="text-sm font-medium text-blue-900 mb-2">Add New Member</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="user@email.com"
+                  value={addMemberEmail}
+                  onChange={(e) => setAddMemberEmail(e.target.value)}
+                  className="flex-1"
+                />
+                <Select value={addMemberRole} onValueChange={setAddMemberRole}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="owner">Owner</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  onClick={() => handleAddMember(showMembersModal.id)}
+                  disabled={!addMemberEmail}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Members List */}
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">User</th>
+                    <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">Role</th>
+                    <th className="text-right py-2 px-4 text-xs font-semibold text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workspaceMembers.map(member => (
+                    <tr key={member.id} className="border-b border-slate-100">
+                      <td className="py-3 px-4">
+                        <div>
+                          <p className="font-medium text-slate-900">{member.user_name}</p>
+                          <p className="text-sm text-slate-500">{member.user_email}</p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <Select
+                          value={member.role}
+                          onValueChange={(value) => handleUpdateMemberRole(member.id, showMembersModal.id, value)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="owner">Owner</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveMember(member.id, showMembersModal.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

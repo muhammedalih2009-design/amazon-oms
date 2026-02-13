@@ -5,6 +5,8 @@ import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
 import { TaskManagerProvider } from '@/components/hooks/useTaskManager';
 import TaskTray from '@/components/shared/TaskTray';
+import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
+import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
 import { Toaster } from '@/components/ui/toaster';
 import {
   LayoutDashboard,
@@ -111,21 +113,9 @@ function LayoutContent({ children, currentPageName }) {
             </Button>
           </div>
 
-          {/* Tenant Info */}
+          {/* Workspace Switcher */}
           <div className="px-4 py-4 border-b">
-            <div className="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-3">
-              <p className="text-xs text-slate-500 mb-1">Workspace</p>
-              <p className="font-semibold text-slate-900 truncate">{tenant?.name || 'My Workspace'}</p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                  subscription?.plan === 'pro' ? 'bg-indigo-100 text-indigo-700' :
-                  subscription?.plan === 'trial' ? 'bg-violet-100 text-violet-700' :
-                  'bg-slate-100 text-slate-600'
-                }`}>
-                  {subscription?.plan?.toUpperCase() || 'FREE'}
-                </span>
-              </div>
-            </div>
+            <WorkspaceSwitcher />
           </div>
 
           {/* Navigation */}
@@ -171,7 +161,7 @@ function LayoutContent({ children, currentPageName }) {
               </Link>
             )}
 
-            {isPlatformAdmin && (
+            {(user?.role === 'admin' || user?.email === 'your-admin@email.com') && (
               <Link
                 to={createPageUrl('Admin')}
                 onClick={() => setSidebarOpen(false)}
@@ -235,9 +225,11 @@ export default function Layout({ children, currentPageName }) {
   return (
     <TenantProvider>
       <TaskManagerProvider>
-        <LayoutContent currentPageName={currentPageName}>
-          {children}
-        </LayoutContent>
+        <WorkspaceAccessGuard>
+          <LayoutContent currentPageName={currentPageName}>
+            {children}
+          </LayoutContent>
+        </WorkspaceAccessGuard>
         <TaskTray />
         <Toaster />
       </TaskManagerProvider>
