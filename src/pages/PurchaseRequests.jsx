@@ -204,16 +204,37 @@ export default function PurchaseRequests() {
       const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
       const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       
+      // Helper function to safely stringify any value for PDF text
+      const safePDFText = (value, fieldName = 'unknown') => {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number') return value.toString();
+        if (typeof value === 'boolean') return value.toString();
+        if (Array.isArray(value)) return value.join(', ');
+        if (typeof value === 'object') {
+          console.error('PDF invalid text field', { 
+            fieldName, 
+            value, 
+            type: typeof value,
+            keys: Object.keys(value)
+          });
+          // Try to extract a useful string
+          return value.name || value.product_name || value.sku_code || JSON.stringify(value);
+        }
+        return String(value);
+      };
+
       // Helper function to process Arabic text for RTL
       const processArabicText = (text) => {
-        if (!text) return '';
+        const safeText = safePDFText(text, 'processArabicText');
+        if (!safeText) return '';
         // Check if text contains Arabic characters
-        const hasArabic = /[\u0600-\u06FF]/.test(text);
+        const hasArabic = /[\u0600-\u06FF]/.test(safeText);
         if (hasArabic) {
           // Apply bidi algorithm for proper RTL rendering
-          return bidi(text);
+          return bidi(safeText);
         }
-        return text;
+        return safeText;
       };
 
       // Helper function to load image as base64
@@ -253,9 +274,9 @@ export default function PurchaseRequests() {
           row: [
             '', // Placeholder for image
             processArabicText(item.product_name),
-            item.sku_code,
-            item.to_buy.toString(),
-            `$${item.cost_price.toFixed(2)}`,
+            safePDFText(item.sku_code, 'sku_code'),
+            safePDFText(item.to_buy, 'to_buy'),
+            safePDFText(`$${(item.cost_price || 0).toFixed(2)}`, 'cost_price'),
             processArabicText(supplier?.supplier_name || '-')
           ]
         };
@@ -323,8 +344,11 @@ export default function PurchaseRequests() {
       const selectedTotal = selectedItems.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
       const selectedItemsCount = selectedItems.reduce((sum, item) => sum + item.to_buy, 0);
       
-      doc.text(processArabicText(`إجمالي العناصر: ${selectedItemsCount}`), pageWidth - 15, finalY, { align: 'right' });
-      doc.text(processArabicText(`التكلفة الإجمالية: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`), pageWidth - 15, finalY + 7, { align: 'right' });
+      const totalItemsText = `إجمالي العناصر: ${safePDFText(selectedItemsCount, 'selectedItemsCount')}`;
+      const totalCostText = `التكلفة الإجمالية: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      
+      doc.text(processArabicText(totalItemsText), pageWidth - 15, finalY, { align: 'right' });
+      doc.text(processArabicText(totalCostText), pageWidth - 15, finalY + 7, { align: 'right' });
 
       // Save PDF
       doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
