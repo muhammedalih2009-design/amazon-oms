@@ -4,19 +4,45 @@ import { Ban, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function WorkspaceAccessGuard({ children }) {
-  const { subscription, tenant } = useTenant();
+  const { subscription, tenant, isSuperAdmin } = useTenant();
 
   if (!subscription || !tenant) {
     return children;
   }
 
-  // Blocked statuses
+  // Super admin bypasses all workspace status checks
+  if (isSuperAdmin) {
+    if (subscription.status === 'canceled' || subscription.status === 'inactive') {
+      // Show warning banner but allow access
+      return (
+        <div>
+          <div className="bg-red-50 border-b border-red-200 p-4">
+            <div className="max-w-7xl mx-auto flex items-center gap-3">
+              <Ban className="w-5 h-5 text-red-600 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-900">
+                  Super Admin Override: This workspace is {subscription.status}
+                </p>
+                <p className="text-xs text-red-700">
+                  Regular users cannot access this workspace. You have admin access for debugging.
+                </p>
+              </div>
+            </div>
+          </div>
+          {children}
+        </div>
+      );
+    }
+    return children;
+  }
+
+  // Blocked statuses for regular users
   if (subscription.status === 'canceled' || subscription.status === 'inactive') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="max-w-md text-center space-y-4">
           <Ban className="w-16 h-16 text-red-500 mx-auto" />
-          <h1 className="text-2xl font-bold text-slate-900">Workspace Closed</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Workspace {subscription.status === 'canceled' ? 'Closed' : 'Suspended'}</h1>
           <p className="text-slate-600">
             This workspace has been {subscription.status}. All access is blocked.
           </p>

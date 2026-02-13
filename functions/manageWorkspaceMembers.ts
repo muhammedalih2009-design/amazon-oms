@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const { action, workspace_id, user_email, user_id, member_id, role } = await req.json();
 
     // Check if user is super admin
-    const isSuperAdmin = user.role === 'admin' || user.email === 'your-admin@email.com';
+    const isSuperAdmin = user.role === 'admin' || user.email === 'admin@amazonoms.com';
 
     // For non-super-admin, verify they are admin/owner of the workspace
     if (!isSuperAdmin && workspace_id) {

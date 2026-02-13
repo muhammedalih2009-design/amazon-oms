@@ -22,8 +22,8 @@ export function TenantProvider({ children }) {
       const currentUser = await base44.auth.me();
       setUser(currentUser);
 
-      // Check if super admin
-      const isSuperAdmin = currentUser.email === 'admin@amazonoms.com' || currentUser.role === 'admin';
+      // Check if super admin (strict check)
+      const isSuperAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@amazonoms.com';
 
       // Load user's memberships
       const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });

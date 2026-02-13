@@ -31,6 +31,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import RefreshButton from '@/components/shared/RefreshButton';
+import UserAutocomplete from '@/components/shared/UserAutocomplete';
 
 export default function AdminPage() {
   const { user, isPlatformAdmin } = useTenant();
@@ -47,7 +48,7 @@ export default function AdminPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showMembersModal, setShowMembersModal] = useState(null);
   const [workspaceMembers, setWorkspaceMembers] = useState([]);
-  const [addMemberEmail, setAddMemberEmail] = useState('');
+  const [selectedUser, setSelectedUser] = useState(null);
   const [addMemberRole, setAddMemberRole] = useState('member');
   
   const [formData, setFormData] = useState({
@@ -235,20 +236,29 @@ export default function AdminPage() {
   };
 
   const handleAddMember = async (workspaceId) => {
+    if (!selectedUser) {
+      toast({
+        title: 'No user selected',
+        description: 'Please select a user to add',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     try {
       const { data } = await base44.functions.invoke('manageWorkspaceMembers', {
         action: 'add',
         workspace_id: workspaceId,
-        user_email: addMemberEmail,
+        user_email: selectedUser.email,
         role: addMemberRole
       });
 
       if (data.ok) {
         toast({
           title: 'Member added',
-          description: `${addMemberEmail} has been added to the workspace`
+          description: `${selectedUser.email} has been added to the workspace`
         });
-        setAddMemberEmail('');
+        setSelectedUser(null);
         setAddMemberRole('member');
         loadWorkspaceMembers(workspaceId);
       }
@@ -306,13 +316,19 @@ export default function AdminPage() {
     }
   };
 
-  if (!isPlatformAdmin) {
+  // Strict platform admin check
+  const isSuperAdmin = user?.role === 'admin' || user?.email === 'admin@amazonoms.com';
+  
+  if (!isSuperAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-4">
           <Ban className="w-16 h-16 text-red-500 mx-auto" />
           <h1 className="text-2xl font-bold text-slate-900">Access Denied</h1>
-          <p className="text-slate-600">You don't have permission to access Platform Admin.</p>
+          <p className="text-slate-600">Only Super Admins can access Platform Admin.</p>
+          <Button onClick={() => window.location.href = '/'} className="mt-4">
+            Go to Dashboard
+          </Button>
         </div>
       </div>
     );
@@ -596,32 +612,56 @@ export default function AdminPage() {
           <div className="space-y-4">
             {/* Add Member */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <Label className="text-sm font-medium text-blue-900 mb-2">Add New Member</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="user@email.com"
-                  value={addMemberEmail}
-                  onChange={(e) => setAddMemberEmail(e.target.value)}
-                  className="flex-1"
-                />
-                <Select value={addMemberRole} onValueChange={setAddMemberRole}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="owner">Owner</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  onClick={() => handleAddMember(showMembersModal.id)}
-                  disabled={!addMemberEmail}
-                  className="bg-indigo-600 hover:bg-indigo-700"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add
-                </Button>
+              <Label className="text-sm font-medium text-blue-900 mb-3">Add New Member</Label>
+              <div className="space-y-3">
+                {selectedUser && (
+                  <div className="bg-white border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                        <Users className="w-4 h-4 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">{selectedUser.full_name}</p>
+                        <p className="text-sm text-slate-500">{selectedUser.email}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedUser(null)}
+                      className="text-slate-500"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <UserAutocomplete
+                      onSelect={setSelectedUser}
+                      placeholder="Search users by email or name..."
+                    />
+                  </div>
+                  <Select value={addMemberRole} onValueChange={setAddMemberRole}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="owner">Owner</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => handleAddMember(showMembersModal.id)}
+                    disabled={!selectedUser}
+                    className="bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
               </div>
             </div>
 
