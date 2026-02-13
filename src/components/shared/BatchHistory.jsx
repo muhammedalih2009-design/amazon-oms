@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { Download, Trash2, FileText, CheckCircle, AlertCircle, XCircle, Pencil, Check, X } from 'lucide-react';
+import { Download, Trash2, FileText, CheckCircle, AlertCircle, XCircle, Pencil, Check, X, PackageOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import StatusBadge from '@/components/ui/StatusBadge';
 import EmptyState from '@/components/ui/EmptyState';
 import { base44 } from '@/api/base44Client';
 import { useToast } from '@/components/ui/use-toast';
+import { useTenant } from '@/components/hooks/useTenant';
 
 export default function BatchHistory({ 
   batches = [], 
@@ -19,7 +20,9 @@ export default function BatchHistory({
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [savingBatchId, setSavingBatchId] = useState(null);
+  const [downloadingBatchId, setDownloadingBatchId] = useState(null);
   const { toast } = useToast();
+  const { tenantId } = useTenant();
 
   const handleStartEdit = (batch) => {
     setEditingBatchId(batch.id);
@@ -91,6 +94,51 @@ export default function BatchHistory({
       handleSaveEdit(batch);
     } else if (e.key === 'Escape') {
       handleCancelEdit();
+    }
+  };
+
+  const handleDownloadBatch = async (batch) => {
+    if (!tenantId) {
+      toast({
+        title: 'Error',
+        description: 'Workspace not loaded',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setDownloadingBatchId(batch.id);
+    
+    try {
+      const { data } = await base44.functions.invoke('exportOrdersBatch', {
+        workspace_id: tenantId,
+        batch_id: batch.id
+      });
+
+      // Create blob and download
+      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `orders_batch_${batch.display_name || batch.batch_name || batch.id}_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Batch downloaded',
+        description: `${batch.success_rows || 0} orders exported successfully`
+      });
+    } catch (error) {
+      console.error('Failed to download batch:', error);
+      toast({
+        title: 'Download failed',
+        description: error.response?.data?.error || error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setDownloadingBatchId(null);
     }
   };
   if (loading) {
@@ -211,6 +259,20 @@ export default function BatchHistory({
               </div>
               
               <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => handleDownloadBatch(batch)}
+                  disabled={downloadingBatchId === batch.id || (batch.success_rows || 0) === 0}
+                  title="Download batch orders as CSV"
+                  className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                >
+                  {downloadingBatchId === batch.id ? (
+                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <PackageOpen className="w-4 h-4" />
+                  )}
+                </Button>
                 {batch.error_file_url && batch.failed_rows > 0 && (
                   <Button 
                     variant="ghost" 
@@ -226,6 +288,8 @@ export default function BatchHistory({
                       }
                       onDownloadErrors?.(batch);
                     }}
+                    title="Download failed rows"
+                    className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                   >
                     <Download className="w-4 h-4" />
                   </Button>
