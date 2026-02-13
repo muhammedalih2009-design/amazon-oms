@@ -45,6 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import TablePagination from '@/components/shared/TablePagination';
 import TaskProgressModal from '@/components/shared/TaskProgressModal';
+import ImportErrorDisplay from '@/components/shared/ImportErrorDisplay';
 
 export default function Orders() {
   const { tenantId, subscription, isActive } = useTenant();
@@ -852,7 +853,9 @@ export default function Orders() {
           total_rows: 0,
           success_rows: 0,
           failed_rows: 0,
-          error: 'CSV parsed 0 data rows. Check if file has data below headers.'
+          primary_error: 'CSV parsed 0 data rows. Check if file has data below headers.',
+          error_summary: { 'Empty file': 1 },
+          sample_errors: []
         });
         setProcessing(false);
         return;
@@ -908,14 +911,23 @@ export default function Orders() {
 
       // If ALL rows missing store AND no UI store selected, show error
       if (allRowsMissingStore && !csvStoreId) {
+        const errorMsg = csvHasStoreValues 
+          ? 'None of the store values in CSV match existing stores. Please check store names or select a default store.'
+          : 'Please select a store from the dropdown above, or add a "store" column in your CSV with valid store names.';
+        
         setUploadResult({
           status: 'failed',
           total_rows: totalRows,
           success_rows: 0,
           failed_rows: totalRows,
-          error: csvHasStoreValues 
-            ? 'None of the store values in CSV match existing stores. Please check store names or select a default store.'
-            : 'Please select a store from the dropdown above, or add a "store" column in your CSV with valid store names.'
+          primary_error: errorMsg,
+          error_summary: { 'Missing or unknown store': totalRows },
+          sample_errors: rowsWithStores.slice(0, 10).map(r => ({
+            row_number: r._rowIndex + 1,
+            amazon_order_id: r.amazon_order_id,
+            sku_code: r.sku_code,
+            error_reason: r._storeValue ? `Unknown store: ${r._storeValue}` : 'No store specified'
+          }))
         });
         setProcessing(false);
         return;
@@ -952,7 +964,9 @@ export default function Orders() {
         total_rows: 0,
         success_rows: 0,
         failed_rows: 0,
-        error: `Import failed: ${error.message}`
+        primary_error: `Import failed: ${error.message}`,
+        error_summary: { 'Server error': 1 },
+        sample_errors: []
       });
     } finally {
       setProcessing(false);
@@ -982,7 +996,9 @@ export default function Orders() {
         total_rows: 0,
         success_rows: 0,
         failed_rows: 0,
-        error: error.message || 'Upload failed'
+        primary_error: error.message || 'Upload failed',
+        error_summary: { 'Processing error': 1 },
+        sample_errors: []
       });
     } finally {
       setProcessing(false);
@@ -1088,10 +1104,32 @@ export default function Orders() {
 
         } catch (error) {
           failedCount++;
+
+          // Categorize error
+          const errorMessage = error.message;
+          let errorCategory = 'Other';
+
+          if (errorMessage.includes('date format') || errorMessage.includes('order_date')) {
+            errorCategory = 'Invalid date format';
+          } else if (errorMessage.includes('Quantity')) {
+            errorCategory = 'Invalid quantity';
+          } else if (errorMessage.includes('Missing required field')) {
+            errorCategory = 'Missing required fields';
+          } else if (errorMessage.includes('SKU not found')) {
+            errorCategory = 'Unknown SKU code';
+          } else if (errorMessage.includes('store')) {
+            errorCategory = 'Missing or unknown store';
+          } else if (errorMessage.includes('Duplicate order ID')) {
+            errorCategory = 'Duplicate order ID';
+          }
+
           errors.push({
             row_number: i + 1,
-            ...row,
-            error_reason: error.message
+            amazon_order_id: row.amazon_order_id,
+            sku_code: row.sku_code,
+            error_reason: errorMessage,
+            error_category: errorCategory,
+            ...row
           });
         }
       }
@@ -1177,6 +1215,29 @@ export default function Orders() {
       const status = failedCount === 0 ? 'success' : 
                      successCount === 0 ? 'failed' : 'partial';
 
+      // Calculate error summary by category
+      const errorSummary = {};
+      errors.forEach(err => {
+        const category = err.error_category || 'Other';
+        errorSummary[category] = (errorSummary[category] || 0) + 1;
+      });
+
+      // Determine primary error message
+      let primaryError = '';
+      if (successCount === 0 && failedCount > 0) {
+        // All rows failed - use most common error
+        const topCategory = Object.entries(errorSummary)
+          .sort((a, b) => b[1] - a[1])[0];
+        
+        if (topCategory) {
+          primaryError = `${topCategory[0]}: ${topCategory[1]} row(s) failed`;
+        } else {
+          primaryError = 'All rows failed validation';
+        }
+      } else if (failedCount > 0) {
+        primaryError = `${failedCount} row(s) failed validation. ${successCount} row(s) imported successfully.`;
+      }
+
       await base44.entities.ImportBatch.update(batch.id, {
         status,
         success_rows: successCount,
@@ -1195,7 +1256,15 @@ export default function Orders() {
         total_rows: rowsWithStores.length,
         success_rows: successCount,
         failed_rows: failedCount,
-        error_file_url: errorFileUrl
+        error_file_url: errorFileUrl,
+        primary_error: primaryError,
+        error_summary: errorSummary,
+        sample_errors: errors.slice(0, 10).map(e => ({
+          row_number: e.row_number,
+          amazon_order_id: e.amazon_order_id,
+          sku_code: e.sku_code,
+          error_reason: e.error_reason
+        }))
       });
 
       loadData();
@@ -2295,6 +2364,20 @@ export default function Orders() {
             processing={processing}
             result={uploadResult}
             onReset={() => setUploadResult(null)}
+          />
+          
+          <ImportErrorDisplay 
+            result={uploadResult}
+            onDownloadErrors={() => {
+              if (uploadResult?.error_file_url) {
+                const link = document.createElement('a');
+                link.href = uploadResult.error_file_url;
+                link.download = `failed_orders_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }
+            }}
           />
         </TabsContent>
 
