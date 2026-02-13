@@ -667,52 +667,60 @@ export default function AdminPage() {
 
             {/* Members List */}
             <div className="border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b">
-                  <tr>
-                    <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">User</th>
-                    <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">Role</th>
-                    <th className="text-right py-2 px-4 text-xs font-semibold text-slate-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workspaceMembers.map(member => (
-                    <tr key={member.id} className="border-b border-slate-100">
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium text-slate-900">{member.user_name}</p>
-                          <p className="text-sm text-slate-500">{member.user_email}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Select
-                          value={member.role}
-                          onValueChange={(value) => handleUpdateMemberRole(member.id, showMembersModal.id, value)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="owner">Owner</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveMember(member.id, showMembersModal.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </td>
+              {workspaceMembers.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500 font-medium">No members yet</p>
+                  <p className="text-sm text-slate-400 mt-1">Add users to this workspace using the form above</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b">
+                    <tr>
+                      <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">User</th>
+                      <th className="text-left py-2 px-4 text-xs font-semibold text-slate-600">Role</th>
+                      <th className="text-right py-2 px-4 text-xs font-semibold text-slate-600">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {workspaceMembers.map(member => (
+                      <tr key={member.id} className="border-b border-slate-100 last:border-0">
+                        <td className="py-3 px-4">
+                          <div>
+                            <p className="font-medium text-slate-900">{member.user_name || 'Unknown User'}</p>
+                            <p className="text-sm text-slate-500">{member.user_email}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Select
+                            value={member.role}
+                            onValueChange={(value) => handleUpdateMemberRole(member.id, showMembersModal.id, value)}
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="member">Member</SelectItem>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="owner">Owner</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveMember(member.id, showMembersModal.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </DialogContent>
