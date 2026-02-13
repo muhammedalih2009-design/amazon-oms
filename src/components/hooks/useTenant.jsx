@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext } from 'react';
 import { base44 } from '@/api/base44Client';
 
 const TenantContext = createContext(null);
+const ACTIVE_WORKSPACE_KEY = 'active_workspace_id';
 
 export function TenantProvider({ children }) {
   const [tenant, setTenant] = useState(null);
@@ -9,6 +10,8 @@ export function TenantProvider({ children }) {
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [allWorkspaces, setAllWorkspaces] = useState([]);
+  const [userMemberships, setUserMemberships] = useState([]);
 
   useEffect(() => {
     loadTenantData();
@@ -19,11 +22,45 @@ export function TenantProvider({ children }) {
       const currentUser = await base44.auth.me();
       setUser(currentUser);
 
-      // Find user's membership
+      // Check if super admin
+      const isSuperAdmin = currentUser.email === 'admin@amazonoms.com' || currentUser.role === 'admin';
+
+      // Load user's memberships
       const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });
-      
-      if (memberships.length === 0) {
-        // New user - create tenant and membership
+      setUserMemberships(memberships);
+
+      // Load workspaces based on role
+      let workspaces = [];
+      if (isSuperAdmin) {
+        // Super admin sees ALL workspaces
+        workspaces = await base44.entities.Tenant.filter({});
+      } else if (memberships.length > 0) {
+        // Regular user sees only their workspaces
+        const tenantIds = memberships.map(m => m.tenant_id);
+        workspaces = await base44.entities.Tenant.filter({
+          id: { $in: tenantIds }
+        });
+      }
+      setAllWorkspaces(workspaces);
+
+      // Determine active workspace
+      let activeWorkspaceId = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+      let activeTenant = null;
+      let activeMembership = null;
+
+      // Validate stored workspace
+      if (activeWorkspaceId && workspaces.length > 0) {
+        activeTenant = workspaces.find(t => t.id === activeWorkspaceId);
+      }
+
+      // Fallback to first workspace
+      if (!activeTenant && workspaces.length > 0) {
+        activeTenant = workspaces[0];
+        localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
+      }
+
+      // If no workspaces, create one
+      if (!activeTenant) {
         const newTenant = await base44.entities.Tenant.create({
           name: `${currentUser.full_name || currentUser.email}'s Workspace`,
           slug: currentUser.email.split('@')[0] + '-' + Date.now()
@@ -46,7 +83,6 @@ export function TenantProvider({ children }) {
           }
         });
 
-        // Create trial subscription
         const trialEnd = new Date();
         trialEnd.setDate(trialEnd.getDate() + 14);
         const newSubscription = await base44.entities.Subscription.create({
@@ -56,23 +92,23 @@ export function TenantProvider({ children }) {
           current_period_end: trialEnd.toISOString().split('T')[0]
         });
 
-        setTenant(newTenant);
-        setMembership(newMembership);
+        activeTenant = newTenant;
+        activeMembership = newMembership;
         setSubscription(newSubscription);
+        setAllWorkspaces([newTenant]);
+        setUserMemberships([newMembership]);
+        localStorage.setItem(ACTIVE_WORKSPACE_KEY, newTenant.id);
       } else {
-        const mem = memberships[0];
-        setMembership(mem);
-
-        const tenants = await base44.entities.Tenant.filter({ id: mem.tenant_id });
-        if (tenants.length > 0) {
-          setTenant(tenants[0]);
-        }
-
-        const subs = await base44.entities.Subscription.filter({ tenant_id: mem.tenant_id });
+        // Load membership and subscription for active workspace
+        activeMembership = memberships.find(m => m.tenant_id === activeTenant.id);
+        const subs = await base44.entities.Subscription.filter({ tenant_id: activeTenant.id });
         if (subs.length > 0) {
           setSubscription(subs[0]);
         }
       }
+
+      setTenant(activeTenant);
+      setMembership(activeMembership);
     } catch (error) {
       console.error('Error loading tenant data:', error);
     } finally {
@@ -80,12 +116,33 @@ export function TenantProvider({ children }) {
     }
   };
 
+  const switchWorkspace = async (workspaceId) => {
+    try {
+      const newTenant = allWorkspaces.find(t => t.id === workspaceId);
+      if (!newTenant) return;
+
+      setTenant(newTenant);
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
+
+      const newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
+      setMembership(newMembership);
+
+      const subs = await base44.entities.Subscription.filter({ tenant_id: workspaceId });
+      setSubscription(subs.length > 0 ? subs[0] : null);
+
+      // Reload page to refresh all data
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to switch workspace:', error);
+    }
+  };
+
   const isActive = subscription?.status === 'active';
   const isOwner = membership?.role === 'owner';
   const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
-  const isPlatformAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
+  const isSuperAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
+  const isPlatformAdmin = isSuperAdmin;
 
-  // Page-level permissions helper - owner has all permissions
   const permissions = membership?.permissions || {};
 
   const canViewPage = (pageKey) => {
@@ -104,9 +161,13 @@ export function TenantProvider({ children }) {
     subscription,
     user,
     loading,
+    allWorkspaces,
+    userMemberships,
+    switchWorkspace,
     isActive,
     isOwner,
     isAdmin,
+    isSuperAdmin,
     isPlatformAdmin,
     tenantId: tenant?.id,
     permissions,
