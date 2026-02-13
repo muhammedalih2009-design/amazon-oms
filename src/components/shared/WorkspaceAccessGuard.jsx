@@ -4,15 +4,11 @@ import { Ban, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function WorkspaceAccessGuard({ children }) {
-  const { subscription, tenant, isSuperAdmin } = useTenant();
+  const { subscription, tenant, isSuperAdmin, membership } = useTenant();
 
-  if (!subscription || !tenant) {
-    return children;
-  }
-
-  // Super admin bypasses all workspace status checks
+  // CRITICAL: Super admin ALWAYS has access, even without subscription/membership
   if (isSuperAdmin) {
-    if (subscription.status === 'canceled' || subscription.status === 'inactive') {
+    if (subscription && (subscription.status === 'canceled' || subscription.status === 'inactive')) {
       // Show warning banner but allow access
       return (
         <div>
@@ -33,6 +29,10 @@ export default function WorkspaceAccessGuard({ children }) {
         </div>
       );
     }
+    return children;
+  }
+
+  if (!subscription || !tenant) {
     return children;
   }
 

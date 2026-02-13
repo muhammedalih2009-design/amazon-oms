@@ -101,6 +101,33 @@ export function TenantProvider({ children }) {
       } else {
         // Load membership and subscription for active workspace
         activeMembership = memberships.find(m => m.tenant_id === activeTenant.id);
+        
+        // SAFETY: If super admin and no membership exists, auto-create it
+        if (isSuperAdmin && !activeMembership) {
+          try {
+            activeMembership = await base44.entities.Membership.create({
+              tenant_id: activeTenant.id,
+              user_id: currentUser.id,
+              user_email: currentUser.email,
+              role: 'owner',
+              permissions: {
+                dashboard: { view: true, edit: true },
+                tasks: { view: true, edit: true },
+                skus: { view: true, edit: true },
+                orders: { view: true, edit: true },
+                purchases: { view: true, edit: true },
+                returns: { view: true, edit: true },
+                settlement: { view: true, edit: true },
+                suppliers: { view: true, edit: true }
+              }
+            });
+            // Update local state
+            setUserMemberships([...memberships, activeMembership]);
+          } catch (error) {
+            console.error('Failed to auto-create super admin membership:', error);
+          }
+        }
+        
         const subs = await base44.entities.Subscription.filter({ tenant_id: activeTenant.id });
         if (subs.length > 0) {
           setSubscription(subs[0]);
@@ -124,7 +151,35 @@ export function TenantProvider({ children }) {
       setTenant(newTenant);
       localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
 
-      const newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
+      let newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
+      
+      // SAFETY: If super admin and no membership exists, auto-create it before switching
+      const currentUser = user;
+      const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.email === 'admin@amazonoms.com';
+      
+      if (isSuperAdmin && !newMembership) {
+        try {
+          newMembership = await base44.entities.Membership.create({
+            tenant_id: workspaceId,
+            user_id: currentUser.id,
+            user_email: currentUser.email,
+            role: 'owner',
+            permissions: {
+              dashboard: { view: true, edit: true },
+              tasks: { view: true, edit: true },
+              skus: { view: true, edit: true },
+              orders: { view: true, edit: true },
+              purchases: { view: true, edit: true },
+              returns: { view: true, edit: true },
+              settlement: { view: true, edit: true },
+              suppliers: { view: true, edit: true }
+            }
+          });
+        } catch (error) {
+          console.error('Failed to auto-create membership during switch:', error);
+        }
+      }
+      
       setMembership(newMembership);
 
       const subs = await base44.entities.Subscription.filter({ tenant_id: workspaceId });

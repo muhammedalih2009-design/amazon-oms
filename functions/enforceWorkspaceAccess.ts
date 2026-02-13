@@ -40,10 +40,41 @@ Deno.serve(async (req) => {
       const workspace = workspaces[0];
       const subscription = await db.entities.Subscription.filter({ tenant_id: workspace_id });
 
+      // Auto-repair: Create membership if missing for super admin
+      let membership = await db.asServiceRole.entities.Membership.filter({
+        tenant_id: workspace_id,
+        user_id: user.id
+      });
+
+      if (membership.length === 0) {
+        try {
+          const newMembership = await db.asServiceRole.entities.Membership.create({
+            tenant_id: workspace_id,
+            user_id: user.id,
+            user_email: user.email,
+            role: 'owner',
+            permissions: {
+              dashboard: { view: true, edit: true },
+              tasks: { view: true, edit: true },
+              skus: { view: true, edit: true },
+              orders: { view: true, edit: true },
+              purchases: { view: true, edit: true },
+              returns: { view: true, edit: true },
+              settlement: { view: true, edit: true },
+              suppliers: { view: true, edit: true }
+            }
+          });
+          membership = [newMembership];
+        } catch (error) {
+          console.error('Failed to auto-create super admin membership:', error);
+        }
+      }
+
       return Response.json({
         ok: true,
         workspace,
         subscription: subscription[0] || null,
+        membership: membership[0] || null,
         access_level: 'super_admin',
         can_write: true
       });
