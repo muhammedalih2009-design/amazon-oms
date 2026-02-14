@@ -256,19 +256,25 @@ export default function PurchaseRequests() {
           .toUpperCase();
       };
 
-      // Arabic text processing with RTL support
+      // Arabic text processing with RTL support and proper shaping
       const processArabicText = (text) => {
-        const safe = toStr(text);
-        if (!safe) return '';
-        if (/[\u0600-\u06FF]/.test(safe)) {
+        if (!text) return '';
+        const str = String(text).trim();
+        if (!str) return '';
+        
+        // Check if text contains Arabic characters
+        if (/[\u0600-\u06FF]/.test(str)) {
           try {
-            return bidi(safe);
+            // Apply bidi algorithm for proper RTL rendering
+            const bidified = bidi(str);
+            // Reverse for jsPDF (it doesn't handle RTL natively)
+            return bidified.split('').reverse().join('');
           } catch (e) {
-            console.warn('Bidi processing failed:', e);
-            return safe;
+            console.warn('Arabic processing failed:', e);
+            return str;
           }
         }
-        return safe;
+        return str;
       };
 
       // Load image as base64 with larger canvas
@@ -378,6 +384,17 @@ export default function PurchaseRequests() {
 
       console.log('✅ Enriched items:', itemsWithData.length, 'rows prepared');
       console.log('Sample row:', itemsWithData[0]);
+      
+      // Debug: Log first product to verify it's a string
+      if (itemsWithData.length > 0) {
+        const firstProduct = itemsWithData[0].productName;
+        console.log('🔍 DEBUG First Product:', {
+          value: firstProduct,
+          type: typeof firstProduct,
+          isString: typeof firstProduct === 'string',
+          length: firstProduct?.length
+        });
+      }
 
       // Group by supplier
       const groupedBySupplier = itemsWithData.reduce((acc, item) => {
@@ -471,21 +488,21 @@ export default function PurchaseRequests() {
               minCellHeight: 32
             },
             columnStyles: debugMode ? {
-              0: { cellWidth: 20, halign: 'center' }, // IMAGE
-              1: { cellWidth: 25, halign: 'left' },   // SUPPLIER
-              2: { cellWidth: 18, halign: 'center' }, // SKU CODE
-              3: { cellWidth: 35, halign: 'right' },  // PRODUCT (RTL)
-              4: { cellWidth: 15, halign: 'center' }, // TO BUY
-              5: { cellWidth: 20, halign: 'right' },  // UNIT COST
-              6: { cellWidth: 25, halign: 'left', fontSize: 7 },   // SKU_KEY
-              7: { cellWidth: 15, halign: 'center', fontSize: 7 }  // MD_MATCH
+              0: { cellWidth: 20, halign: 'center' },
+              1: { cellWidth: 25, halign: 'left' },
+              2: { cellWidth: 18, halign: 'center' },
+              3: { cellWidth: 35, halign: 'right', cellPadding: { right: 6 } },
+              4: { cellWidth: 15, halign: 'center' },
+              5: { cellWidth: 20, halign: 'right' },
+              6: { cellWidth: 25, halign: 'left', fontSize: 7 },
+              7: { cellWidth: 15, halign: 'center', fontSize: 7 }
             } : {
-              0: { cellWidth: 28, halign: 'center' }, // IMAGE (wider)
-              1: { cellWidth: 30, halign: 'left' },   // SUPPLIER
-              2: { cellWidth: 22, halign: 'center' }, // SKU CODE
-              3: { cellWidth: 48, halign: 'right' },  // PRODUCT (RTL)
-              4: { cellWidth: 18, halign: 'center' }, // TO BUY
-              5: { cellWidth: 26, halign: 'right' }   // UNIT COST
+              0: { cellWidth: 28, halign: 'center' },
+              1: { cellWidth: 30, halign: 'left' },
+              2: { cellWidth: 22, halign: 'center' },
+              3: { cellWidth: 48, halign: 'right', cellPadding: { right: 8 } },
+              4: { cellWidth: 18, halign: 'center' },
+              5: { cellWidth: 26, halign: 'right' }
             },
             didDrawCell: (data) => {
               // Render images in first column (larger)
@@ -635,7 +652,7 @@ export default function PurchaseRequests() {
               0: { cellWidth: 20, halign: 'center' },
               1: { cellWidth: 25, halign: 'left' },
               2: { cellWidth: 18, halign: 'center' },
-              3: { cellWidth: 35, halign: 'right' },
+              3: { cellWidth: 35, halign: 'right', cellPadding: { right: 6 } },
               4: { cellWidth: 15, halign: 'center' },
               5: { cellWidth: 20, halign: 'right' },
               6: { cellWidth: 25, halign: 'left', fontSize: 7 },
@@ -644,7 +661,7 @@ export default function PurchaseRequests() {
               0: { cellWidth: 28, halign: 'center' },
               1: { cellWidth: 30, halign: 'left' },
               2: { cellWidth: 22, halign: 'center' },
-              3: { cellWidth: 48, halign: 'right' },
+              3: { cellWidth: 48, halign: 'right', cellPadding: { right: 8 } },
               4: { cellWidth: 18, halign: 'center' },
               5: { cellWidth: 26, halign: 'right' }
             },
@@ -674,6 +691,18 @@ export default function PurchaseRequests() {
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
         doc.text(`GRAND TOTAL: ${grandTotalItems} items • $${grandTotal.toFixed(2)}`, pageWidth - 15, finalY, { align: 'right' });
+
+        // Debug footer (first page only)
+        if (itemsWithData.length > 0 && debugMode) {
+          const debugY = finalY + 15;
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(100, 100, 100);
+          doc.text(`DEBUG: productResolved sample = "${itemsWithData[0].productName}"`, 15, debugY);
+          doc.text(`DEBUG: typeof productResolved = ${typeof itemsWithData[0].productName}`, 15, debugY + 5);
+          doc.text(`DEBUG: supplierResolved sample = "${itemsWithData[0].supplier}"`, 15, debugY + 10);
+          doc.setTextColor(0, 0, 0);
+        }
 
         // Save
         doc.save(`Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
