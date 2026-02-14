@@ -66,6 +66,15 @@ Deno.serve(async (req) => {
     // Generate Excel buffer
     const buffer = await workbook.xlsx.writeBuffer();
 
+    // Validate ZIP signature (XLSX is a ZIP container)
+    if (!buffer || buffer.length < 100 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+      // "PK" signature missing - invalid XLSX
+      return Response.json({
+        ok: false,
+        error: 'XLSX buffer validation failed - missing ZIP signature'
+      }, { status: 500 });
+    }
+
     return new Response(buffer, {
       status: 200,
       headers: {
