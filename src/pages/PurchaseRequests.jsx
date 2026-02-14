@@ -423,282 +423,122 @@ export default function PurchaseRequests() {
         ? ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST', 'SKU_KEY', 'MD_MATCH']
         : ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
 
-      // Generate PDFs based on mode
-      if (exportMode === 'per-supplier') {
-        // One PDF per supplier in ZIP
-        const zip = new JSZip();
-        const dateStr = format(new Date(), 'yyyy-MM-dd');
+      setExportingPDF(true);
+      const dateStr = format(new Date(), 'yyyy-MM-dd');
 
+      // Generate PDFs via Puppeteer backend
+      if (exportMode === 'per-supplier') {
+        const zip = new JSZip();
         for (const supplierName of supplierNames) {
           const items = groupedBySupplier[supplierName];
-          const doc = new jsPDF();
-          const pageWidth = doc.internal.pageSize.getWidth();
-
-          // Header
-          doc.setFontSize(20);
-          doc.setFont('helvetica', 'bold');
-          doc.text('Amazon OMS', 15, 20);
-          
-          doc.setFontSize(16);
-          doc.text(`Purchase Request — ${supplierName}`, 15, 28);
-          
-          doc.setFontSize(10);
-          doc.setFont('helvetica', 'normal');
-          doc.text(`Workspace: ${workspaceName}`, 15, 36);
-          doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
-          
-          if (dateRange?.from && dateRange?.to) {
-            doc.text(
-              `Period: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`,
-              pageWidth - 15,
-              28,
-              { align: 'right' }
-            );
-          }
-
-          // Render table using HTML canvas (proper Arabic support)
-          const finalY = await renderTableToPDF(doc, items, supplierName, 44, pageWidth);
-
-          // Totals
           const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
           const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
-          
-          doc.setFontSize(11);
-          doc.setFont('helvetica', 'bold');
-          doc.text(`Total Items: ${supplierItemCount}`, pageWidth - 15, finalY, { align: 'right' });
-          doc.text(`Total Cost: $${supplierTotal.toFixed(2)}`, pageWidth - 15, finalY + 7, { align: 'right' });
 
-          // Skip old autoTable code
-          if (false) {
-          doc.autoTable({
-            startY: 44,
-            head: [headers],
-            body: tableRows,
-            theme: 'grid',
-            headStyles: {
-              fillColor: [79, 70, 229],
-              textColor: 255,
-              fontSize: 10,
-              fontStyle: 'bold',
-              halign: 'center',
-              cellPadding: { top: 6, bottom: 6 }
-            },
-            styles: {
-              fontSize: 9,
-              cellPadding: { top: 8, bottom: 8, left: 4, right: 4 },
-              halign: 'center',
-              lineColor: [200, 200, 200],
-              lineWidth: 0.5,
-              minCellHeight: 32,
-              font: 'helvetica',
-              fontStyle: 'normal'
-            },
-            columnStyles: debugMode ? {
-              0: { cellWidth: 20, halign: 'center' },
-              1: { cellWidth: 25, halign: 'left' },
-              2: { cellWidth: 18, halign: 'center' },
-              3: { cellWidth: 35, halign: 'right', cellPadding: { right: 6 } },
-              4: { cellWidth: 15, halign: 'center' },
-              5: { cellWidth: 20, halign: 'right' },
-              6: { cellWidth: 25, halign: 'left', fontSize: 7 },
-              7: { cellWidth: 15, halign: 'center', fontSize: 7 }
-            } : {
-              0: { cellWidth: 28, halign: 'center' },
-              1: { cellWidth: 30, halign: 'left' },
-              2: { cellWidth: 22, halign: 'center' },
-              3: { cellWidth: 48, halign: 'right', cellPadding: { right: 8 } },
-              4: { cellWidth: 18, halign: 'center' },
-              5: { cellWidth: 26, halign: 'right' }
-            },
-            didDrawCell: (data) => {
-              // Render images in first column (larger)
-              if (data.column.index === 0 && data.cell.section === 'body') {
-                const item = items[data.row.index];
-                if (item?.image) {
-                  try {
-                    const imgSize = 24;
-                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
-                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
-                    doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
-                  } catch (e) {
-                    console.error('Image render error:', e);
-                  }
-                }
-              }
-            }
+          const htmlContent = `
+            <div class="header">
+              <h1>Purchase Request</h1>
+              <div class="header-meta">
+                <div>
+                  <strong>Supplier:</strong> ${supplierName}<br/>
+                  <strong>Workspace:</strong> ${workspaceName}
+                </div>
+                <div style="text-align: right;">
+                  <strong>Date:</strong> ${format(new Date(), 'MMM d, yyyy')}<br/>
+                  ${dateRange?.from && dateRange?.to ? `<strong>Period:</strong> ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="supplier-section">
+              <div class="supplier-header">
+                ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}
+              </div>
+              ${buildTableHTML(items, supplierName)}
+              <div class="totals">
+                <div class="totals-label">Total Items: ${supplierItemCount}</div>
+                <div class="totals-label">Total Cost: $${supplierTotal.toFixed(2)}</div>
+              </div>
+            </div>
+          `;
+
+          const response = await base44.functions.invoke('generatePurchaseRequestPDF', {
+            htmlContent,
+            filename: `Purchase_Request_${supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_')}_${dateStr}.pdf`,
+            exportMode: 'per-supplier'
           });
-          }
 
-          // Add to ZIP
-          const pdfBlob = doc.output('blob');
+          const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
           const safeFileName = supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_');
           zip.file(`Purchase_Request_${safeFileName}_${dateStr}.pdf`, pdfBlob);
         }
 
-        // Download ZIP
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(zipBlob);
-        link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.zip`;
+        link.download = `Purchase_Requests_${dateStr}.zip`;
         link.click();
         URL.revokeObjectURL(link.href);
-        
-        toast({ 
-          title: 'PDFs Generated', 
-          description: `${supplierNames.length} suppliers • ${itemsWithData.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
+
+        toast({
+          title: 'PDFs Generated',
+          description: `${supplierNames.length} suppliers • ${itemsWithImages.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
           duration: 4000
         });
 
       } else {
-        // Single PDF with page breaks per supplier
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-
-        // Main header
-        doc.setFontSize(20);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Amazon OMS', 15, 20);
-        
-        doc.setFontSize(16);
-        doc.text('Purchase Requests', 15, 28);
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Workspace: ${workspaceName}`, 15, 36);
-        doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
-        
-        if (dateRange?.from && dateRange?.to) {
-          doc.text(
-            `Period: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`,
-            pageWidth - 15,
-            28,
-            { align: 'right' }
-          );
-        }
-
-        let isFirstSupplier = true;
-        for (const supplierName of supplierNames) {
+        const sectionsHTML = supplierNames.map(supplierName => {
           const items = groupedBySupplier[supplierName];
-          
-          // Page break for each supplier (except first)
-          if (!isFirstSupplier) {
-            doc.addPage();
-          }
-          isFirstSupplier = false;
+          const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
 
-          // Supplier section header
-          const startY = doc.lastAutoTable ? 20 : 44;
-          doc.setFontSize(14);
-          doc.setFont('helvetica', 'bold');
-          doc.setFillColor(79, 70, 229);
-          doc.setTextColor(255, 255, 255);
-          doc.rect(15, startY, pageWidth - 30, 10, 'F');
-          
-          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
-          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
-          
-          doc.text(
-            `${supplierName} • ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}`,
-            pageWidth / 2,
-            startY + 7,
-            { align: 'center' }
-          );
-          doc.setTextColor(0, 0, 0);
+          return `
+            <div class="supplier-section">
+              <div class="supplier-header">
+                ${supplierName} • ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}
+              </div>
+              ${buildTableHTML(items, supplierName)}
+            </div>
+          `;
+        }).join('');
 
-          // Render table using HTML canvas (proper Arabic support)
-          await renderTableToPDF(doc, items, supplierName, startY + 12, pageWidth);
+        const htmlContent = `
+          <div class="header">
+            <h1>Purchase Requests</h1>
+            <div class="header-meta">
+              <div>
+                <strong>Workspace:</strong> ${workspaceName}
+              </div>
+              <div style="text-align: right;">
+                <strong>Date:</strong> ${format(new Date(), 'MMM d, yyyy')}<br/>
+                ${dateRange?.from && dateRange?.to ? `<strong>Period:</strong> ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}` : ''}
+              </div>
+            </div>
+          </div>
+          ${sectionsHTML}
+          <div class="grand-total">
+            GRAND TOTAL: ${totalItems} items • $${totalValue.toFixed(2)}
+          </div>
+        `;
 
-          // Skip old autoTable code
-          if (false) {
-          doc.autoTable({
-            startY: startY + 12,
-            head: [headers],
-            body: tableRows,
-            theme: 'grid',
-            headStyles: {
-              fillColor: [99, 102, 241],
-              textColor: 255,
-              fontSize: 10,
-              fontStyle: 'bold',
-              halign: 'center',
-              cellPadding: { top: 6, bottom: 6 }
-            },
-            styles: {
-              fontSize: 9,
-              cellPadding: { top: 8, bottom: 8, left: 4, right: 4 },
-              halign: 'center',
-              lineColor: [200, 200, 200],
-              lineWidth: 0.5,
-              minCellHeight: 32,
-              font: 'helvetica',
-              fontStyle: 'normal'
-            },
-            columnStyles: debugMode ? {
-              0: { cellWidth: 20, halign: 'center' },
-              1: { cellWidth: 25, halign: 'left' },
-              2: { cellWidth: 18, halign: 'center' },
-              3: { cellWidth: 35, halign: 'right', cellPadding: { right: 6 } },
-              4: { cellWidth: 15, halign: 'center' },
-              5: { cellWidth: 20, halign: 'right' },
-              6: { cellWidth: 25, halign: 'left', fontSize: 7 },
-              7: { cellWidth: 15, halign: 'center', fontSize: 7 }
-            } : {
-              0: { cellWidth: 28, halign: 'center' },
-              1: { cellWidth: 30, halign: 'left' },
-              2: { cellWidth: 22, halign: 'center' },
-              3: { cellWidth: 48, halign: 'right', cellPadding: { right: 8 } },
-              4: { cellWidth: 18, halign: 'center' },
-              5: { cellWidth: 26, halign: 'right' }
-            },
-            didDrawCell: (data) => {
-              if (data.column.index === 0 && data.cell.section === 'body') {
-                const item = items[data.row.index];
-                if (item?.image) {
-                  try {
-                    const imgSize = 24;
-                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
-                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
-                    doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
-                  } catch (e) {
-                    console.error('Image render error:', e);
-                  }
-                }
-              }
-            }
-          });
-          }
-        }
+        const response = await base44.functions.invoke('generatePurchaseRequestPDF', {
+          htmlContent,
+          filename: `Purchase_Requests_${dateStr}.pdf`,
+          exportMode: 'single'
+        });
 
-        // Grand total
-        const grandTotal = itemsWithData.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
-        const grandTotalItems = itemsWithData.reduce((sum, item) => sum + item.toBuy, 0);
+        const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(pdfBlob);
+        link.download = `Purchase_Requests_${dateStr}.pdf`;
+        link.click();
+        URL.revokeObjectURL(link.href);
 
-        const finalY = doc.lastAutoTable.finalY + 12;
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`GRAND TOTAL: ${grandTotalItems} items • $${grandTotal.toFixed(2)}`, pageWidth - 15, finalY, { align: 'right' });
-
-        // Debug footer (first page only)
-        if (itemsWithData.length > 0 && debugMode) {
-          const debugY = finalY + 15;
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(100, 100, 100);
-          doc.text(`DEBUG: productResolved sample = "${itemsWithData[0].productName}"`, 15, debugY);
-          doc.text(`DEBUG: typeof productResolved = ${typeof itemsWithData[0].productName}`, 15, debugY + 5);
-          doc.text(`DEBUG: supplierResolved sample = "${itemsWithData[0].supplier}"`, 15, debugY + 10);
-          doc.setTextColor(0, 0, 0);
-        }
-
-        // Save
-        doc.save(`Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-        
-        toast({ 
-          title: 'PDF Generated', 
-          description: `${supplierNames.length} suppliers • ${itemsWithData.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
+        toast({
+          title: 'PDF Generated',
+          description: `${supplierNames.length} suppliers • ${itemsWithImages.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
           duration: 4000
         });
       }
+      setExportingPDF(false);
 
     } catch (error) {
       console.error('❌ PDF export failed:', error);
