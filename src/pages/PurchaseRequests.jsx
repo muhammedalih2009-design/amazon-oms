@@ -1400,19 +1400,39 @@ export default function PurchaseRequests() {
             CSV
           </Button>
           <Button 
-            onClick={handleExportPrintPDF}
+            onClick={handleExportToCSV}
             variant="outline"
-            className="border-purple-200 text-purple-700 hover:bg-purple-50"
-            title="Open browser print dialog"
+            className="border-sky-200 text-sky-700 hover:bg-sky-50"
+            title="Sorted by supplier"
           >
             <FileDown className="w-4 h-4 mr-2" />
-            PDF (Print)
+            CSV
           </Button>
+          <a
+            href={`${createPageUrl('PurchaseRequestsPrint')}?mode=single`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-purple-200 text-purple-700 hover:bg-purple-50 px-4 py-2"
+            title="Open print view in new tab"
+          >
+            <FileDown className="w-4 h-4" />
+            PDF (All)
+          </a>
+          <a
+            href={`${createPageUrl('PurchaseRequestsPrint')}?mode=supplier`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-purple-200 text-purple-700 hover:bg-purple-50 px-4 py-2"
+            title="Open print view with page breaks per supplier"
+          >
+            <FileDown className="w-4 h-4" />
+            PDF per Supplier
+          </a>
           <Button 
             onClick={handleExportToExcel}
             variant="outline"
             className="border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50"
-            disabled={exportingExcel || exportingPDF}
+            disabled={exportingExcel}
           >
             {exportingExcel ? (
               <>
@@ -1423,24 +1443,6 @@ export default function PurchaseRequests() {
               <>
                 <FileDown className="w-4 h-4 mr-2" />
                 Excel
-              </>
-            )}
-          </Button>
-          <Button 
-            onClick={handleExportToPDF}
-            variant="outline"
-            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-            disabled={exportingPDF || exportingExcel}
-          >
-            {exportingPDF ? (
-              <>
-                <Loader className="w-4 h-4 mr-2 animate-spin" />
-                PDF...
-              </>
-            ) : (
-              <>
-                <FileDown className="w-4 h-4 mr-2" />
-                PDF
               </>
             )}
           </Button>
