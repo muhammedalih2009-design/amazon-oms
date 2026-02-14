@@ -639,30 +639,10 @@ export default function PurchaseRequests() {
   const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
   const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
 
-  // Export to Excel (fallback only)
-  const handleExportToExcel = async (forceExcel = false) => {
+  // Export to Excel
+  const handleExportToExcel = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
-      return;
-    }
-
-    // Hard gate: Check self-test results first
-    if (selfTestResults && selfTestResults.xlsxTest.status !== 'PASS') {
-      toast({
-        title: 'XLSX Engine Failed Self-Test',
-        description: `${selfTestResults.xlsxTest.reason}. Run self-test to fix (Error ID: ${selfTestResults.xlsxTest.errorId})`,
-        variant: 'destructive',
-        duration: 6000
-      });
-      return;
-    }
-
-    if (!selfTestResults && !forceExcel) {
-      toast({
-        title: 'Run Export Self-Test First',
-        description: 'Click "Run Export Self-Test" to validate engines before exporting',
-        variant: 'destructive'
-      });
       return;
     }
 
@@ -671,6 +651,15 @@ export default function PurchaseRequests() {
 
     try {
       const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+      
+      // Sort by supplier
+      const sorted = [...selectedItems].sort((a, b) => {
+        const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+        const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+        const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+        if (cmp !== 0) return cmp;
+        return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+      });
 
       const response = await base44.functions.invoke('exportToExcel', {
         items: selectedItems,
