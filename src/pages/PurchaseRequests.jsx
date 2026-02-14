@@ -32,6 +32,7 @@ export default function PurchaseRequests() {
   const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
   const [debugMode, setDebugMode] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -425,14 +426,17 @@ export default function PurchaseRequests() {
 
       setExportingPDF(true);
       const dateStr = format(new Date(), 'yyyy-MM-dd');
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
 
-      // Generate PDFs via Puppeteer backend
+      // Generate PDFs via Puppeteer backend with fallback
       if (exportMode === 'per-supplier') {
         const zip = new JSZip();
+        let anyPdfFailed = false;
+
         for (const supplierName of supplierNames) {
           const items = groupedBySupplier[supplierName];
-          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
-          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
+          const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
 
           const htmlContent = `
             <div class="header">
@@ -460,29 +464,49 @@ export default function PurchaseRequests() {
             </div>
           `;
 
-          const response = await base44.functions.invoke('generatePurchaseRequestPDF', {
-            htmlContent,
-            filename: `Purchase_Request_${supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_')}_${dateStr}.pdf`,
-            exportMode: 'per-supplier'
-          });
+          try {
+            const response = await base44.functions.invoke('generatePurchaseRequestPDFWithFallback', {
+              htmlContent,
+              filename: `Purchase_Request_${supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_')}_${dateStr}.pdf`,
+              exportMode: 'pdf_per_supplier',
+              tenantId,
+              items: selectedItems
+            });
 
-          const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-          const safeFileName = supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_');
-          zip.file(`Purchase_Request_${safeFileName}_${dateStr}.pdf`, pdfBlob);
+            if (response.data.fallback) {
+              anyPdfFailed = true;
+            } else {
+              const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+              const safeFileName = supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_');
+              zip.file(`Purchase_Request_${safeFileName}_${dateStr}.pdf`, pdfBlob);
+            }
+          } catch (err) {
+            anyPdfFailed = true;
+          }
         }
 
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(zipBlob);
-        link.download = `Purchase_Requests_${dateStr}.zip`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+        if (anyPdfFailed) {
+          toast({
+            title: 'PDF Generation Failed',
+            description: 'Falling back to Excel export automatically',
+            variant: 'destructive',
+            duration: 4000
+          });
+          setTimeout(() => handleExportToExcel(), 500);
+        } else {
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(zipBlob);
+          link.download = `Purchase_Requests_${dateStr}.zip`;
+          link.click();
+          URL.revokeObjectURL(link.href);
 
-        toast({
-          title: 'PDFs Generated',
-          description: `${supplierNames.length} suppliers • ${itemsWithImages.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
-          duration: 4000
-        });
+          toast({
+            title: 'PDFs Generated',
+            description: `${supplierNames.length} suppliers • ${selectedItems.length} items`,
+            duration: 4000
+          });
+        }
 
       } else {
         const sectionsHTML = supplierNames.map(supplierName => {
@@ -519,24 +543,46 @@ export default function PurchaseRequests() {
           </div>
         `;
 
-        const response = await base44.functions.invoke('generatePurchaseRequestPDF', {
-          htmlContent,
-          filename: `Purchase_Requests_${dateStr}.pdf`,
-          exportMode: 'single'
-        });
+        try {
+          const response = await base44.functions.invoke('generatePurchaseRequestPDFWithFallback', {
+            htmlContent,
+            filename: `Purchase_Requests_${dateStr}.pdf`,
+            exportMode: 'pdf_single',
+            tenantId,
+            items: selectedItems
+          });
 
-        const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(pdfBlob);
-        link.download = `Purchase_Requests_${dateStr}.pdf`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+          if (response.data.fallback) {
+            toast({
+              title: 'PDF Generation Failed',
+              description: 'Falling back to Excel export automatically',
+              variant: 'destructive',
+              duration: 4000
+            });
+            setTimeout(() => handleExportToExcel(), 500);
+          } else {
+            const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(pdfBlob);
+            link.download = `Purchase_Requests_${dateStr}.pdf`;
+            link.click();
+            URL.revokeObjectURL(link.href);
 
-        toast({
-          title: 'PDF Generated',
-          description: `${supplierNames.length} suppliers • ${itemsWithImages.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
-          duration: 4000
-        });
+            toast({
+              title: 'PDF Generated',
+              description: `${supplierNames.length} suppliers • ${selectedItems.length} items`,
+              duration: 4000
+            });
+          }
+        } catch (err) {
+          toast({
+            title: 'PDF Generation Failed',
+            description: 'Falling back to Excel export automatically',
+            variant: 'destructive',
+            duration: 4000
+          });
+          setTimeout(() => handleExportToExcel(), 500);
+        }
       }
       setExportingPDF(false);
 
@@ -723,32 +769,50 @@ export default function PurchaseRequests() {
         </p>
         <div className="flex items-center gap-3">
           <Button 
-            onClick={handleExportToPDF}
+            onClick={handleExportToExcel}
             variant="outline"
-            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-            disabled={exportingPDF}
+            className="border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50"
+            disabled={exportingExcel || exportingPDF}
           >
-            {exportingPDF ? (
+            {exportingExcel ? (
               <>
                 <Loader className="w-4 h-4 mr-2 animate-spin" />
-                Generating...
+                Excel...
               </>
             ) : (
               <>
                 <FileDown className="w-4 h-4 mr-2" />
-                Export to PDF
+                Excel
               </>
             )}
           </Button>
-              <Button 
-                onClick={handleAddToCart}
-                className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={!isActive}
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                Add to Purchase Cart
-              </Button>
-            </div>
+          <Button 
+            onClick={handleExportToPDF}
+            variant="outline"
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            disabled={exportingPDF || exportingExcel}
+          >
+            {exportingPDF ? (
+              <>
+                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                PDF...
+              </>
+            ) : (
+              <>
+                <FileDown className="w-4 h-4 mr-2" />
+                PDF
+              </>
+            )}
+          </Button>
+          <Button 
+            onClick={handleAddToCart}
+            className="bg-indigo-600 hover:bg-indigo-700"
+            disabled={!isActive}
+          >
+            <ShoppingCart className="w-4 h-4 mr-2" />
+            Add to Purchase Cart
+          </Button>
+        </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <span className="text-slate-600">Export mode:</span>
