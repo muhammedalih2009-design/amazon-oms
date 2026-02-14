@@ -194,9 +194,10 @@ export default function PurchaseRequestsPrint() {
         const items = groupedBySupplier[supplierName];
         const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
         const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
+        const shouldPageBreak = mode === 'supplier' && idx > 0;
 
         return (
-          <div key={supplierName} className={`supplier-section ${idx > 0 ? 'page-break' : ''}`}>
+          <div key={supplierName} className={`supplier-section ${shouldPageBreak ? 'page-break' : ''}`}>
             <div className="supplier-header">
               <strong>{supplierName}</strong>
               <span style={{ fontWeight: 'normal', fontSize: 12, color: '#6b7280' }}>
