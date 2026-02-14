@@ -32,6 +32,7 @@ export default function PurchaseRequests() {
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
   const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
+  const [debugMode, setDebugMode] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -197,11 +198,14 @@ export default function PurchaseRequests() {
         return String(value);
       };
 
-      // Normalize SKU for matching (remove all whitespace and unicode direction marks)
+      // AGGRESSIVE SKU normalization (remove spaces, RTL marks, hyphens, underscores, non-alphanumeric)
       const normalizeSku = (sku) => {
-        return toStr(sku)
-          .replace(/\s+/g, '')
-          .replace(/[\u200E\u200F]/g, '')
+        const t = (sku ?? '').toString().trim();
+        return t
+          .replace(/[\s\r\n]+/g, '')
+          .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
+          .replace(/[-_]+/g, '')
+          .replace(/[^0-9A-Za-z]+/g, '')
           .toUpperCase();
       };
 
@@ -280,49 +284,83 @@ export default function PurchaseRequests() {
       });
 
       console.log('📊 Master Data lookup built:', Object.keys(masterLookup).length, 'SKUs indexed');
+      if (debugMode) {
+        console.log('🔍 DEBUG: First 5 master keys:', Object.keys(masterLookup).slice(0, 5));
+      }
 
       let failedImagesCount = 0;
 
       // Enrich and normalize items with Master Data
-      const itemsWithData = await Promise.all(selectedItems.map(async (item) => {
+      const itemsWithData = await Promise.all(selectedItems.map(async (item, idx) => {
         // Lookup Master Data by normalized SKU
-        const skuKey = normalizeSku(item.sku_code || item.sku || item.SKU || item['SKU CODE']);
-        const master = masterLookup[skuKey];
+        const rawSku = item.sku_code || item.sku || item.SKU || item['SKU CODE'] || item.code || '';
+        const skuKey = normalizeSku(rawSku);
+        const md = masterLookup[skuKey];
         
-        // Resolve supplier from Master Data first
-        let resolvedSupplier = 'Unassigned';
-        if (master?.supplier_id) {
-          const supplierEntity = suppliersData.find(s => s.id === master.supplier_id);
-          resolvedSupplier = toStr(supplierEntity?.supplier_name || supplierEntity?.name);
+        if (debugMode && idx < 5) {
+          console.log(`🔍 Row ${idx}:`, {
+            rawSku,
+            skuKey,
+            mdFound: !!md,
+            mdSupplier: md?.supplier_id,
+            mdProduct: md?.product_name
+          });
         }
-        if (resolvedSupplier === 'Unassigned' || !resolvedSupplier) {
-          resolvedSupplier = toStr(master?.supplier || master?.vendor || master?.brandSupplier || master?.SUPPLIER) 
-            || toStr(item.supplier) 
+        
+        // Resolve supplier from Master Data FIRST
+        let resolvedSupplier = '';
+        
+        if (md?.supplier_id) {
+          const supplierEntity = suppliersData.find(s => s.id === md.supplier_id);
+          if (supplierEntity) {
+            resolvedSupplier = (supplierEntity.supplier_name || supplierEntity.name || '').toString().trim();
+          }
+        }
+        
+        if (!resolvedSupplier) {
+          resolvedSupplier = (md?.supplier || md?.vendor || md?.Supplier || md?.brandSupplier || md?.vendorName || '').toString().trim()
+            || (item.supplier || '').toString().trim()
             || 'Unassigned';
         }
         
-        // Resolve Arabic product name from Master Data
-        const resolvedProductName = toStr(
-          master?.productNameAr || master?.arabicName || master?.name_ar || master?.PRODUCT_AR ||
-          master?.product_name || master?.name || master?.title ||
-          item.product_name || item.product
-        );
+        // Resolve product name from Master Data FIRST (Arabic preferred)
+        let resolvedProduct = (md?.productNameAr || md?.name_ar || md?.arabicName || md?.arName || '').toString().trim();
+        
+        if (!resolvedProduct) {
+          resolvedProduct = (md?.product_name || md?.productName || md?.name || md?.title || md?.enName || '').toString().trim();
+        }
+        
+        if (!resolvedProduct) {
+          resolvedProduct = (item.product_name || '').toString().trim();
+        }
+        
+        if (!resolvedProduct && typeof item.product === 'string') {
+          resolvedProduct = item.product.trim();
+        }
+        
+        if (!resolvedProduct) {
+          resolvedProduct = 'Unknown Product';
+        }
         
         // Load image from Master Data
         let imageData = null;
-        if (master?.image_url) {
-          imageData = await loadImageAsBase64(master.image_url);
+        if (md?.image_url) {
+          imageData = await loadImageAsBase64(md.image_url);
           if (!imageData) failedImagesCount++;
         }
         
-        // Return normalized data (NO OBJECTS)
+        // Return normalized data (ALL STRINGS/NUMBERS, NEVER OBJECTS)
         return {
           image: imageData,
           supplier: resolvedSupplier,
-          skuCode: toStr(item.sku_code || item.sku),
-          productName: resolvedProductName,
+          skuCode: toStr(rawSku),
+          productName: resolvedProduct,
           toBuy: Number(item.to_buy || item.qty || item.quantity || 0),
-          unitCost: Number(item.cost_price || item.unitCost || item.cost || item.unit_price || 0)
+          unitCost: Number(item.cost_price || item.unitCost || item.cost || item.unit_price || 0),
+          // Debug fields
+          _debugSkuKey: skuKey,
+          _debugRawSku: rawSku,
+          _debugMdMatch: !!md
         };
       }));
 
@@ -349,8 +387,10 @@ export default function PurchaseRequests() {
         return a.localeCompare(b, 'ar', { sensitivity: 'base' });
       });
 
-      // Exact headers as specified
-      const headers = ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
+      // Headers (add debug columns if in debug mode)
+      const headers = debugMode 
+        ? ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST', 'SKU_KEY', 'MD_MATCH']
+        : ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
 
       // Generate PDFs based on mode
       if (exportMode === 'per-supplier') {
@@ -386,14 +426,23 @@ export default function PurchaseRequests() {
           }
 
           // Build table rows - ensure all values are strings/numbers
-          const tableRows = items.map(item => [
-            '', // Image placeholder
-            String(item.supplier),
-            String(item.skuCode),
-            String(processArabicText(item.productName)),
-            String(item.toBuy),
-            String(`$${item.unitCost.toFixed(2)}`)
-          ]);
+          const tableRows = items.map(item => {
+            const baseRow = [
+              '', // Image placeholder
+              String(item.supplier),
+              String(item.skuCode),
+              String(processArabicText(item.productName)),
+              String(item.toBuy),
+              String(`$${item.unitCost.toFixed(2)}`)
+            ];
+            
+            if (debugMode) {
+              baseRow.push(String(item._debugSkuKey || ''));
+              baseRow.push(item._debugMdMatch ? 'YES' : 'NO');
+            }
+            
+            return baseRow;
+          });
 
           doc.autoTable({
             startY: 44,
@@ -416,7 +465,16 @@ export default function PurchaseRequests() {
               lineWidth: 0.5,
               minCellHeight: 32
             },
-            columnStyles: {
+            columnStyles: debugMode ? {
+              0: { cellWidth: 20, halign: 'center' }, // IMAGE
+              1: { cellWidth: 25, halign: 'left' },   // SUPPLIER
+              2: { cellWidth: 18, halign: 'center' }, // SKU CODE
+              3: { cellWidth: 35, halign: 'right' },  // PRODUCT (RTL)
+              4: { cellWidth: 15, halign: 'center' }, // TO BUY
+              5: { cellWidth: 20, halign: 'right' },  // UNIT COST
+              6: { cellWidth: 25, halign: 'left', fontSize: 7 },   // SKU_KEY
+              7: { cellWidth: 15, halign: 'center', fontSize: 7 }  // MD_MATCH
+            } : {
               0: { cellWidth: 28, halign: 'center' }, // IMAGE (wider)
               1: { cellWidth: 30, halign: 'left' },   // SUPPLIER
               2: { cellWidth: 22, halign: 'center' }, // SKU CODE
@@ -529,14 +587,23 @@ export default function PurchaseRequests() {
           doc.setTextColor(0, 0, 0);
 
           // Table
-          const tableRows = items.map(item => [
-            '', // Image
-            String(item.supplier),
-            String(item.skuCode),
-            String(processArabicText(item.productName)),
-            String(item.toBuy),
-            String(`$${item.unitCost.toFixed(2)}`)
-          ]);
+          const tableRows = items.map(item => {
+            const baseRow = [
+              '', // Image
+              String(item.supplier),
+              String(item.skuCode),
+              String(processArabicText(item.productName)),
+              String(item.toBuy),
+              String(`$${item.unitCost.toFixed(2)}`)
+            ];
+            
+            if (debugMode) {
+              baseRow.push(String(item._debugSkuKey || ''));
+              baseRow.push(item._debugMdMatch ? 'YES' : 'NO');
+            }
+            
+            return baseRow;
+          });
 
           doc.autoTable({
             startY: startY + 12,
@@ -559,7 +626,16 @@ export default function PurchaseRequests() {
               lineWidth: 0.5,
               minCellHeight: 32
             },
-            columnStyles: {
+            columnStyles: debugMode ? {
+              0: { cellWidth: 20, halign: 'center' },
+              1: { cellWidth: 25, halign: 'left' },
+              2: { cellWidth: 18, halign: 'center' },
+              3: { cellWidth: 35, halign: 'right' },
+              4: { cellWidth: 15, halign: 'center' },
+              5: { cellWidth: 20, halign: 'right' },
+              6: { cellWidth: 25, halign: 'left', fontSize: 7 },
+              7: { cellWidth: 15, halign: 'center', fontSize: 7 }
+            } : {
               0: { cellWidth: 28, halign: 'center' },
               1: { cellWidth: 30, halign: 'left' },
               2: { cellWidth: 22, halign: 'center' },
@@ -806,6 +882,16 @@ export default function PurchaseRequests() {
               }`}
             >
               PDF per Supplier (ZIP)
+            </button>
+            <button
+              onClick={() => setDebugMode(!debugMode)}
+              className={`px-3 py-1 rounded-md transition-colors ${
+                debugMode
+                  ? 'bg-red-600 text-white'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:border-red-200'
+              }`}
+            >
+              {debugMode ? '🐛 Debug ON' : 'Debug Mode'}
             </button>
           </div>
         </div>
