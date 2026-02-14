@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
@@ -931,30 +930,49 @@ export default function PurchaseRequests() {
       <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
 
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
-        <p className="text-slate-500">Calculate inventory needs for pending orders</p>
-      </div>
-      <div className="flex gap-3">
-        {user?.role === 'admin' && (
-          <>
-            <Button
-              onClick={() => setExportStatusOpen(true)}
-              variant="outline"
-              className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
-              title="Admin: View export proofs"
-            >
-              📊 Export Status
-            </Button>
-            <ExportSelfTestPanel
-              results={selfTestResults}
-              loading={selfTestLoading}
-              onRunTest={handleRunSelfTest}
-            />
-          </>
-        )}
-        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
-      </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
+          <p className="text-slate-500">Calculate inventory needs for pending orders</p>
+        </div>
+        <div className="flex gap-3 items-center">
+          {printViewHealthy !== null && (
+            <div className={`flex items-center gap-2 text-xs px-3 py-1 rounded-lg ${
+              printViewHealthy 
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-red-100 text-red-700'
+            }`}>
+              {printViewHealthy ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Print View: OK
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4" />
+                  Print View Unavailable
+                </>
+              )}
+            </div>
+          )}
+          {user?.role === 'admin' && (
+            <>
+              <Button
+                onClick={() => setExportStatusOpen(true)}
+                variant="outline"
+                className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                title="Admin: View export proofs"
+              >
+                📊 Export Status
+              </Button>
+              <ExportSelfTestPanel
+                results={selfTestResults}
+                loading={selfTestLoading}
+                onRunTest={handleRunSelfTest}
+              />
+            </>
+          )}
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+        </div>
       </div>
 
       {/* Summary Cards */}
