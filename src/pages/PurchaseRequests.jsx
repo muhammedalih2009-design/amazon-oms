@@ -252,10 +252,7 @@ export default function PurchaseRequests() {
     });
   };
 
-  const handleOpenPrintView = (mode = 'single') => {
-    const printUrl = createPageUrl(`PurchaseRequestsPrint?mode=${mode}`);
-    window.open(printUrl, '_blank', 'width=1200,height=800');
-  };
+
 
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
@@ -294,7 +291,6 @@ export default function PurchaseRequests() {
   const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
   const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
 
-  // Export to Excel
   const handleExportToExcel = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
@@ -350,27 +346,7 @@ export default function PurchaseRequests() {
       link.click();
       URL.revokeObjectURL(link.href);
 
-      // Record proof with headers
-      setExportProofs(prev => ({
-        ...prev,
-        excel: {
-          status: 'pass',
-          data: {
-            fileSize: excelBlob.size,
-            firstBytes: firstBytes,
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers: {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              'Content-Disposition': `attachment; filename="Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx"`,
-              'Content-Length': excelBlob.size
-            },
-            serverValidation: {
-              bufferLength: excelBlob.size,
-              zipSignature: true
-            }
-          }
-        }
-      }));
+
 
       toast({
         title: 'Excel Exported ✓',
@@ -380,19 +356,7 @@ export default function PurchaseRequests() {
     } catch (error) {
       console.error('Excel export failed:', error);
       
-      // Record failure and fallback
-      setExportProofs(prev => ({
-        ...prev,
-        excel: { status: 'fail' },
-        noBlocking: {
-          status: 'pass',
-          data: {
-            csvAllowed: true,
-            pdfPrintAllowed: true,
-            excelFallback: true
-          }
-        }
-      }));
+
       
       toast({
         title: 'Excel Export Unavailable',
