@@ -16,7 +16,7 @@ import { useToast } from '@/components/ui/use-toast';
 import ExportSelfTestPanel from '@/components/exports/ExportSelfTestPanel';
 
 export default function PurchaseRequests() {
-  const { tenantId, subscription, isActive } = useTenant();
+  const { tenantId, subscription, isActive, user } = useTenant();
   const { toast } = useToast();
   const [orders, setOrders] = useState([]);
   const [orderLines, setOrderLines] = useState([]);
