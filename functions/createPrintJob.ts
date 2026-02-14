@@ -1,5 +1,14 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+function generateJobId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 32; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
@@ -20,12 +29,8 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Generate unique job ID using Web Crypto API
-    const bytes = new Uint8Array(16);
-    globalThis.crypto.getRandomValues(bytes);
-    const jobId = Array.from(bytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    // Generate unique job ID
+    const jobId = generateJobId();
 
     // Set expiration to 10 minutes
     const expiresAt = new Date();
