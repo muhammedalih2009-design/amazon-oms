@@ -483,23 +483,7 @@ export default function PurchaseRequests() {
               )}
             </div>
           )}
-          {user?.role === 'admin' && (
-            <>
-              <Button
-                onClick={() => setExportStatusOpen(true)}
-                variant="outline"
-                className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
-                title="Admin: View export proofs"
-              >
-                📊 Export Status
-              </Button>
-              <ExportSelfTestPanel
-                results={selfTestResults}
-                loading={selfTestLoading}
-                onRunTest={handleRunSelfTest}
-              />
-            </>
-          )}
+
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
         </div>
       </div>
@@ -593,49 +577,7 @@ export default function PurchaseRequests() {
             CSV
           </Button>
 
-          {/* New PDF Export with Popover */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className="border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50"
-                disabled={exportingPDF}
-              >
-                {exportingPDF ? (
-                  <>
-                    <Loader className="w-4 h-4 mr-2 animate-spin" />
-                    PDF...
-                  </>
-                ) : (
-                  <>
-                    <FileDown className="w-4 h-4 mr-2" />
-                    PDF
-                  </>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-2" align="end">
-              <div className="grid gap-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => handleExportToPDF('single')}
-                  className="w-full justify-start"
-                  disabled={exportingPDF}
-                >
-                  PDF (Single File)
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleExportToPDF('per-supplier')}
-                  className="w-full justify-start"
-                  disabled={exportingPDF}
-                >
-                  PDF (Per-Supplier)
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-          
+
           <Button 
             onClick={handleExportToExcel}
             variant="outline"
@@ -666,24 +608,24 @@ export default function PurchaseRequests() {
         </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              onClick={() => handleOpenPrintView('single')}
-              variant="outline"
-              size="sm"
-              className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+            <a
+              href={`${createPageUrl('PurchaseRequestsPrint')}?mode=single`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
               title="Open print view in new tab for all items (use browser print dialog)"
             >
-              🖨️ Print View (All)
-            </Button>
-            <Button
-              onClick={() => handleOpenPrintView('supplier')}
-              variant="outline"
-              size="sm"
-              className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+              📄 PDF (All)
+            </a>
+            <a
+              href={`${createPageUrl('PurchaseRequestsPrint')}?mode=supplier`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
               title="Open print view in new tab with page breaks per supplier (use browser print dialog)"
             >
-              🖨️ Print View per Supplier
-            </Button>
+              📄 PDF (Supplier)
+            </a>
             <Button
               onClick={() => setDebugMode(!debugMode)}
               variant={debugMode ? 'default' : 'outline'}
