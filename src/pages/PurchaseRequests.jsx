@@ -224,8 +224,8 @@ export default function PurchaseRequests() {
   const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
   const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
 
-  // Export to Excel
-  const handleExportToExcel = async () => {
+  // Export to Excel (fallback only)
+  const handleExportToExcel = async (forceExcel = false) => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
       return;
@@ -242,7 +242,23 @@ export default function PurchaseRequests() {
         fileName: `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx`
       });
 
-      const excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      // Validate response - check if it's a proper binary response
+      if (response.data && response.data.ok === false) {
+        // Error response
+        throw new Error(response.data.error || 'Excel generation failed');
+      }
+
+      // For binary files, response.data should be a Blob or ArrayBuffer
+      let excelBlob;
+      if (response.data instanceof Blob) {
+        excelBlob = response.data;
+      } else if (response.data instanceof ArrayBuffer) {
+        excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      } else {
+        // Fallback: wrap as blob
+        excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      }
+
       const link = document.createElement('a');
       link.href = URL.createObjectURL(excelBlob);
       link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
@@ -258,7 +274,7 @@ export default function PurchaseRequests() {
       console.error('Excel export failed:', error);
       toast({
         title: 'Export Failed',
-        description: error.message,
+        description: error.message || 'Could not generate Excel',
         variant: 'destructive'
       });
     } finally {
