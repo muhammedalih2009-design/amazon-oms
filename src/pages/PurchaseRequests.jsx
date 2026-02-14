@@ -1272,6 +1272,14 @@ export default function PurchaseRequests() {
             CSV
           </Button>
           <Button 
+            onClick={handleExportPrintPDF}
+            variant="outline"
+            className="border-purple-200 text-purple-700 hover:bg-purple-50"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            PDF (Print)
+          </Button>
+          <Button 
             onClick={handleExportToExcel}
             variant="outline"
             className="border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50"
