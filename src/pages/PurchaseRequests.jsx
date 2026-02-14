@@ -183,28 +183,29 @@ export default function PurchaseRequests() {
       return;
     }
 
-    toast({ title: 'Generating PDF...', description: 'Loading data and preparing export' });
+    toast({ title: 'Generating PDF...', description: 'Loading Master Data and preparing export' });
 
     try {
       // Safe text converter - ensures only strings/numbers, never objects
-      const toSafeString = (value, fieldName = '') => {
+      const toText = (value) => {
         if (value === null || value === undefined) return '';
-        if (typeof value === 'string') return value;
-        if (typeof value === 'number') return value.toString();
-        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-        if (Array.isArray(value)) return value.join(', ');
+        if (typeof value === 'string') return value.trim();
+        if (typeof value === 'number' || typeof value === 'boolean') return String(value);
         if (typeof value === 'object') {
-          console.error(`❌ Object detected in "${fieldName}":`, value);
-          return String(value.name || value.supplier_name || value.product_name || value.sku_code || '');
+          return value.name || value.title || value.productName || value.arName || value.enName || value.sku || JSON.stringify(value);
         }
         return String(value);
       };
 
+      // Normalize SKU for matching
+      const normalizeSku = (sku) => {
+        return toText(sku).toUpperCase().trim();
+      };
+
       // Arabic text processing with RTL support
       const processArabicText = (text) => {
-        const safe = toSafeString(text);
+        const safe = toText(text);
         if (!safe) return '';
-        // Check for Arabic characters
         if (/[\u0600-\u06FF]/.test(safe)) {
           try {
             return bidi(safe);
@@ -216,7 +217,7 @@ export default function PurchaseRequests() {
         return safe;
       };
 
-      // Load image as base64
+      // Load image as base64 with larger canvas
       const loadImageAsBase64 = (url) => {
         return new Promise((resolve) => {
           if (!url) {
@@ -228,23 +229,23 @@ export default function PurchaseRequests() {
           img.onload = () => {
             try {
               const canvas = document.createElement('canvas');
-              canvas.width = 40;
-              canvas.height = 40;
+              canvas.width = 80;
+              canvas.height = 80;
               const ctx = canvas.getContext('2d');
               
               // Calculate aspect fit
               const aspectRatio = img.width / img.height;
-              let drawWidth = 40;
-              let drawHeight = 40;
+              let drawWidth = 80;
+              let drawHeight = 80;
               let offsetX = 0;
               let offsetY = 0;
               
               if (aspectRatio > 1) {
-                drawHeight = 40 / aspectRatio;
-                offsetY = (40 - drawHeight) / 2;
+                drawHeight = 80 / aspectRatio;
+                offsetY = (80 - drawHeight) / 2;
               } else {
-                drawWidth = 40 * aspectRatio;
-                offsetX = (40 - drawWidth) / 2;
+                drawWidth = 80 * aspectRatio;
+                offsetX = (80 - drawWidth) / 2;
               }
               
               ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
@@ -259,43 +260,70 @@ export default function PurchaseRequests() {
         });
       };
 
-      // Get data
+      // Get Master Data (SKU entities) and other data
       const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+      const masterData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
-      const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const tenantData = await base44.entities.Tenant.filter({ id: tenantId });
-      const workspaceName = toSafeString(tenantData[0]?.name || 'Workspace');
+      const workspaceName = toText(tenantData[0]?.name || 'Workspace');
+
+      // Build Master Data lookup by normalized SKU
+      const masterLookup = {};
+      masterData.forEach(sku => {
+        const key = normalizeSku(sku.sku_code);
+        if (key) masterLookup[key] = sku;
+      });
 
       let failedImagesCount = 0;
 
-      // Prepare and normalize items
+      // Enrich and normalize items with Master Data
       const itemsWithData = await Promise.all(selectedItems.map(async (item) => {
-        const supplier = suppliersData.find(s => s.id === item.supplier_id);
-        const sku = skusData.find(s => s.id === item.sku_id);
+        // Lookup Master Data by normalized SKU
+        const skuKey = normalizeSku(item.sku_code || item.sku || item.SKU || item['SKU CODE']);
+        const master = masterLookup[skuKey];
         
-        // Load image
+        // Resolve supplier from Master Data first
+        let resolvedSupplier = 'Unassigned';
+        if (master?.supplier_id) {
+          const supplierEntity = suppliersData.find(s => s.id === master.supplier_id);
+          resolvedSupplier = toText(supplierEntity?.supplier_name || supplierEntity?.name);
+        }
+        if (resolvedSupplier === 'Unassigned' || !resolvedSupplier) {
+          resolvedSupplier = toText(master?.supplier || master?.vendor || master?.brandSupplier || master?.SUPPLIER) 
+            || toText(item.supplier) 
+            || 'Unassigned';
+        }
+        
+        // Resolve Arabic product name from Master Data
+        const resolvedProductName = toText(
+          master?.productNameAr || master?.arabicName || master?.name_ar || master?.PRODUCT_AR ||
+          master?.product_name || master?.name || master?.title ||
+          item.product_name || item.product
+        );
+        
+        // Load image from Master Data
         let imageData = null;
-        if (sku?.image_url) {
-          imageData = await loadImageAsBase64(sku.image_url);
+        if (master?.image_url) {
+          imageData = await loadImageAsBase64(master.image_url);
           if (!imageData) failedImagesCount++;
         }
         
-        // Normalize all fields to strings/numbers (NO OBJECTS)
+        // Return normalized data (NO OBJECTS)
         return {
           image: imageData,
-          supplier: toSafeString(supplier?.supplier_name || supplier?.name || 'Unassigned', 'supplier'),
-          skuCode: toSafeString(item.sku_code, 'skuCode'),
-          productName: toSafeString(item.product_name, 'productName'),
-          toBuy: parseInt(item.to_buy) || 0,
-          unitCost: typeof item.cost_price === 'number' ? item.cost_price : 0
+          supplier: resolvedSupplier,
+          skuCode: toText(item.sku_code || item.sku),
+          productName: resolvedProductName,
+          toBuy: Number(item.to_buy || item.qty || item.quantity || 0),
+          unitCost: Number(item.cost_price || item.unitCost || item.cost || item.unit_price || 0)
         };
       }));
 
-      // Sort by supplier (Arabic-friendly)
+      // Sort by supplier (Arabic-friendly, Unassigned last)
       itemsWithData.sort((a, b) => {
         if (a.supplier === 'Unassigned') return 1;
         if (b.supplier === 'Unassigned') return -1;
-        return a.supplier.localeCompare(b.supplier, 'ar', { sensitivity: 'base' });
+        return (a.supplier || '').localeCompare(b.supplier || '', 'en', { sensitivity: 'base' });
       });
 
       // Group by supplier
@@ -379,20 +407,20 @@ export default function PurchaseRequests() {
               minCellHeight: 32
             },
             columnStyles: {
-              0: { cellWidth: 18, halign: 'center' }, // IMAGE
-              1: { cellWidth: 32, halign: 'left' },   // SUPPLIER
-              2: { cellWidth: 24, halign: 'center' }, // SKU CODE
-              3: { cellWidth: 52, halign: 'right' },  // PRODUCT (RTL)
-              4: { cellWidth: 20, halign: 'center' }, // TO BUY
-              5: { cellWidth: 28, halign: 'right' }   // UNIT COST
+              0: { cellWidth: 28, halign: 'center' }, // IMAGE (wider)
+              1: { cellWidth: 30, halign: 'left' },   // SUPPLIER
+              2: { cellWidth: 22, halign: 'center' }, // SKU CODE
+              3: { cellWidth: 48, halign: 'right' },  // PRODUCT (RTL)
+              4: { cellWidth: 18, halign: 'center' }, // TO BUY
+              5: { cellWidth: 26, halign: 'right' }   // UNIT COST
             },
             didDrawCell: (data) => {
-              // Render images in first column
+              // Render images in first column (larger)
               if (data.column.index === 0 && data.cell.section === 'body') {
                 const item = items[data.row.index];
                 if (item?.image) {
                   try {
-                    const imgSize = 14;
+                    const imgSize = 24;
                     const x = data.cell.x + (data.cell.width - imgSize) / 2;
                     const y = data.cell.y + (data.cell.height - imgSize) / 2;
                     doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
@@ -522,19 +550,19 @@ export default function PurchaseRequests() {
               minCellHeight: 32
             },
             columnStyles: {
-              0: { cellWidth: 18, halign: 'center' },
-              1: { cellWidth: 32, halign: 'left' },
-              2: { cellWidth: 24, halign: 'center' },
-              3: { cellWidth: 52, halign: 'right' },
-              4: { cellWidth: 20, halign: 'center' },
-              5: { cellWidth: 28, halign: 'right' }
+              0: { cellWidth: 28, halign: 'center' },
+              1: { cellWidth: 30, halign: 'left' },
+              2: { cellWidth: 22, halign: 'center' },
+              3: { cellWidth: 48, halign: 'right' },
+              4: { cellWidth: 18, halign: 'center' },
+              5: { cellWidth: 26, halign: 'right' }
             },
             didDrawCell: (data) => {
               if (data.column.index === 0 && data.cell.section === 'body') {
                 const item = items[data.row.index];
                 if (item?.image) {
                   try {
-                    const imgSize = 14;
+                    const imgSize = 24;
                     const x = data.cell.x + (data.cell.width - imgSize) / 2;
                     const y = data.cell.y + (data.cell.height - imgSize) / 2;
                     doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
