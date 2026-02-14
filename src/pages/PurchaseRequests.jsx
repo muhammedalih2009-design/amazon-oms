@@ -485,7 +485,9 @@ export default function PurchaseRequests() {
               halign: 'center',
               lineColor: [200, 200, 200],
               lineWidth: 0.5,
-              minCellHeight: 32
+              minCellHeight: 32,
+              font: 'helvetica',
+              fontStyle: 'normal'
             },
             columnStyles: debugMode ? {
               0: { cellWidth: 20, halign: 'center' },
@@ -646,7 +648,9 @@ export default function PurchaseRequests() {
               halign: 'center',
               lineColor: [200, 200, 200],
               lineWidth: 0.5,
-              minCellHeight: 32
+              minCellHeight: 32,
+              font: 'helvetica',
+              fontStyle: 'normal'
             },
             columnStyles: debugMode ? {
               0: { cellWidth: 20, halign: 'center' },
