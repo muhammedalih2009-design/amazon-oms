@@ -187,24 +187,27 @@ export default function PurchaseRequests() {
 
     try {
       // Safe text converter - ensures only strings/numbers, never objects
-      const toText = (value) => {
+      const toStr = (value) => {
         if (value === null || value === undefined) return '';
         if (typeof value === 'string') return value.trim();
         if (typeof value === 'number' || typeof value === 'boolean') return String(value);
         if (typeof value === 'object') {
-          return value.name || value.title || value.productName || value.arName || value.enName || value.sku || JSON.stringify(value);
+          return value.name || value.title || value.productName || value.nameAr || value.nameEN || value.arName || value.enName || '';
         }
         return String(value);
       };
 
-      // Normalize SKU for matching
+      // Normalize SKU for matching (remove all whitespace and unicode direction marks)
       const normalizeSku = (sku) => {
-        return toText(sku).toUpperCase().trim();
+        return toStr(sku)
+          .replace(/\s+/g, '')
+          .replace(/[\u200E\u200F]/g, '')
+          .toUpperCase();
       };
 
       // Arabic text processing with RTL support
       const processArabicText = (text) => {
-        const safe = toText(text);
+        const safe = toStr(text);
         if (!safe) return '';
         if (/[\u0600-\u06FF]/.test(safe)) {
           try {
@@ -265,14 +268,18 @@ export default function PurchaseRequests() {
       const masterData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
       const tenantData = await base44.entities.Tenant.filter({ id: tenantId });
-      const workspaceName = toText(tenantData[0]?.name || 'Workspace');
+      const workspaceName = toStr(tenantData[0]?.name || 'Workspace');
 
       // Build Master Data lookup by normalized SKU
       const masterLookup = {};
-      masterData.forEach(sku => {
-        const key = normalizeSku(sku.sku_code);
-        if (key) masterLookup[key] = sku;
+      masterData.forEach(md => {
+        const mdSkuKey = normalizeSku(md.sku_code || md.skuCode || md.sku || md['SKU CODE'] || md.itemSku || md.SKU || '');
+        if (mdSkuKey) {
+          masterLookup[mdSkuKey] = md;
+        }
       });
+
+      console.log('📊 Master Data lookup built:', Object.keys(masterLookup).length, 'SKUs indexed');
 
       let failedImagesCount = 0;
 
@@ -319,12 +326,15 @@ export default function PurchaseRequests() {
         };
       }));
 
-      // Sort by supplier (Arabic-friendly, Unassigned last)
+      // Sort by supplier (Unassigned last)
       itemsWithData.sort((a, b) => {
         if (a.supplier === 'Unassigned') return 1;
         if (b.supplier === 'Unassigned') return -1;
         return (a.supplier || '').localeCompare(b.supplier || '', 'en', { sensitivity: 'base' });
       });
+
+      console.log('✅ Enriched items:', itemsWithData.length, 'rows prepared');
+      console.log('Sample row:', itemsWithData[0]);
 
       // Group by supplier
       const groupedBySupplier = itemsWithData.reduce((acc, item) => {
