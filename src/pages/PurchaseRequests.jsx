@@ -291,17 +291,20 @@ export default function PurchaseRequests() {
       }));
 
       // Generate table with custom rendering for images
+      // Ensure all headers are strings
+      const headers = [
+        String(processArabicText('صورة المنتج')),
+        String(processArabicText('اسم المنتج')),
+        'SKU',
+        String(processArabicText('الكمية')),
+        String(processArabicText('سعر الوحدة')),
+        String(processArabicText('المورد'))
+      ];
+      
       doc.autoTable({
         startY: 40,
-        head: [[
-          processArabicText('صورة المنتج'),
-          processArabicText('اسم المنتج'), 
-          'SKU',
-          processArabicText('الكمية'),
-          processArabicText('سعر الوحدة'),
-          processArabicText('المورد')
-        ]],
-        body: tableData.map(item => item.row),
+        head: [headers],
+        body: tableData.map(item => item.row.map(cell => String(cell || ''))),
         theme: 'striped',
         headStyles: {
           fillColor: [79, 70, 229],

@@ -115,23 +115,28 @@ export default function AdminPage() {
         current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
 
-      // CRITICAL: Auto-create membership for creator (super admin)
-      await base44.entities.Membership.create({
-        tenant_id: newTenant.id,
-        user_id: user.id,
-        user_email: user.email,
-        role: 'owner',
-        permissions: {
-          dashboard: { view: true, edit: true },
-          tasks: { view: true, edit: true },
-          skus: { view: true, edit: true },
-          orders: { view: true, edit: true },
-          purchases: { view: true, edit: true },
-          returns: { view: true, edit: true },
-          settlement: { view: true, edit: true },
-          suppliers: { view: true, edit: true }
-        }
-      });
+      // CRITICAL: Auto-create membership for creator (super admin) - ALWAYS
+      try {
+        await base44.entities.Membership.create({
+          tenant_id: newTenant.id,
+          user_id: user.id,
+          user_email: user.email,
+          role: 'owner',
+          permissions: {
+            dashboard: { view: true, edit: true },
+            tasks: { view: true, edit: true },
+            skus: { view: true, edit: true },
+            orders: { view: true, edit: true },
+            purchases: { view: true, edit: true },
+            returns: { view: true, edit: true },
+            settlement: { view: true, edit: true },
+            suppliers: { view: true, edit: true }
+          }
+        });
+      } catch (membershipError) {
+        console.error('Failed to create super admin membership:', membershipError);
+        // Continue anyway - useTenant will auto-repair
+      }
 
       toast({
         title: 'Workspace created',
