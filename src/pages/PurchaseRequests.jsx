@@ -213,6 +213,43 @@ export default function PurchaseRequests() {
     }
   };
 
+  const handleExportToCSV = () => {
+    if (selectedSkus.length === 0) {
+      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
+      return;
+    }
+
+    const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+
+    // Build CSV with UTF-8 BOM for Excel
+    const csvHeader = 'IMAGE_URL,SUPPLIER,SKU CODE,PRODUCT,TO BUY,UNIT COST\n';
+    
+    const csvRows = selectedItems.map(item => {
+      const imageUrl = '';
+      const supplier = (item.supplier || '').replace(/"/g, '""');
+      const skuCode = (item.sku_code || '').replace(/"/g, '""');
+      const product = (item.product_name || '').replace(/"/g, '""');
+      const toBuy = item.to_buy || 0;
+      const unitCost = (item.cost_price || 0).toFixed(2);
+
+      return `"${imageUrl}","${supplier}","${skuCode}","${product}",${toBuy},${unitCost}`;
+    }).join('\n');
+
+    const csvContent = '\uFEFF' + csvHeader + csvRows;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    toast({
+      title: 'CSV Exported',
+      description: `${selectedItems.length} items`,
+      duration: 3000
+    });
+  };
+
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'Select at least one SKU', variant: 'destructive' });
