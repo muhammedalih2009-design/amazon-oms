@@ -742,7 +742,7 @@ export default function PurchaseRequests() {
       link.click();
       URL.revokeObjectURL(link.href);
 
-      // Record proof
+      // Record proof with headers
       setExportProofs(prev => ({
         ...prev,
         excel: {
@@ -751,6 +751,11 @@ export default function PurchaseRequests() {
             fileSize: excelBlob.size,
             firstBytes: firstBytes,
             mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers: {
+              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              'Content-Disposition': `attachment; filename="Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx"`,
+              'Content-Length': excelBlob.size
+            },
             serverValidation: {
               bufferLength: excelBlob.size,
               zipSignature: true
