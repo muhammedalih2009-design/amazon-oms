@@ -257,6 +257,26 @@ export default function PurchaseRequests() {
       return;
     }
 
+    // Hard gate: Check self-test results first
+    if (selfTestResults && selfTestResults.xlsxTest.status !== 'PASS') {
+      toast({
+        title: 'XLSX Engine Failed Self-Test',
+        description: `${selfTestResults.xlsxTest.reason}. Run self-test to fix (Error ID: ${selfTestResults.xlsxTest.errorId})`,
+        variant: 'destructive',
+        duration: 6000
+      });
+      return;
+    }
+
+    if (!selfTestResults && !forceExcel) {
+      toast({
+        title: 'Run Export Self-Test First',
+        description: 'Click "Run Export Self-Test" to validate engines before exporting',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setExportingExcel(true);
     toast({ title: 'Generating Excel...', description: 'Preparing file' });
 
