@@ -1,159 +1,69 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { base44 } from '@/api/base44Client';
-import { useTenant } from '@/components/hooks/useTenant';
-import { format, parseISO, isWithinInterval } from 'date-fns';
+import { format } from 'date-fns';
 
 export default function PurchaseRequestsPrint() {
-  const { tenantId, user } = useTenant();
-  const [orders, setOrders] = useState([]);
-  const [orderLines, setOrderLines] = useState([]);
-  const [skus, setSkus] = useState([]);
-  const [currentStock, setCurrentStock] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [dateRange] = useState({
-    from: new Date(),
-    to: new Date(new Date().setDate(new Date().getDate() + 7))
-  });
-
-  // Get mode from query params (single or supplier)
   const urlParams = new URLSearchParams(window.location.search);
   const mode = urlParams.get('mode') || 'single';
+  const [payload, setPayload] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (tenantId) loadData();
-  }, [tenantId]);
-
-  const loadData = async () => {
-    const [ordersData, linesData, skusData, stockData, suppliersData] = await Promise.all([
-      base44.entities.Order.filter({ tenant_id: tenantId }),
-      base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-      base44.entities.SKU.filter({ tenant_id: tenantId }),
-      base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-      base44.entities.Supplier.filter({ tenant_id: tenantId })
-    ]);
-    setOrders(ordersData);
-    setOrderLines(linesData);
-    setSkus(skusData);
-    setCurrentStock(stockData);
-    setSuppliers(suppliersData);
-    setLoading(false);
-  };
-
-  const normalizeSku = (sku) => {
-    const t = (sku ?? '').toString().trim();
-    return t
-      .replace(/[\s\r\n]+/g, '')
-      .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
-      .replace(/[-_]+/g, '')
-      .replace(/[^0-9A-Za-z]+/g, '')
-      .toUpperCase();
-  };
-
-  const masterLookup = useMemo(() => {
-    const lookup = {};
-    skus.forEach(md => {
-      const mdKey = normalizeSku(md.sku_code || md.skuCode || md.sku || md['SKU CODE'] || md.SKU || '');
-      if (mdKey) {
-        lookup[mdKey] = md;
+    try {
+      const raw = sessionStorage.getItem('PR_PRINT_PAYLOAD');
+      if (!raw) {
+        setError('Print payload missing. Please go back and click PDF again.');
+        return;
       }
-    });
-    return lookup;
-  }, [skus]);
-
-  const purchaseNeeds = useMemo(() => {
-    if (!dateRange?.from || !dateRange?.to) return [];
-
-    const pendingOrders = orders.filter(o => {
-      if (o.status !== 'pending') return false;
-      if (!o.order_date) return true;
-      const orderDate = parseISO(o.order_date);
-      return isWithinInterval(orderDate, { start: dateRange.from, end: dateRange.to });
-    });
-
-    const skuNeeds = {};
-    for (const order of pendingOrders) {
-      const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
-      for (const line of lines) {
-        if (!skuNeeds[line.sku_id]) {
-          skuNeeds[line.sku_id] = 0;
-        }
-        skuNeeds[line.sku_id] += line.quantity;
-      }
+      const parsed = JSON.parse(raw);
+      setPayload(parsed);
+    } catch (err) {
+      setError(`Failed to load print data: ${err.message}`);
     }
+  }, []);
 
-    return Object.entries(skuNeeds).map(([skuId, needed]) => {
-      const sku = skus.find(s => s.id === skuId);
-      const stock = currentStock.find(s => s.sku_id === skuId);
-      const available = stock?.quantity_available || 0;
-      const toBuy = Math.max(0, needed - available);
-
-      const skuKey = normalizeSku(sku?.sku_code || '');
-      const md = masterLookup[skuKey];
-      
-      let supplierResolved = '';
-      if (md?.supplier_id) {
-        const supplierEntity = suppliers.find(s => s.id === md.supplier_id);
-        if (supplierEntity) {
-          supplierResolved = (supplierEntity.supplier_name || supplierEntity.name || '').toString().trim();
-        }
-      }
-      
-      if (!supplierResolved) {
-        supplierResolved = (md?.supplier || md?.vendor || md?.Supplier || '').toString().trim()
-          || (sku?.supplier || '').toString().trim()
-          || 'Unassigned';
-      }
-
-      return {
-        id: skuId,
-        sku_id: skuId,
-        sku_code: sku?.sku_code || 'Unknown',
-        product_name: sku?.product_name || 'Unknown',
-        cost_price: sku?.cost_price || 0,
-        supplier_id: sku?.supplier_id,
-        supplier: supplierResolved,
-        total_needed: needed,
-        available,
-        to_buy: toBuy,
-        image_url: sku?.image_url
-      };
-    }).filter(item => item.to_buy > 0);
-  }, [orders, orderLines, skus, currentStock, suppliers, dateRange, masterLookup]);
-
-  const sortedItems = useMemo(() => {
-    return [...purchaseNeeds].sort((a, b) => {
-      const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-      const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-      const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-      if (cmp !== 0) return cmp;
-      return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-    });
-  }, [purchaseNeeds]);
-
-  const groupedBySupplier = useMemo(() => {
-    return sortedItems.reduce((acc, item) => {
-      const supplier = item.supplier || 'Unassigned';
-      if (!acc[supplier]) acc[supplier] = [];
-      acc[supplier].push(item);
-      return acc;
-    }, {});
-  }, [sortedItems]);
-
-  const supplierNames = useMemo(() => {
-    return Object.keys(groupedBySupplier).sort((a, b) => {
-      if (a === 'Unassigned') return 1;
-      if (b === 'Unassigned') return -1;
-      return a.localeCompare(b, 'en', { sensitivity: 'base' });
-    });
-  }, [groupedBySupplier]);
-
-  const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
-  const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
-
-  if (loading) {
-    return <div className="p-8 text-center">Loading...</div>;
+  if (error) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        <h2 style={{ color: '#dc2626', marginBottom: '16px' }}>⚠️ Print View Error</h2>
+        <p style={{ color: '#6b7280', marginBottom: '24px' }}>{error}</p>
+        <button
+          onClick={() => window.history.back()}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#4f46e5',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px'
+          }}
+        >
+          Go Back
+        </button>
+      </div>
+    );
   }
+
+  if (!payload) {
+    return <div style={{ padding: '40px', textAlign: 'center' }}>Loading print view...</div>;
+  }
+
+  const { rows, dateRange, generatedAt } = payload;
+  const groupedBySupplier = rows.reduce((acc, item) => {
+    const supplier = item.supplier || 'Unassigned';
+    if (!acc[supplier]) acc[supplier] = [];
+    acc[supplier].push(item);
+    return acc;
+  }, {});
+
+  const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b, 'en', { sensitivity: 'base' });
+  });
+
+  const totalValue = rows.reduce((sum, r) => sum + (r.toBuy * r.unitCost), 0);
+  const totalItems = rows.reduce((sum, r) => sum + r.toBuy, 0);
 
   return (
     <div className="bg-white min-h-screen font-sans" style={{ direction: 'ltr' }}>
