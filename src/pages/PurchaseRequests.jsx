@@ -605,24 +605,66 @@ export default function PurchaseRequests() {
         </div>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={`${createPageUrl('PurchaseRequestsPrint')}?mode=single`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => {
+                const sortedItems = [...purchaseNeeds].sort((a, b) => {
+                  const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+                  const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+                  const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+                  if (cmp !== 0) return cmp;
+                  return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+                });
+                const payload = {
+                  mode: 'single',
+                  dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
+                  generatedAt: new Date().toISOString(),
+                  rows: sortedItems.map(r => ({
+                    imageUrl: r.image_url || '',
+                    supplier: r.supplier || 'Unassigned',
+                    sku: r.sku_code || '',
+                    product: r.product_name || '',
+                    toBuy: Number(r.to_buy || 0),
+                    unitCost: Number(r.cost_price || 0)
+                  }))
+                };
+                sessionStorage.setItem('PR_PRINT_PAYLOAD', JSON.stringify(payload));
+                window.open(createPageUrl('PurchaseRequestsPrint?mode=single'), '_blank', 'noopener,noreferrer');
+              }}
               className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
               title="Open print view in new tab for all items (use browser print dialog)"
             >
               📄 PDF (All)
-            </a>
-            <a
-              href={`${createPageUrl('PurchaseRequestsPrint')}?mode=supplier`}
-              target="_blank"
-              rel="noopener noreferrer"
+            </button>
+            <button
+              onClick={() => {
+                const sortedItems = [...purchaseNeeds].sort((a, b) => {
+                  const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+                  const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+                  const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+                  if (cmp !== 0) return cmp;
+                  return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+                });
+                const payload = {
+                  mode: 'supplier',
+                  dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
+                  generatedAt: new Date().toISOString(),
+                  rows: sortedItems.map(r => ({
+                    imageUrl: r.image_url || '',
+                    supplier: r.supplier || 'Unassigned',
+                    sku: r.sku_code || '',
+                    product: r.product_name || '',
+                    toBuy: Number(r.to_buy || 0),
+                    unitCost: Number(r.cost_price || 0)
+                  }))
+                };
+                sessionStorage.setItem('PR_PRINT_PAYLOAD', JSON.stringify(payload));
+                window.open(createPageUrl('PurchaseRequestsPrint?mode=supplier'), '_blank', 'noopener,noreferrer');
+              }}
               className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
               title="Open print view in new tab with page breaks per supplier (use browser print dialog)"
             >
               📄 PDF (Supplier)
-            </a>
+            </button>
             <Button
               onClick={() => setDebugMode(!debugMode)}
               variant={debugMode ? 'default' : 'outline'}
