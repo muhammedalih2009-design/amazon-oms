@@ -133,22 +133,22 @@ export default function PurchaseRequestsPrint() {
       `}</style>
 
       <div style={{ padding: '20px', marginBottom: '20px', borderBottom: '2px solid #e5e7eb' }}>
-        <h1 style={{ fontSize: 18, fontWeight: 'bold', margin: '0 0 8px 0' }}>Purchase Requests</h1>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280' }}>
-          <div>
-            <strong>Workspace:</strong> {user?.email || 'Workspace'}<br />
-            {dateRange?.from && dateRange?.to && (
-              <>
-                <strong>Period:</strong> {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
-              </>
-            )}
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <strong>Generated:</strong> {format(new Date(), 'MMM d, yyyy HH:mm:ss')}<br />
-            <strong>Mode:</strong> {mode === 'supplier' ? 'Per Supplier' : 'All Items'}
-          </div>
-        </div>
-      </div>
+         <h1 style={{ fontSize: 18, fontWeight: 'bold', margin: '0 0 8px 0' }}>Purchase Requests</h1>
+         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280' }}>
+           <div>
+             <strong>Workspace:</strong> Purchase Requests<br />
+             {dateRange?.from && dateRange?.to && (
+               <>
+                 <strong>Period:</strong> {format(new Date(dateRange.from), 'MMM d')} - {format(new Date(dateRange.to), 'MMM d, yyyy')}
+               </>
+             )}
+           </div>
+           <div style={{ textAlign: 'right' }}>
+             <strong>Generated:</strong> {format(new Date(generatedAt), 'MMM d, yyyy HH:mm:ss')}<br />
+             <strong>Mode:</strong> {mode === 'supplier' ? 'Per Supplier' : 'All Items'}
+           </div>
+         </div>
+       </div>
 
       <div style={{ padding: '20px', background: 'white' }}>
         {supplierNames.map((supplierName, idx) => {
