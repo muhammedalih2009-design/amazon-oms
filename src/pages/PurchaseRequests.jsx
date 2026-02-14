@@ -187,24 +187,7 @@ export default function PurchaseRequests() {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       
-      // Header
-      doc.setFontSize(20);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Amazon OMS', 15, 20);
-      
-      doc.setFontSize(16);
-      doc.text('Purchase Order Request', 15, 30);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
-
-      // Get selected items with full SKU data and supplier info
-      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
-      const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
-      const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
-      
-      // Helper function to safely stringify any value for PDF text
+      // Enhanced safe formatter for PDF text
       const safePDFText = (value, fieldName = 'unknown') => {
         if (value === null || value === undefined) return '';
         if (typeof value === 'string') return value;
@@ -212,33 +195,35 @@ export default function PurchaseRequests() {
         if (typeof value === 'boolean') return value.toString();
         if (Array.isArray(value)) return value.join(', ');
         if (typeof value === 'object') {
-          console.error('PDF invalid text field', { 
-            fieldName, 
-            value, 
+          console.warn(`PDF object detected in field "${fieldName}":`, {
+            value,
             type: typeof value,
             keys: Object.keys(value)
           });
-          // Try to extract a useful string
-          return value.name || value.product_name || value.sku_code || JSON.stringify(value);
+          // Extract useful string from object
+          if (value.name) return String(value.name);
+          if (value.title) return String(value.title);
+          if (value.supplier_name) return String(value.supplier_name);
+          if (value.product_name) return String(value.product_name);
+          if (value.sku_code) return String(value.sku_code);
+          return JSON.stringify(value);
         }
         return String(value);
       };
 
-      // Helper function to process Arabic text for RTL
+      // Process Arabic text for RTL
       const processArabicText = (text) => {
         const safeText = String(safePDFText(text, 'processArabicText') || '');
         if (!safeText) return '';
-        // Check if text contains Arabic characters
         const hasArabic = /[\u0600-\u06FF]/.test(safeText);
         if (hasArabic) {
-          // Apply bidi algorithm for proper RTL rendering - ensure return is string
           const bidiResult = bidi(safeText);
           return String(bidiResult || safeText);
         }
         return safeText;
       };
 
-      // Helper function to load image as base64
+      // Load image as base64
       const loadImageAsBase64 = (url) => {
         return new Promise((resolve) => {
           if (!url) {
@@ -264,108 +249,201 @@ export default function PurchaseRequests() {
         });
       };
 
-      // Prepare table data with images
-      const tableData = await Promise.all(selectedItems.map(async (item) => {
+      // Get data
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+      const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+      const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
+      const tenantData = await base44.entities.Tenant.filter({ id: tenantId });
+      const workspaceName = tenantData[0]?.name || 'Workspace';
+
+      // Prepare items with supplier info
+      const itemsWithSupplier = await Promise.all(selectedItems.map(async (item) => {
         const supplier = suppliersData.find(s => s.id === item.supplier_id);
         const sku = skusData.find(s => s.id === item.sku_id);
         const imageData = sku?.image_url ? await loadImageAsBase64(sku.image_url) : null;
         
-        // Safely extract all values as primitives
+        const supplierName = safePDFText(supplier?.supplier_name || supplier?.name, 'supplier_name') || 'Unassigned';
         const productName = safePDFText(item.product_name, 'product_name');
         const skuCode = safePDFText(item.sku_code, 'sku_code');
         const toBuyQty = safePDFText(item.to_buy, 'to_buy');
         const costPrice = typeof item.cost_price === 'number' ? item.cost_price : 0;
-        const unitCost = safePDFText(`$${costPrice.toFixed(2)}`, 'unit_cost');
-        const supplierName = safePDFText(supplier?.supplier_name, 'supplier_name') || '-';
+        const unitCost = `$${costPrice.toFixed(2)}`;
+        const lineTotal = item.to_buy * costPrice;
         
         return {
-          imageData: imageData,
-          row: [
-            '', // Placeholder for image
-            String(processArabicText(productName) || ''),
-            String(skuCode || ''),
-            String(toBuyQty || '0'),
-            String(unitCost || '$0.00'),
-            String(processArabicText(supplierName) || '-')
-          ]
+          supplierName,
+          supplierId: supplier?.id || 'unassigned',
+          imageData,
+          productName,
+          skuCode,
+          toBuyQty,
+          unitCost,
+          lineTotal,
+          costPrice
         };
       }));
 
-      // Generate table with custom rendering for images
-      // Ensure all headers are strings
+      // Group by supplier
+      const groupedBySupplier = itemsWithSupplier.reduce((acc, item) => {
+        const key = item.supplierName;
+        if (!acc[key]) {
+          acc[key] = [];
+        }
+        acc[key].push(item);
+        return acc;
+      }, {});
+
+      // Sort suppliers (Unassigned last)
+      const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
+        if (a === 'Unassigned') return 1;
+        if (b === 'Unassigned') return -1;
+        return a.localeCompare(b);
+      });
+
+      // Header
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Amazon OMS', 15, 20);
+      
+      doc.setFontSize(16);
+      doc.text('Purchase Order Request', 15, 30);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Workspace: ${workspaceName}`, 15, 38);
+      doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
+      
+      if (dateRange?.from && dateRange?.to) {
+        const dateRangeText = `Order Period: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d, yyyy')}`;
+        doc.text(dateRangeText, pageWidth - 15, 28, { align: 'right' });
+      }
+
+      // Table headers
       const headers = [
-        String(processArabicText('صورة المنتج')),
+        String(processArabicText('صورة')),
         String(processArabicText('اسم المنتج')),
         'SKU',
         String(processArabicText('الكمية')),
         String(processArabicText('سعر الوحدة')),
-        String(processArabicText('المورد'))
+        String(processArabicText('الإجمالي'))
       ];
-      
-      doc.autoTable({
-        startY: 40,
-        head: [headers],
-        body: tableData.map(item => item.row.map(cell => String(cell || ''))),
-        theme: 'striped',
-        headStyles: {
-          fillColor: [79, 70, 229],
-          textColor: 255,
-          fontSize: 10,
-          fontStyle: 'bold',
-          halign: 'right'
-        },
-        styles: {
-          fontSize: 9,
-          cellPadding: 3,
-          halign: 'right',
-          font: 'helvetica'
-        },
-        columnStyles: {
-          0: { cellWidth: 20, halign: 'center' }, // Image column
-          1: { cellWidth: 50 }, // Product name (wider for Arabic)
-          2: { cellWidth: 25, halign: 'center' }, // SKU
-          3: { cellWidth: 20, halign: 'center' }, // Quantity
-          4: { cellWidth: 25, halign: 'right' }, // Unit cost
-          5: { cellWidth: 30 } // Supplier
-        },
-        didDrawCell: (data) => {
-          // Add images in the first column
-          if (data.column.index === 0 && data.cell.section === 'body') {
-            const rowData = tableData[data.row.index];
-            if (rowData?.imageData) {
-              const imgWidth = 15;
-              const imgHeight = 15;
-              const x = data.cell.x + (data.cell.width - imgWidth) / 2;
-              const y = data.cell.y + (data.cell.height - imgHeight) / 2;
-              
-              try {
-                doc.addImage(rowData.imageData, 'JPEG', x, y, imgWidth, imgHeight);
-              } catch (e) {
-                // Skip if image fails to render
+
+      let currentY = 50;
+
+      // Generate grouped tables by supplier
+      for (const supplierName of supplierNames) {
+        const items = groupedBySupplier[supplierName];
+        const supplierTotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+        const supplierItemCount = items.reduce((sum, item) => sum + parseInt(item.toBuyQty), 0);
+
+        // Check if we need a new page
+        if (currentY > 220) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        // Supplier section header
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setFillColor(79, 70, 229);
+        doc.setTextColor(255, 255, 255);
+        doc.rect(15, currentY, pageWidth - 30, 10, 'F');
+        doc.text(
+          String(processArabicText(`${supplierName} - ${items.length} SKUs - ${supplierItemCount} items - $${supplierTotal.toFixed(2)}`)),
+          pageWidth / 2,
+          currentY + 7,
+          { align: 'center' }
+        );
+        doc.setTextColor(0, 0, 0);
+        currentY += 15;
+
+        // Build table rows
+        const tableRows = items.map(item => [
+          '',
+          String(processArabicText(item.productName) || ''),
+          String(item.skuCode || ''),
+          String(item.toBuyQty || '0'),
+          String(item.unitCost || '$0.00'),
+          String(`$${item.lineTotal.toFixed(2)}` || '$0.00')
+        ]);
+
+        doc.autoTable({
+          startY: currentY,
+          head: [headers],
+          body: tableRows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [99, 102, 241],
+            textColor: 255,
+            fontSize: 9,
+            fontStyle: 'bold',
+            halign: 'center',
+            cellPadding: { top: 4, bottom: 4, left: 2, right: 2 }
+          },
+          styles: {
+            fontSize: 9,
+            cellPadding: { top: 6, bottom: 6, left: 3, right: 3 },
+            halign: 'center',
+            lineColor: [220, 220, 220],
+            lineWidth: 0.5,
+            minCellHeight: 18
+          },
+          columnStyles: {
+            0: { cellWidth: 22, halign: 'center' },
+            1: { cellWidth: 55, halign: 'right' },
+            2: { cellWidth: 25, halign: 'center' },
+            3: { cellWidth: 20, halign: 'center' },
+            4: { cellWidth: 28, halign: 'right' },
+            5: { cellWidth: 30, halign: 'right' }
+          },
+          didDrawCell: (data) => {
+            if (data.column.index === 0 && data.cell.section === 'body') {
+              const item = items[data.row.index];
+              if (item?.imageData) {
+                const imgSize = 14;
+                const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                try {
+                  doc.addImage(item.imageData, 'JPEG', x, y, imgSize, imgSize);
+                } catch (e) {
+                  console.error('Image render failed:', e);
+                }
               }
             }
           }
-        }
-      });
+        });
 
-      // Footer with totals
-      const finalY = doc.lastAutoTable.finalY + 10;
-      doc.setFontSize(11);
+        currentY = doc.lastAutoTable.finalY + 8;
+      }
+
+      // Grand total
+      const grandTotal = itemsWithSupplier.reduce((sum, item) => sum + item.lineTotal, 0);
+      const grandTotalItems = itemsWithSupplier.reduce((sum, item) => sum + parseInt(item.toBuyQty), 0);
+
+      if (currentY > 250) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      
-      const selectedTotal = selectedItems.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
-      const selectedItemsCount = selectedItems.reduce((sum, item) => sum + item.to_buy, 0);
-      
-      const totalItemsText = `إجمالي العناصر: ${safePDFText(selectedItemsCount, 'selectedItemsCount')}`;
-      const totalCostText = `التكلفة الإجمالية: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      
-      doc.text(String(processArabicText(totalItemsText) || ''), pageWidth - 15, finalY, { align: 'right' });
-      doc.text(String(processArabicText(totalCostText) || ''), pageWidth - 15, finalY + 7, { align: 'right' });
+      doc.text(
+        String(processArabicText(`إجمالي العناصر: ${grandTotalItems}`)),
+        pageWidth - 15,
+        currentY,
+        { align: 'right' }
+      );
+      doc.text(
+        String(processArabicText(`التكلفة الإجمالية: $${grandTotal.toFixed(2)}`)),
+        pageWidth - 15,
+        currentY + 8,
+        { align: 'right' }
+      );
 
-      // Save PDF
+      // Save
       doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
       
-      toast({ title: 'PDF Generated', description: 'Purchase order exported successfully' });
+      toast({ title: 'PDF Generated', description: `${supplierNames.length} suppliers grouped successfully` });
     } catch (error) {
       console.error('PDF generation error:', error);
       toast({ 
