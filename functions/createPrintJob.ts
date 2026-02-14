@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
 
     // Generate unique job ID using Web Crypto API
     const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
+    globalThis.crypto.getRandomValues(bytes);
     const jobId = Array.from(bytes)
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
