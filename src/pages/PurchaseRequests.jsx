@@ -1373,4 +1373,10 @@ export default function PurchaseRequests() {
       />
     </div>
   );
+
+  return (
+    <ErrorBoundary fallbackTitle="Purchase Requests failed to load">
+      <PurchaseRequestsContent />
+    </ErrorBoundary>
+  );
 }
