@@ -183,31 +183,80 @@ export default function PurchaseRequests() {
       return;
     }
 
-    const loadingToast = toast({ title: 'Generating PDF...', description: 'Loading data and preparing export' });
+    toast({ title: 'Generating PDF...', description: 'Loading data and preparing export' });
 
     try {
-      // Safe formatter
-      const safePDFText = (value, fieldName = 'unknown') => {
+      // Safe text converter - ensures only strings/numbers, never objects
+      const toSafeString = (value, fieldName = '') => {
         if (value === null || value === undefined) return '';
         if (typeof value === 'string') return value;
         if (typeof value === 'number') return value.toString();
-        if (typeof value === 'boolean') return value.toString();
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
         if (Array.isArray(value)) return value.join(', ');
         if (typeof value === 'object') {
-          console.warn(`⚠️ PDF object in "${fieldName}":`, value);
-          return value.name || value.title || value.supplier_name || value.product_name || value.sku_code || JSON.stringify(value);
+          console.error(`❌ Object detected in "${fieldName}":`, value);
+          return String(value.name || value.supplier_name || value.product_name || value.sku_code || '');
         }
         return String(value);
       };
 
-      // Arabic text processing with proper RTL
+      // Arabic text processing with RTL support
       const processArabicText = (text) => {
-        const safeText = String(safePDFText(text) || '');
-        if (!safeText) return '';
-        if (/[\u0600-\u06FF]/.test(safeText)) {
-          return bidi(safeText);
+        const safe = toSafeString(text);
+        if (!safe) return '';
+        // Check for Arabic characters
+        if (/[\u0600-\u06FF]/.test(safe)) {
+          try {
+            return bidi(safe);
+          } catch (e) {
+            console.warn('Bidi processing failed:', e);
+            return safe;
+          }
         }
-        return safeText;
+        return safe;
+      };
+
+      // Load image as base64
+      const loadImageAsBase64 = (url) => {
+        return new Promise((resolve) => {
+          if (!url) {
+            resolve(null);
+            return;
+          }
+          const img = new Image();
+          img.crossOrigin = 'Anonymous';
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = 40;
+              canvas.height = 40;
+              const ctx = canvas.getContext('2d');
+              
+              // Calculate aspect fit
+              const aspectRatio = img.width / img.height;
+              let drawWidth = 40;
+              let drawHeight = 40;
+              let offsetX = 0;
+              let offsetY = 0;
+              
+              if (aspectRatio > 1) {
+                drawHeight = 40 / aspectRatio;
+                offsetY = (40 - drawHeight) / 2;
+              } else {
+                drawWidth = 40 * aspectRatio;
+                offsetX = (40 - drawWidth) / 2;
+              }
+              
+              ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+              resolve(canvas.toDataURL('image/jpeg', 0.8));
+            } catch (e) {
+              console.warn('Image conversion failed:', e);
+              resolve(null);
+            }
+          };
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
       };
 
       // Get data
@@ -215,51 +264,59 @@ export default function PurchaseRequests() {
       const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
       const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
       const tenantData = await base44.entities.Tenant.filter({ id: tenantId });
-      const workspaceName = tenantData[0]?.name || 'Workspace';
+      const workspaceName = toSafeString(tenantData[0]?.name || 'Workspace');
 
-      // Prepare items
-      const itemsWithSupplier = selectedItems.map(item => {
+      let failedImagesCount = 0;
+
+      // Prepare and normalize items
+      const itemsWithData = await Promise.all(selectedItems.map(async (item) => {
         const supplier = suppliersData.find(s => s.id === item.supplier_id);
-        const supplierName = safePDFText(supplier?.supplier_name || supplier?.name) || 'Unassigned';
-        const productName = safePDFText(item.product_name);
-        const skuCode = safePDFText(item.sku_code);
-        const needed = safePDFText(item.total_needed);
-        const available = safePDFText(item.available);
-        const toBuy = safePDFText(item.to_buy);
-        const costPrice = typeof item.cost_price === 'number' ? item.cost_price : 0;
-        const unitCost = `$${costPrice.toFixed(2)}`;
-        const estTotal = item.to_buy * costPrice;
+        const sku = skusData.find(s => s.id === item.sku_id);
         
+        // Load image
+        let imageData = null;
+        if (sku?.image_url) {
+          imageData = await loadImageAsBase64(sku.image_url);
+          if (!imageData) failedImagesCount++;
+        }
+        
+        // Normalize all fields to strings/numbers (NO OBJECTS)
         return {
-          supplierName,
-          supplierId: supplier?.id || 'unassigned',
-          productName,
-          skuCode,
-          needed,
-          available,
-          toBuy,
-          unitCost,
-          estTotal,
-          costPrice
+          image: imageData,
+          supplier: toSafeString(supplier?.supplier_name || supplier?.name || 'Unassigned', 'supplier'),
+          skuCode: toSafeString(item.sku_code, 'skuCode'),
+          productName: toSafeString(item.product_name, 'productName'),
+          toBuy: parseInt(item.to_buy) || 0,
+          unitCost: typeof item.cost_price === 'number' ? item.cost_price : 0
         };
+      }));
+
+      // Sort by supplier (Arabic-friendly)
+      itemsWithData.sort((a, b) => {
+        if (a.supplier === 'Unassigned') return 1;
+        if (b.supplier === 'Unassigned') return -1;
+        return a.supplier.localeCompare(b.supplier, 'ar', { sensitivity: 'base' });
       });
 
       // Group by supplier
-      const groupedBySupplier = itemsWithSupplier.reduce((acc, item) => {
-        if (!acc[item.supplierName]) acc[item.supplierName] = [];
-        acc[item.supplierName].push(item);
+      const groupedBySupplier = itemsWithData.reduce((acc, item) => {
+        if (!acc[item.supplier]) acc[item.supplier] = [];
+        acc[item.supplier].push(item);
         return acc;
       }, {});
 
       const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
         if (a === 'Unassigned') return 1;
         if (b === 'Unassigned') return -1;
-        return a.localeCompare(b);
+        return a.localeCompare(b, 'ar', { sensitivity: 'base' });
       });
+
+      // Exact headers as specified
+      const headers = ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
 
       // Generate PDFs based on mode
       if (exportMode === 'per-supplier') {
-        // Separate PDF per supplier
+        // One PDF per supplier in ZIP
         const zip = new JSZip();
         const dateStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -274,14 +331,11 @@ export default function PurchaseRequests() {
           doc.text('Amazon OMS', 15, 20);
           
           doc.setFontSize(16);
-          doc.text('Purchase Order Request', 15, 28);
-          
-          doc.setFontSize(12);
-          doc.text(`Supplier: ${supplierName}`, 15, 36);
+          doc.text(`Purchase Request — ${supplierName}`, 15, 28);
           
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
-          doc.text(`Workspace: ${workspaceName}`, 15, 44);
+          doc.text(`Workspace: ${workspaceName}`, 15, 36);
           doc.text(`Date: ${format(new Date(), 'MMM d, yyyy')}`, pageWidth - 15, 20, { align: 'right' });
           
           if (dateRange?.from && dateRange?.to) {
@@ -293,21 +347,18 @@ export default function PurchaseRequests() {
             );
           }
 
-          // Table headers - matching app columns
-          const headers = ['SKU CODE', 'PRODUCT', 'NEEDED', 'IN STOCK', 'TO BUY', 'UNIT COST', 'EST. TOTAL'];
-
+          // Build table rows - ensure all values are strings/numbers
           const tableRows = items.map(item => [
+            '', // Image placeholder
+            String(item.supplier),
             String(item.skuCode),
             String(processArabicText(item.productName)),
-            String(item.needed),
-            String(item.available),
             String(item.toBuy),
-            String(item.unitCost),
-            String(`$${item.estTotal.toFixed(2)}`)
+            String(`$${item.unitCost.toFixed(2)}`)
           ]);
 
           doc.autoTable({
-            startY: 52,
+            startY: 44,
             head: [headers],
             body: tableRows,
             theme: 'grid',
@@ -317,7 +368,7 @@ export default function PurchaseRequests() {
               fontSize: 10,
               fontStyle: 'bold',
               halign: 'center',
-              cellPadding: { top: 5, bottom: 5 }
+              cellPadding: { top: 6, bottom: 6 }
             },
             styles: {
               fontSize: 9,
@@ -325,22 +376,37 @@ export default function PurchaseRequests() {
               halign: 'center',
               lineColor: [200, 200, 200],
               lineWidth: 0.5,
-              minCellHeight: 20
+              minCellHeight: 32
             },
             columnStyles: {
-              0: { cellWidth: 22, halign: 'center' },
-              1: { cellWidth: 50, halign: 'left' },
-              2: { cellWidth: 18, halign: 'center' },
-              3: { cellWidth: 20, halign: 'center' },
-              4: { cellWidth: 18, halign: 'center' },
-              5: { cellWidth: 24, halign: 'right' },
-              6: { cellWidth: 28, halign: 'right' }
+              0: { cellWidth: 18, halign: 'center' }, // IMAGE
+              1: { cellWidth: 32, halign: 'left' },   // SUPPLIER
+              2: { cellWidth: 24, halign: 'center' }, // SKU CODE
+              3: { cellWidth: 52, halign: 'right' },  // PRODUCT (RTL)
+              4: { cellWidth: 20, halign: 'center' }, // TO BUY
+              5: { cellWidth: 28, halign: 'right' }   // UNIT COST
+            },
+            didDrawCell: (data) => {
+              // Render images in first column
+              if (data.column.index === 0 && data.cell.section === 'body') {
+                const item = items[data.row.index];
+                if (item?.image) {
+                  try {
+                    const imgSize = 14;
+                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                    doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
+                  } catch (e) {
+                    console.error('Image render error:', e);
+                  }
+                }
+              }
             }
           });
 
           // Totals
-          const supplierTotal = items.reduce((sum, item) => sum + item.estTotal, 0);
-          const supplierItemCount = items.reduce((sum, item) => sum + parseInt(item.toBuy), 0);
+          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
           
           const finalY = doc.lastAutoTable.finalY + 10;
           doc.setFontSize(11);
@@ -350,20 +416,22 @@ export default function PurchaseRequests() {
 
           // Add to ZIP
           const pdfBlob = doc.output('blob');
-          zip.file(`PO_Request_${supplierName.replace(/[^a-z0-9]/gi, '_')}_${dateStr}.pdf`, pdfBlob);
+          const safeFileName = supplierName.replace(/[^a-z0-9\u0600-\u06FF]/gi, '_');
+          zip.file(`Purchase_Request_${safeFileName}_${dateStr}.pdf`, pdfBlob);
         }
 
         // Download ZIP
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(zipBlob);
-        link.download = `Purchase_Orders_${format(new Date(), 'yyyy-MM-dd')}.zip`;
+        link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.zip`;
         link.click();
+        URL.revokeObjectURL(link.href);
         
         toast({ 
           title: 'PDFs Generated', 
-          description: `${supplierNames.length} supplier PDFs downloaded as ZIP`,
-          duration: 3000
+          description: `${supplierNames.length} suppliers • ${itemsWithData.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
+          duration: 4000
         });
 
       } else {
@@ -371,13 +439,13 @@ export default function PurchaseRequests() {
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
 
-        // Main header (first page only)
+        // Main header
         doc.setFontSize(20);
         doc.setFont('helvetica', 'bold');
         doc.text('Amazon OMS', 15, 20);
         
         doc.setFontSize(16);
-        doc.text('Purchase Order Request', 15, 28);
+        doc.text('Purchase Requests', 15, 28);
         
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
@@ -393,19 +461,17 @@ export default function PurchaseRequests() {
           );
         }
 
-        const headers = ['SKU CODE', 'PRODUCT', 'NEEDED', 'IN STOCK', 'TO BUY', 'UNIT COST', 'EST. TOTAL'];
-
         let isFirstSupplier = true;
         for (const supplierName of supplierNames) {
           const items = groupedBySupplier[supplierName];
           
-          // Add page break for each supplier (except first)
+          // Page break for each supplier (except first)
           if (!isFirstSupplier) {
             doc.addPage();
           }
           isFirstSupplier = false;
 
-          // Supplier header
+          // Supplier section header
           const startY = doc.lastAutoTable ? 20 : 44;
           doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
@@ -413,11 +479,11 @@ export default function PurchaseRequests() {
           doc.setTextColor(255, 255, 255);
           doc.rect(15, startY, pageWidth - 30, 10, 'F');
           
-          const supplierTotal = items.reduce((sum, item) => sum + item.estTotal, 0);
-          const supplierItemCount = items.reduce((sum, item) => sum + parseInt(item.toBuy), 0);
+          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
           
           doc.text(
-            `Supplier: ${supplierName} • ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}`,
+            `${supplierName} • ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}`,
             pageWidth / 2,
             startY + 7,
             { align: 'center' }
@@ -426,13 +492,12 @@ export default function PurchaseRequests() {
 
           // Table
           const tableRows = items.map(item => [
+            '', // Image
+            String(item.supplier),
             String(item.skuCode),
             String(processArabicText(item.productName)),
-            String(item.needed),
-            String(item.available),
             String(item.toBuy),
-            String(item.unitCost),
-            String(`$${item.estTotal.toFixed(2)}`)
+            String(`$${item.unitCost.toFixed(2)}`)
           ]);
 
           doc.autoTable({
@@ -446,7 +511,7 @@ export default function PurchaseRequests() {
               fontSize: 10,
               fontStyle: 'bold',
               halign: 'center',
-              cellPadding: { top: 5, bottom: 5 }
+              cellPadding: { top: 6, bottom: 6 }
             },
             styles: {
               fontSize: 9,
@@ -454,23 +519,37 @@ export default function PurchaseRequests() {
               halign: 'center',
               lineColor: [200, 200, 200],
               lineWidth: 0.5,
-              minCellHeight: 20
+              minCellHeight: 32
             },
             columnStyles: {
-              0: { cellWidth: 22, halign: 'center' },
-              1: { cellWidth: 50, halign: 'left' },
-              2: { cellWidth: 18, halign: 'center' },
-              3: { cellWidth: 20, halign: 'center' },
-              4: { cellWidth: 18, halign: 'center' },
-              5: { cellWidth: 24, halign: 'right' },
-              6: { cellWidth: 28, halign: 'right' }
+              0: { cellWidth: 18, halign: 'center' },
+              1: { cellWidth: 32, halign: 'left' },
+              2: { cellWidth: 24, halign: 'center' },
+              3: { cellWidth: 52, halign: 'right' },
+              4: { cellWidth: 20, halign: 'center' },
+              5: { cellWidth: 28, halign: 'right' }
+            },
+            didDrawCell: (data) => {
+              if (data.column.index === 0 && data.cell.section === 'body') {
+                const item = items[data.row.index];
+                if (item?.image) {
+                  try {
+                    const imgSize = 14;
+                    const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                    const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                    doc.addImage(item.image, 'JPEG', x, y, imgSize, imgSize);
+                  } catch (e) {
+                    console.error('Image render error:', e);
+                  }
+                }
+              }
             }
           });
         }
 
-        // Grand total on last page
-        const grandTotal = itemsWithSupplier.reduce((sum, item) => sum + item.estTotal, 0);
-        const grandTotalItems = itemsWithSupplier.reduce((sum, item) => sum + parseInt(item.toBuy), 0);
+        // Grand total
+        const grandTotal = itemsWithData.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+        const grandTotalItems = itemsWithData.reduce((sum, item) => sum + item.toBuy, 0);
 
         const finalY = doc.lastAutoTable.finalY + 12;
         doc.setFontSize(12);
@@ -478,22 +557,22 @@ export default function PurchaseRequests() {
         doc.text(`GRAND TOTAL: ${grandTotalItems} items • $${grandTotal.toFixed(2)}`, pageWidth - 15, finalY, { align: 'right' });
 
         // Save
-        doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+        doc.save(`Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
         
         toast({ 
           title: 'PDF Generated', 
-          description: `${supplierNames.length} suppliers grouped successfully`,
-          duration: 3000
+          description: `${supplierNames.length} suppliers • ${itemsWithData.length} items${failedImagesCount > 0 ? ` • ${failedImagesCount} images failed` : ''}`,
+          duration: 4000
         });
       }
 
     } catch (error) {
-      console.error('❌ PDF generation failed:', error);
+      console.error('❌ PDF export failed:', error);
       toast({ 
-        title: 'Export failed', 
-        description: `Error: ${error.message}. Check console for details.`,
+        title: 'Export Failed', 
+        description: `${error.message}. See console for details.`,
         variant: 'destructive',
-        duration: 5000
+        duration: 6000
       });
     }
   };
