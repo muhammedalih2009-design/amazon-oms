@@ -80,7 +80,8 @@
     "jspdf-autotable": "^3.8.4",
     "bidi-js": "^1.0.3",
     "xlsx": "^0.18.5",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",
