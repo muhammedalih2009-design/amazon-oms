@@ -314,12 +314,15 @@ export default function PurchaseRequestsPrint() {
           </div>
         );
       })}
-
-      <div style={{ marginTop: 30, padding: 15, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, textAlign: 'right' }}>
-        <div style={{ fontSize: 12, marginBottom: 8 }}>
-          <strong>GRAND TOTAL:</strong> {totalItems} items • <strong>${totalValue.toFixed(2)}</strong>
-        </div>
       </div>
-    </div>
-  );
-}
+
+      <div style={{ padding: '20px' }}>
+       <div style={{ marginTop: 10, padding: 15, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, textAlign: 'right' }}>
+         <div style={{ fontSize: 12, marginBottom: 8 }}>
+           <strong>GRAND TOTAL:</strong> {totalItems} items • <strong>${totalValue.toFixed(2)}</strong>
+         </div>
+       </div>
+      </div>
+      </div>
+      );
+      }
