@@ -7,7 +7,7 @@ import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, Check
 import RefreshButton from '@/components/shared/RefreshButton';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import ExportStatusModal from '@/components/exports/ExportStatusModal';
-import JSZip from 'jszip';
+
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -35,12 +35,7 @@ export default function PurchaseRequests() {
   });
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
-  const [exportingPDF, setExportingPDF] = useState(false); // Added this state
   const [printViewHealthy, setPrintViewHealthy] = useState(null);
-  const [selfTestResults, setSelfTestResults] = useState(null);
-  const [selfTestLoading, setSelfTestLoading] = useState(false);
-  const [exportProofs, setExportProofs] = useState(null);
-  const [exportStatusOpen, setExportStatusOpen] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -209,28 +204,7 @@ export default function PurchaseRequests() {
     }
   };
 
-  const handleRunSelfTest = async () => {
-    setSelfTestLoading(true);
-    try {
-      const response = await base44.functions.invoke('runExportSelfTest', {
-        tenantId
-      });
-      setSelfTestResults(response.data.results);
-      toast({
-        title: response.data.status === 'PASS' ? 'All engines ready' : 'Engine test failed',
-        description: response.data.message,
-        variant: response.data.status === 'PASS' ? 'default' : 'destructive'
-      });
-    } catch (error) {
-      toast({
-        title: 'Self-test error',
-        description: error.message,
-        variant: 'destructive'
-      });
-    } finally {
-      setSelfTestLoading(false);
-    }
-  };
+
 
   const handleExportToCSV = () => {
     if (selectedSkus.length === 0) {
