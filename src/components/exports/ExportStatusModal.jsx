@@ -127,20 +127,30 @@ export default function ExportStatusModal({ open, onClose, proofs, tenantId }) {
             </div>
 
             {proofs.pdfPrint?.message && (
-              <div className="mt-3 p-3 bg-white rounded border border-slate-200">
-                <p className="text-sm text-slate-700">
-                  <strong>Last Action:</strong> {proofs.pdfPrint.message}
-                </p>
-                {proofs.pdfPrint.popupBlocked && (
-                  <p className="text-xs text-orange-700 mt-2">
-                    ⚠️ Popup was blocked. Fallback link provided in UI.
+              <div className="mt-3 space-y-3">
+                <div className="p-3 bg-white rounded border border-slate-200">
+                  <p className="text-sm text-slate-700">
+                    <strong>Last Action:</strong> {proofs.pdfPrint.message}
                   </p>
-                )}
-                {proofs.pdfPrint.windowOpened && (
-                  <p className="text-xs text-emerald-700 mt-2">
-                    ✓ Print window opened successfully
-                  </p>
-                )}
+                  {proofs.pdfPrint.popupBlocked && (
+                    <p className="text-xs text-orange-700 mt-2">
+                      ⚠️ Popup was blocked. Fallback link provided in UI.
+                    </p>
+                  )}
+                  {proofs.pdfPrint.windowOpened && (
+                    <p className="text-xs text-emerald-700 mt-2">
+                      ✓ Print window opened successfully
+                    </p>
+                  )}
+                </div>
+                <Button
+                  onClick={() => window.open(window.location.href.replace('Dashboard', 'PurchaseRequestsPrint'), '_blank')}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                >
+                  🖨️ Open Print View
+                </Button>
               </div>
             )}
           </div>
