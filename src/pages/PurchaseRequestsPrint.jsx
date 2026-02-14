@@ -16,6 +16,10 @@ export default function PurchaseRequestsPrint() {
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
 
+  // Get mode from query params (single or supplier)
+  const urlParams = new URLSearchParams(window.location.search);
+  const mode = urlParams.get('mode') || 'single';
+
   useEffect(() => {
     if (tenantId) loadData();
   }, [tenantId]);
