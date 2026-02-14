@@ -269,15 +269,23 @@ export default function PurchaseRequests() {
         const sku = skusData.find(s => s.id === item.sku_id);
         const imageData = sku?.image_url ? await loadImageAsBase64(sku.image_url) : null;
         
+        // Safely extract all values as primitives
+        const productName = safePDFText(item.product_name, 'product_name');
+        const skuCode = safePDFText(item.sku_code, 'sku_code');
+        const toBuyQty = safePDFText(item.to_buy, 'to_buy');
+        const costPrice = typeof item.cost_price === 'number' ? item.cost_price : 0;
+        const unitCost = safePDFText(`$${costPrice.toFixed(2)}`, 'unit_cost');
+        const supplierName = safePDFText(supplier?.supplier_name, 'supplier_name') || '-';
+        
         return {
           imageData: imageData,
           row: [
             '', // Placeholder for image
-            processArabicText(item.product_name),
-            safePDFText(item.sku_code, 'sku_code'),
-            safePDFText(item.to_buy, 'to_buy'),
-            safePDFText(`$${(item.cost_price || 0).toFixed(2)}`, 'cost_price'),
-            processArabicText(supplier?.supplier_name || '-')
+            processArabicText(productName),
+            skuCode,
+            toBuyQty,
+            unitCost,
+            processArabicText(supplierName)
           ]
         };
       }));
