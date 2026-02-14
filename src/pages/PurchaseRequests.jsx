@@ -1275,20 +1275,30 @@ export default function PurchaseRequests() {
       <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
 
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
-          <p className="text-slate-500">Calculate inventory needs for pending orders</p>
-        </div>
-        <div className="flex gap-3">
-          {user?.role === 'admin' && (
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
+        <p className="text-slate-500">Calculate inventory needs for pending orders</p>
+      </div>
+      <div className="flex gap-3">
+        {user?.role === 'admin' && (
+          <>
+            <Button
+              onClick={() => setExportStatusOpen(true)}
+              variant="outline"
+              className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+              title="Admin: View export proofs"
+            >
+              📊 Export Status
+            </Button>
             <ExportSelfTestPanel
               results={selfTestResults}
               loading={selfTestLoading}
               onRunTest={handleRunSelfTest}
             />
-          )}
-          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
-        </div>
+          </>
+        )}
+        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+      </div>
       </div>
 
       {/* Summary Cards */}
