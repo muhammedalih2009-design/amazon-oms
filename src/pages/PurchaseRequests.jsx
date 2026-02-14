@@ -4,6 +4,7 @@ import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
 import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
+import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
