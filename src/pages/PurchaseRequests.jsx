@@ -293,16 +293,16 @@ export default function PurchaseRequests() {
         let resolvedSupplier = 'Unassigned';
         if (master?.supplier_id) {
           const supplierEntity = suppliersData.find(s => s.id === master.supplier_id);
-          resolvedSupplier = toText(supplierEntity?.supplier_name || supplierEntity?.name);
+          resolvedSupplier = toStr(supplierEntity?.supplier_name || supplierEntity?.name);
         }
         if (resolvedSupplier === 'Unassigned' || !resolvedSupplier) {
-          resolvedSupplier = toText(master?.supplier || master?.vendor || master?.brandSupplier || master?.SUPPLIER) 
-            || toText(item.supplier) 
+          resolvedSupplier = toStr(master?.supplier || master?.vendor || master?.brandSupplier || master?.SUPPLIER) 
+            || toStr(item.supplier) 
             || 'Unassigned';
         }
         
         // Resolve Arabic product name from Master Data
-        const resolvedProductName = toText(
+        const resolvedProductName = toStr(
           master?.productNameAr || master?.arabicName || master?.name_ar || master?.PRODUCT_AR ||
           master?.product_name || master?.name || master?.title ||
           item.product_name || item.product
@@ -319,7 +319,7 @@ export default function PurchaseRequests() {
         return {
           image: imageData,
           supplier: resolvedSupplier,
-          skuCode: toText(item.sku_code || item.sku),
+          skuCode: toStr(item.sku_code || item.sku),
           productName: resolvedProductName,
           toBuy: Number(item.to_buy || item.qty || item.quantity || 0),
           unitCost: Number(item.cost_price || item.unitCost || item.cost || item.unit_price || 0)
