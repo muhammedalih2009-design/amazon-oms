@@ -815,7 +815,16 @@ export default function PurchaseRequests() {
           <h1 className="text-2xl font-bold text-slate-900">Purchase Requests</h1>
           <p className="text-slate-500">Calculate inventory needs for pending orders</p>
         </div>
-        <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+        <div className="flex gap-3">
+          {user?.role === 'admin' && (
+            <ExportSelfTestPanel
+              results={selfTestResults}
+              loading={selfTestLoading}
+              onRunTest={handleRunSelfTest}
+            />
+          )}
+          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+        </div>
       </div>
 
       {/* Summary Cards */}
