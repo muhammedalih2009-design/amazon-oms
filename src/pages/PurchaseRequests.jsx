@@ -288,6 +288,50 @@ export default function PurchaseRequests() {
       return;
     }
 
+    // Step 1: Run preflight checks
+    toast({ title: 'Running preflight checks...', description: 'Validating export engines' });
+
+    try {
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+
+      const preflightResponse = await base44.functions.invoke('checkExportPreflight', {
+        items: selectedItems,
+        tenantId
+      });
+
+      const preflight = preflightResponse.data;
+
+      if (!preflight.ok) {
+        toast({
+          title: 'Export Not Ready',
+          description: `${preflight.reason}. Error ID: ${preflight.errorId || 'unknown'}`,
+          variant: 'destructive',
+          duration: 6000
+        });
+        return;
+      }
+
+      if (!preflight.pdfReady) {
+        toast({
+          title: 'PDF Engine Not Available',
+          description: 'Falling back to Excel export',
+          variant: 'destructive'
+        });
+        setTimeout(() => handleExportToExcel(true), 500);
+        return;
+      }
+
+    } catch (preflight_error) {
+      console.error('Preflight check failed:', preflight_error);
+      toast({
+        title: 'Preflight Check Failed',
+        description: 'Could not validate export. Try again.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Step 2: Proceed with PDF export
     toast({ title: 'Generating PDF...', description: 'Loading Master Data and preparing export' });
 
     try {
