@@ -653,14 +653,15 @@ export default function PurchaseRequests() {
             items: selectedItems
           });
 
-          if (response.data.fallback) {
+          if (response.data && response.data.fallback) {
+            const errorId = response.data.errorId;
             toast({
               title: 'PDF Generation Failed',
-              description: 'Falling back to Excel export automatically',
+              description: `Falling back to Excel. Error ID: ${errorId}`,
               variant: 'destructive',
-              duration: 4000
+              duration: 5000
             });
-            setTimeout(() => handleExportToExcel(), 500);
+            setTimeout(() => handleExportToExcel(true), 500);
           } else {
             const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
             const link = document.createElement('a');
@@ -670,19 +671,20 @@ export default function PurchaseRequests() {
             URL.revokeObjectURL(link.href);
 
             toast({
-              title: 'PDF Generated',
+              title: 'PDF Generated Successfully',
               description: `${supplierNames.length} suppliers • ${selectedItems.length} items`,
               duration: 4000
             });
           }
         } catch (err) {
+          console.error('PDF export error:', err);
           toast({
-            title: 'PDF Generation Failed',
-            description: 'Falling back to Excel export automatically',
+            title: 'PDF Export Failed',
+            description: 'Falling back to Excel export',
             variant: 'destructive',
             duration: 4000
           });
-          setTimeout(() => handleExportToExcel(), 500);
+          setTimeout(() => handleExportToExcel(true), 500);
         }
       }
       setExportingPDF(false);
