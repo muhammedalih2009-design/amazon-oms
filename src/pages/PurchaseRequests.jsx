@@ -250,6 +250,329 @@ export default function PurchaseRequests() {
     });
   };
 
+  const handleExportPrintPDF = () => {
+    if (selectedSkus.length === 0) {
+      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
+      return;
+    }
+
+    const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+    
+    // Get workspace name
+    const workspaceName = tenant?.name || 'Workspace';
+    const dateStr = format(new Date(), 'MMM d, yyyy');
+
+    // Group items by supplier
+    const groupedBySupplier = selectedItems.reduce((acc, item) => {
+      const supplier = item.supplier || 'Unassigned';
+      if (!acc[supplier]) acc[supplier] = [];
+      acc[supplier].push(item);
+      return acc;
+    }, {});
+
+    const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
+      if (a === 'Unassigned') return 1;
+      if (b === 'Unassigned') return -1;
+      return a.localeCompare(b, 'ar', { sensitivity: 'base' });
+    });
+
+    // Build print HTML
+    const tableRows = supplierNames.map((supplierName, supplierIndex) => {
+      const items = groupedBySupplier[supplierName];
+      const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
+      const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
+
+      const itemRows = items.map(item => {
+        const skuEntity = skus.find(s => s.id === item.sku_id);
+        const imageUrl = skuEntity?.image_url || '';
+
+        return `
+          <tr class="item-row">
+            <td class="image-cell">
+              ${imageUrl ? `<img src="${imageUrl}" alt="SKU" class="item-image" />` : ''}
+            </td>
+            <td class="supplier-cell">${item.supplier || 'Unassigned'}</td>
+            <td class="sku-cell">${item.sku_code || ''}</td>
+            <td class="product-cell" dir="rtl">${item.product_name || ''}</td>
+            <td class="number-cell">${item.to_buy || 0}</td>
+            <td class="price-cell">$${(item.cost_price || 0).toFixed(2)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const supplierSection = `
+        <div class="supplier-section ${supplierIndex > 0 ? 'page-break' : ''}">
+          <div class="supplier-header">
+            <strong>${supplierName}</strong>
+            <span>${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}</span>
+          </div>
+          <table class="items-table">
+            <thead>
+              <tr class="header-row">
+                <th class="image-header">IMAGE</th>
+                <th class="supplier-header">SUPPLIER</th>
+                <th class="sku-header">SKU CODE</th>
+                <th class="product-header">PRODUCT</th>
+                <th class="number-header">TO BUY</th>
+                <th class="price-header">UNIT COST</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      return supplierSection;
+    }).join('');
+
+    const printHTML = `
+      <!DOCTYPE html>
+      <html lang="ar">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Purchase Requests</title>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet" />
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: "Noto Naskh Arabic", "Amiri", Arial, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #1f2937;
+            background: white;
+            padding: 20px;
+          }
+
+          .page-header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+          }
+
+          .page-header h1 {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+          }
+
+          .header-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #6b7280;
+            margin-top: 5px;
+          }
+
+          .supplier-section {
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+          }
+
+          .page-break {
+            page-break-before: always;
+          }
+
+          .supplier-header {
+            display: flex;
+            justify-content: space-between;
+            background: #f3f4f6;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            font-weight: bold;
+            font-size: 12px;
+            border-radius: 4px;
+          }
+
+          .supplier-header strong {
+            flex: 1;
+          }
+
+          .supplier-header span {
+            text-align: right;
+            font-weight: normal;
+            font-size: 10px;
+            color: #6b7280;
+          }
+
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+          }
+
+          .items-table thead {
+            background: #e5e7eb;
+            font-weight: bold;
+            font-size: 10px;
+          }
+
+          .items-table th {
+            padding: 6px 8px;
+            text-align: left;
+            border: 1px solid #d1d5db;
+          }
+
+          .image-header {
+            width: 110px;
+            text-align: center;
+          }
+
+          .supplier-header {
+            width: 100px;
+          }
+
+          .sku-header {
+            width: 90px;
+          }
+
+          .product-header {
+            flex: 1;
+            min-width: 150px;
+          }
+
+          .number-header {
+            width: 60px;
+            text-align: center;
+          }
+
+          .price-header {
+            width: 80px;
+            text-align: right;
+          }
+
+          .item-row {
+            border-bottom: 1px solid #e5e7eb;
+            page-break-inside: avoid;
+          }
+
+          .item-row:hover {
+            background: #f9fafb;
+          }
+
+          .image-cell {
+            padding: 6px;
+            text-align: center;
+            width: 110px;
+            height: 110px;
+          }
+
+          .item-image {
+            max-width: 100px;
+            max-height: 100px;
+            object-fit: contain;
+          }
+
+          .supplier-cell {
+            padding: 6px 8px;
+            width: 100px;
+            font-size: 10px;
+          }
+
+          .sku-cell {
+            padding: 6px 8px;
+            width: 90px;
+            font-size: 10px;
+            font-weight: 600;
+          }
+
+          .product-cell {
+            padding: 6px 8px;
+            flex: 1;
+            min-width: 150px;
+            direction: rtl;
+            unicode-bidi: plaintext;
+            text-align: right;
+            font-size: 11px;
+          }
+
+          .number-cell {
+            padding: 6px 8px;
+            width: 60px;
+            text-align: center;
+            font-weight: bold;
+            color: #4f46e5;
+          }
+
+          .price-cell {
+            padding: 6px 8px;
+            width: 80px;
+            text-align: right;
+            font-size: 10px;
+          }
+
+          @media print {
+            body {
+              padding: 10px;
+            }
+
+            .page-header {
+              margin-bottom: 15px;
+              padding-bottom: 8px;
+            }
+
+            .supplier-section {
+              margin-bottom: 15px;
+            }
+
+            .item-row:hover {
+              background: white;
+            }
+
+            .page-break {
+              page-break-before: always;
+            }
+
+            .supplier-section {
+              page-break-inside: avoid;
+            }
+          }
+
+          @page {
+            margin: 0.5in;
+            size: A4;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page-header">
+          <h1>Purchase Requests</h1>
+          <div class="header-meta">
+            <div><strong>Workspace:</strong> ${workspaceName}</div>
+            <div><strong>Date:</strong> ${dateStr}</div>
+          </div>
+        </div>
+        ${tableRows}
+      </body>
+      </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+
+    // Trigger print after a short delay to allow rendering
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 500);
+
+    toast({
+      title: 'Print preview opened',
+      description: 'Click "Print" or save as PDF',
+      duration: 4000
+    });
+  };
+
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'Select at least one SKU', variant: 'destructive' });
