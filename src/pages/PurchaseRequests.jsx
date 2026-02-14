@@ -1509,6 +1509,7 @@ export default function PurchaseRequests() {
         open={exportStatusOpen}
         onClose={() => setExportStatusOpen(false)}
         proofs={exportProofs}
+        tenantId={tenantId}
       />
     </ErrorBoundary>
   );
