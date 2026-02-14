@@ -224,6 +224,48 @@ export default function PurchaseRequests() {
   const totalValue = purchaseNeeds.reduce((sum, p) => sum + (p.to_buy * p.cost_price), 0);
   const totalItems = purchaseNeeds.reduce((sum, p) => sum + p.to_buy, 0);
 
+  // Export to Excel
+  const handleExportToExcel = async () => {
+    if (selectedSkus.length === 0) {
+      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
+      return;
+    }
+
+    setExportingExcel(true);
+    toast({ title: 'Generating Excel...', description: 'Preparing file' });
+
+    try {
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+
+      const response = await base44.functions.invoke('exportToExcel', {
+        items: selectedItems,
+        fileName: `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx`
+      });
+
+      const excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(excelBlob);
+      link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      toast({
+        title: 'Excel Exported',
+        description: `${selectedItems.length} items`,
+        duration: 3000
+      });
+    } catch (error) {
+      console.error('Excel export failed:', error);
+      toast({
+        title: 'Export Failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   const handleExportToPDF = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
