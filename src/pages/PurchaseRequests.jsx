@@ -190,6 +190,29 @@ export default function PurchaseRequests() {
     }
   };
 
+  const handleRunSelfTest = async () => {
+    setSelfTestLoading(true);
+    try {
+      const response = await base44.functions.invoke('runExportSelfTest', {
+        tenantId
+      });
+      setSelfTestResults(response.data.results);
+      toast({
+        title: response.data.status === 'PASS' ? 'All engines ready' : 'Engine test failed',
+        description: response.data.message,
+        variant: response.data.status === 'PASS' ? 'default' : 'destructive'
+      });
+    } catch (error) {
+      toast({
+        title: 'Self-test error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setSelfTestLoading(false);
+    }
+  };
+
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'Select at least one SKU', variant: 'destructive' });
