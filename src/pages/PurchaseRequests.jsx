@@ -34,6 +34,8 @@ export default function PurchaseRequests() {
   const [debugMode, setDebugMode] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [selfTestResults, setSelfTestResults] = useState(null);
+  const [selfTestLoading, setSelfTestLoading] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
