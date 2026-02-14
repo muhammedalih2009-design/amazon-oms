@@ -2,13 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
-import { ClipboardList, ShoppingCart, Check, Calculator, FileDown } from 'lucide-react';
+import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import bidi from 'bidi-js';
 import JSZip from 'jszip';
-import html2canvas from 'html2canvas';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -35,6 +31,7 @@ export default function PurchaseRequests() {
   });
   const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
   const [debugMode, setDebugMode] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -257,106 +254,36 @@ export default function PurchaseRequests() {
           .toUpperCase();
       };
 
-      // Render HTML table to PDF using html2canvas (proper Arabic support)
-      const renderTableToPDF = async (doc, items, supplierName, startY, pageWidth) => {
-        // Create temporary HTML table
-        const container = document.createElement('div');
-        container.style.position = 'absolute';
-        container.style.left = '-9999px';
-        container.style.width = '800px';
-        container.style.background = 'white';
-        container.style.padding = '20px';
-        
-        const tableHTML = `
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap');
-            .pdf-table {
-              width: 100%;
-              border-collapse: collapse;
-              font-family: 'Noto Naskh Arabic', Arial, sans-serif;
-              font-size: 12px;
-            }
-            .pdf-table th {
-              background: #4f46e5;
-              color: white;
-              padding: 12px 8px;
-              text-align: center;
-              font-weight: bold;
-              border: 1px solid #ddd;
-            }
-            .pdf-table td {
-              padding: 12px 8px;
-              border: 1px solid #ddd;
-              text-align: center;
-            }
-            .pdf-table .product-cell {
-              direction: rtl;
-              text-align: right;
-              unicode-bidi: plaintext;
-              white-space: normal;
-              word-wrap: break-word;
-            }
-            .pdf-table .supplier-cell {
-              text-align: left;
-            }
-            .pdf-table .img-cell {
-              text-align: center;
-              width: 80px;
-            }
-            .pdf-table img {
-              max-width: 60px;
-              max-height: 60px;
-              object-fit: contain;
-            }
-          </style>
-          <table class="pdf-table">
+      // Build HTML table for Chromium PDF rendering
+      const buildTableHTML = (items, supplierName) => {
+        const rows = items.map(item => `
+          <tr>
+            <td class="img-cell">${item.image ? `<img src="${item.image}" />` : ''}</td>
+            <td class="supplier-cell">${item.supplier}</td>
+            <td>${item.skuCode}</td>
+            <td class="product-cell">${item.productName}</td>
+            <td class="number-cell">${item.toBuy}</td>
+            <td class="price-cell">$${item.unitCost.toFixed(2)}</td>
+            ${debugMode ? `<td class="debug-cell">${item._debugSkuKey}</td><td class="debug-cell">${item._debugMdMatch ? 'YES' : 'NO'}</td>` : ''}
+          </tr>
+        `).join('');
+
+        const headers = debugMode 
+          ? ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST', 'SKU_KEY', 'MD_MATCH']
+          : ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
+
+        return `
+          <table>
             <thead>
               <tr>
-                ${debugMode ? '<th>IMAGE</th><th>SUPPLIER</th><th>SKU CODE</th><th>PRODUCT</th><th>TO BUY</th><th>UNIT COST</th><th>SKU_KEY</th><th>MD_MATCH</th>' : '<th>IMAGE</th><th>SUPPLIER</th><th>SKU CODE</th><th>PRODUCT</th><th>TO BUY</th><th>UNIT COST</th>'}
+                ${headers.map(h => `<th>${h}</th>`).join('')}
               </tr>
             </thead>
             <tbody>
-              ${items.map(item => `
-                <tr>
-                  <td class="img-cell">${item.image ? `<img src="${item.image}" />` : ''}</td>
-                  <td class="supplier-cell">${item.supplier}</td>
-                  <td>${item.skuCode}</td>
-                  <td class="product-cell">${item.productName}</td>
-                  <td>${item.toBuy}</td>
-                  <td>$${item.unitCost.toFixed(2)}</td>
-                  ${debugMode ? `<td style="font-size: 9px;">${item._debugSkuKey}</td><td style="font-size: 9px;">${item._debugMdMatch ? 'YES' : 'NO'}</td>` : ''}
-                </tr>
-              `).join('')}
+              ${rows}
             </tbody>
           </table>
         `;
-        
-        container.innerHTML = tableHTML;
-        document.body.appendChild(container);
-        
-        try {
-          // Wait for fonts to load
-          await document.fonts.ready;
-          
-          // Render to canvas
-          const canvas = await html2canvas(container, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff'
-          });
-          
-          // Add to PDF
-          const imgData = canvas.toDataURL('image/png');
-          const imgWidth = pageWidth - 30;
-          const imgHeight = (canvas.height * imgWidth) / canvas.width;
-          
-          doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
-          
-          return startY + imgHeight + 10;
-        } finally {
-          document.body.removeChild(container);
-        }
       };
 
       // Load image as base64 with larger canvas
@@ -949,20 +876,30 @@ export default function PurchaseRequests() {
 
       {/* Action Bar */}
       {selectedSkus.length > 0 && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-indigo-700 font-medium">
-              {selectedSkus.length} SKU(s) selected
-            </p>
-            <div className="flex items-center gap-3">
-              <Button 
-                onClick={handleExportToPDF}
-                variant="outline"
-                className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-              >
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-indigo-700 font-medium">
+          {selectedSkus.length} SKU(s) selected
+        </p>
+        <div className="flex items-center gap-3">
+          <Button 
+            onClick={handleExportToPDF}
+            variant="outline"
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            disabled={exportingPDF}
+          >
+            {exportingPDF ? (
+              <>
+                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
                 <FileDown className="w-4 h-4 mr-2" />
                 Export to PDF
-              </Button>
+              </>
+            )}
+          </Button>
               <Button 
                 onClick={handleAddToCart}
                 className="bg-indigo-600 hover:bg-indigo-700"
