@@ -1164,7 +1164,7 @@ export default function PurchaseRequests() {
     }
   ];
 
-  return (
+  const PurchaseRequestsContent = () => (
     <div className="space-y-6">
       <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
 
