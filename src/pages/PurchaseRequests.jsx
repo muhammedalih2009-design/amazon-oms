@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
-import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader } from 'lucide-react';
+import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, CheckCircle2, AlertCircle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import ExportStatusModal from '@/components/exports/ExportStatusModal';
