@@ -35,8 +35,8 @@ export default function PurchaseRequests() {
   });
   const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
   const [debugMode, setDebugMode] = useState(false);
-  const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [printViewHealthy, setPrintViewHealthy] = useState(null);
   const [selfTestResults, setSelfTestResults] = useState(null);
   const [selfTestLoading, setSelfTestLoading] = useState(false);
   const [exportProofs, setExportProofs] = useState(null);
