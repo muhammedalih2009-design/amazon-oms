@@ -281,9 +281,19 @@ export default function PurchaseRequestsPrint() {
               <tbody>
                 {items.map(item => (
                   <tr key={item.sku_id} className="item-row">
-                    <td style={{ textAlign: 'center', padding: 6 }}>
-                      {item.image_url && (
-                        <img src={item.image_url} alt="SKU" className="item-image" />
+                    <td style={{ textAlign: 'center', padding: 6, width: 110, height: 90 }}>
+                      {item.image_url ? (
+                        <img 
+                          src={item.image_url} 
+                          alt="SKU" 
+                          className="item-image"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.parentElement.innerHTML = '<div class="image-placeholder">No image</div>';
+                          }}
+                        />
+                      ) : (
+                        <div className="image-placeholder">No image</div>
                       )}
                     </td>
                     <td style={{ fontSize: 10 }}>{item.supplier}</td>
