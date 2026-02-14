@@ -662,25 +662,29 @@ export default function PurchaseRequests() {
       });
 
       const response = await base44.functions.invoke('exportToExcel', {
-        items: selectedItems,
+        items: sorted,
         fileName: `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.xlsx`
       });
 
-      // Validate response - check if it's a proper binary response
+      // Validate response
       if (response.data && response.data.ok === false) {
-        // Error response
         throw new Error(response.data.error || 'Excel generation failed');
       }
 
-      // For binary files, response.data should be a Blob or ArrayBuffer
+      // Handle binary response
       let excelBlob;
       if (response.data instanceof Blob) {
         excelBlob = response.data;
       } else if (response.data instanceof ArrayBuffer) {
         excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       } else {
-        // Fallback: wrap as blob
         excelBlob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      }
+
+      // Validate ZIP signature
+      const header = new Uint8Array(await excelBlob.slice(0, 2).arrayBuffer());
+      if (header[0] !== 0x50 || header[1] !== 0x4b) {
+        throw new Error('Invalid Excel file format (invalid ZIP signature)');
       }
 
       const link = document.createElement('a');
@@ -691,15 +695,16 @@ export default function PurchaseRequests() {
 
       toast({
         title: 'Excel Exported',
-        description: `${selectedItems.length} items`,
+        description: `${sorted.length} items (sorted by supplier)`,
         duration: 3000
       });
     } catch (error) {
       console.error('Excel export failed:', error);
       toast({
-        title: 'Export Failed',
-        description: error.message || 'Could not generate Excel',
-        variant: 'destructive'
+        title: 'Excel Export Unavailable',
+        description: 'Please use CSV export instead',
+        variant: 'destructive',
+        duration: 4000
       });
     } finally {
       setExportingExcel(false);
