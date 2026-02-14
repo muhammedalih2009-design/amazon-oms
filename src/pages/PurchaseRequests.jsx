@@ -468,7 +468,6 @@ export default function PurchaseRequests() {
 
       setExportingPDF(true);
       const dateStr = format(new Date(), 'yyyy-MM-dd');
-      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
 
       // Generate PDFs via Puppeteer backend with fallback
       if (exportMode === 'per-supplier') {
