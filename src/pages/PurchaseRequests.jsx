@@ -24,6 +24,7 @@ export default function PurchaseRequests() {
   const [orderLines, setOrderLines] = useState([]);
   const [skus, setSkus] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedSkus, setSelectedSkus] = useState([]);
@@ -63,22 +64,47 @@ export default function PurchaseRequests() {
     } else {
       setLoading(true);
     }
-    const [ordersData, linesData, skusData, stockData] = await Promise.all([
+    const [ordersData, linesData, skusData, stockData, suppliersData] = await Promise.all([
       base44.entities.Order.filter({ tenant_id: tenantId }),
       base44.entities.OrderLine.filter({ tenant_id: tenantId }),
       base44.entities.SKU.filter({ tenant_id: tenantId }),
-      base44.entities.CurrentStock.filter({ tenant_id: tenantId })
+      base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
+      base44.entities.Supplier.filter({ tenant_id: tenantId })
     ]);
     setOrders(ordersData);
     setOrderLines(linesData);
     setSkus(skusData);
     setCurrentStock(stockData);
+    setSuppliers(suppliersData);
     if (isRefresh) {
       setRefreshing(false);
     } else {
       setLoading(false);
     }
   };
+
+  // Normalize SKU for matching
+  const normalizeSku = (sku) => {
+    const t = (sku ?? '').toString().trim();
+    return t
+      .replace(/[\s\r\n]+/g, '')
+      .replace(/[\u200E\u200F\u202A-\u202E]/g, '')
+      .replace(/[-_]+/g, '')
+      .replace(/[^0-9A-Za-z]+/g, '')
+      .toUpperCase();
+  };
+
+  // Build Master Data lookup map
+  const masterLookup = useMemo(() => {
+    const lookup = {};
+    skus.forEach(md => {
+      const mdKey = normalizeSku(md.sku_code || md.skuCode || md.sku || md['SKU CODE'] || md.SKU || '');
+      if (mdKey) {
+        lookup[mdKey] = md;
+      }
+    });
+    return lookup;
+  }, [skus]);
 
   // Auto-calculate needs when date range changes
   const purchaseNeeds = useMemo(() => {
@@ -104,12 +130,30 @@ export default function PurchaseRequests() {
       }
     }
 
-    // Calculate to buy
+    // Calculate to buy and resolve supplier from Master Data
     return Object.entries(skuNeeds).map(([skuId, needed]) => {
       const sku = skus.find(s => s.id === skuId);
       const stock = currentStock.find(s => s.sku_id === skuId);
       const available = stock?.quantity_available || 0;
       const toBuy = Math.max(0, needed - available);
+
+      // Resolve supplier from Master Data
+      const skuKey = normalizeSku(sku?.sku_code || '');
+      const md = masterLookup[skuKey];
+      
+      let supplierResolved = '';
+      if (md?.supplier_id) {
+        const supplierEntity = suppliers.find(s => s.id === md.supplier_id);
+        if (supplierEntity) {
+          supplierResolved = (supplierEntity.supplier_name || supplierEntity.name || '').toString().trim();
+        }
+      }
+      
+      if (!supplierResolved) {
+        supplierResolved = (md?.supplier || md?.vendor || md?.Supplier || md?.brandSupplier || md?.vendorName || '').toString().trim()
+          || (sku?.supplier || '').toString().trim()
+          || 'Unassigned';
+      }
 
       return {
         id: skuId,
@@ -118,12 +162,15 @@ export default function PurchaseRequests() {
         product_name: sku?.product_name || 'Unknown',
         cost_price: sku?.cost_price || 0,
         supplier_id: sku?.supplier_id,
+        supplier: supplierResolved,
         total_needed: needed,
         available,
-        to_buy: toBuy
+        to_buy: toBuy,
+        _debugSkuKey: skuKey,
+        _debugMdMatch: !!md
       };
     }).filter(item => item.to_buy > 0);
-  }, [orders, orderLines, skus, currentStock, dateRange]);
+  }, [orders, orderLines, skus, currentStock, suppliers, dateRange, masterLookup]);
 
   const handleSelectAll = () => {
     if (selectedSkus.length === purchaseNeeds.length) {
@@ -711,7 +758,26 @@ export default function PurchaseRequests() {
       key: 'sku_code',
       header: 'SKU Code',
       sortable: true,
-      render: (val) => <span className="font-medium text-slate-900">{val}</span>
+      render: (val, row) => (
+        <div>
+          <span className="font-medium text-slate-900">{val}</span>
+          {debugMode && (
+            <div className="text-xs text-slate-400 mt-1">
+              Key: {row._debugSkuKey} • Match: {row._debugMdMatch ? '✅ YES' : '❌ NO'}
+            </div>
+          )}
+        </div>
+      )
+    },
+    {
+      key: 'supplier',
+      header: 'Supplier',
+      sortable: true,
+      render: (val) => (
+        <span className={val === 'Unassigned' ? 'text-slate-400 italic' : 'text-slate-700'}>
+          {val}
+        </span>
+      )
     },
     {
       key: 'product_name',
