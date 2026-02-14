@@ -249,11 +249,22 @@ export default function PurchaseRequestsPrint() {
 
         return (
           <div key={supplierName} className={`supplier-section ${shouldPageBreak ? 'page-break' : ''}`}>
-            <div className="supplier-header">
-              <strong>{supplierName}</strong>
-              <span style={{ fontWeight: 'normal', fontSize: 12, color: '#6b7280' }}>
-                {items.length} SKUs • {supplierItemCount} items • ${supplierTotal.toFixed(2)}
-              </span>
+            <div className="supplier-summary">
+              <div className="supplier-name">{supplierName}</div>
+              <div className="supplier-stats">
+                <div className="supplier-stat">
+                  <div>{items.length}</div>
+                  <div className="supplier-stat-label">SKUs</div>
+                </div>
+                <div className="supplier-stat">
+                  <div>{supplierItemCount}</div>
+                  <div className="supplier-stat-label">Items</div>
+                </div>
+                <div className="supplier-stat">
+                  <div>${supplierTotal.toFixed(2)}</div>
+                  <div className="supplier-stat-label">Total</div>
+                </div>
+              </div>
             </div>
 
             <table>
