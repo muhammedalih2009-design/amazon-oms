@@ -1,25 +1,41 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
+import { base44 } from '@/api/base44Client';
 
 export default function PurchaseRequestsPrint() {
   const urlParams = new URLSearchParams(window.location.search);
+  const jobId = urlParams.get('job');
   const mode = urlParams.get('mode') || 'single';
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('PR_PRINT_PAYLOAD');
-      if (!raw) {
-        setError('Print payload missing. Please go back and click PDF again.');
-        return;
+    const fetchPayload = async () => {
+      try {
+        if (!jobId) {
+          setError('Print job ID missing. Please go back and click PDF again.');
+          setLoading(false);
+          return;
+        }
+
+        const response = await base44.functions.invoke('getPrintJob', { jobId });
+        setPayload(response.data.payload);
+      } catch (err) {
+        if (err.response?.status === 410) {
+          setError('Print job expired. Please go back and click PDF again.');
+        } else if (err.response?.status === 404) {
+          setError('Print job not found. Please go back and click PDF again.');
+        } else {
+          setError(`Failed to load print data: ${err.message}`);
+        }
+      } finally {
+        setLoading(false);
       }
-      const parsed = JSON.parse(raw);
-      setPayload(parsed);
-    } catch (err) {
-      setError(`Failed to load print data: ${err.message}`);
-    }
-  }, []);
+    };
+
+    fetchPayload();
+  }, [jobId]);
 
   if (error) {
     return (
@@ -44,7 +60,7 @@ export default function PurchaseRequestsPrint() {
     );
   }
 
-  if (!payload) {
+  if (loading || !payload) {
     return <div style={{ padding: '40px', textAlign: 'center' }}>Loading print view...</div>;
   }
 
