@@ -1473,16 +1473,14 @@ export default function PurchaseRequests() {
             >
               🖨️ PDF per Supplier
             </Button>
-            <button
+            <Button
               onClick={() => setDebugMode(!debugMode)}
-              className={`px-3 py-1 rounded-md transition-colors ${
-                debugMode
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:border-red-200'
-              }`}
+              variant={debugMode ? 'default' : 'outline'}
+              size="sm"
+              className={`text-xs ${debugMode ? 'bg-red-600 hover:bg-red-700' : 'border-red-200 text-red-700 hover:bg-red-50'}`}
             >
-              {debugMode ? '🐛 Debug ON' : 'Debug Mode'}
-            </button>
+              {debugMode ? '🐛 Debug ON' : 'Debug'}
+            </Button>
           </div>
         </div>
       )}
