@@ -1299,6 +1299,7 @@ export default function PurchaseRequests() {
             onClick={handleExportPrintPDF}
             variant="outline"
             className="border-purple-200 text-purple-700 hover:bg-purple-50"
+            title="Open browser print dialog"
           >
             <FileDown className="w-4 h-4 mr-2" />
             PDF (Print)
