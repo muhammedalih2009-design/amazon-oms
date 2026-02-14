@@ -34,7 +34,6 @@ export default function PurchaseRequests() {
     from: new Date(),
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
-  // Removed: const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false); // Added this state
@@ -305,8 +304,6 @@ export default function PurchaseRequests() {
     const printUrl = createPageUrl(`PurchaseRequestsPrint?mode=${mode}`);
     window.open(printUrl, '_blank', 'width=1200,height=800');
   };
-
-  // Removed unused handleExportPrintPDF function from here
 
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
