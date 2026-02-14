@@ -1455,26 +1455,26 @@ export default function PurchaseRequests() {
         </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-slate-600">Export mode:</span>
+            <span className="text-slate-600">PDF Mode:</span>
             <button
-              onClick={() => setExportMode('single')}
-              className={`px-3 py-1 rounded-md transition-colors ${
-                exportMode === 'single'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-200'
-              }`}
+              onClick={() => {
+                setExportMode('single');
+                handleOpenPrintView('single');
+              }}
+              className="px-3 py-1 rounded-md transition-colors bg-white text-slate-600 border border-slate-200 hover:border-indigo-200"
+              title="Open in browser print dialog"
             >
               Single PDF (All)
             </button>
             <button
-              onClick={() => setExportMode('per-supplier')}
-              className={`px-3 py-1 rounded-md transition-colors ${
-                exportMode === 'per-supplier'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-200'
-              }`}
+              onClick={() => {
+                setExportMode('per-supplier');
+                handleOpenPrintView('supplier');
+              }}
+              className="px-3 py-1 rounded-md transition-colors bg-white text-slate-600 border border-slate-200 hover:border-indigo-200"
+              title="Page breaks between suppliers"
             >
-              PDF per Supplier (ZIP)
+              PDF per Supplier
             </button>
             <button
               onClick={() => setDebugMode(!debugMode)}
