@@ -60,6 +60,7 @@ import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
+import PurchaseRequestsPrint from './pages/PurchaseRequestsPrint';
 import __Layout from './Layout.jsx';
 
 
@@ -77,6 +78,7 @@ export const PAGES = {
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
+    "PurchaseRequestsPrint": PurchaseRequestsPrint,
 }
 
 export const pagesConfig = {
