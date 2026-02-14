@@ -226,13 +226,14 @@ export default function PurchaseRequests() {
 
       // Helper function to process Arabic text for RTL
       const processArabicText = (text) => {
-        const safeText = safePDFText(text, 'processArabicText');
+        const safeText = String(safePDFText(text, 'processArabicText') || '');
         if (!safeText) return '';
         // Check if text contains Arabic characters
         const hasArabic = /[\u0600-\u06FF]/.test(safeText);
         if (hasArabic) {
-          // Apply bidi algorithm for proper RTL rendering
-          return bidi(safeText);
+          // Apply bidi algorithm for proper RTL rendering - ensure return is string
+          const bidiResult = bidi(safeText);
+          return String(bidiResult || safeText);
         }
         return safeText;
       };
@@ -281,11 +282,11 @@ export default function PurchaseRequests() {
           imageData: imageData,
           row: [
             '', // Placeholder for image
-            processArabicText(productName),
-            skuCode,
-            toBuyQty,
-            unitCost,
-            processArabicText(supplierName)
+            String(processArabicText(productName) || ''),
+            String(skuCode || ''),
+            String(toBuyQty || '0'),
+            String(unitCost || '$0.00'),
+            String(processArabicText(supplierName) || '-')
           ]
         };
       }));
@@ -358,8 +359,8 @@ export default function PurchaseRequests() {
       const totalItemsText = `إجمالي العناصر: ${safePDFText(selectedItemsCount, 'selectedItemsCount')}`;
       const totalCostText = `التكلفة الإجمالية: $${selectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       
-      doc.text(processArabicText(totalItemsText), pageWidth - 15, finalY, { align: 'right' });
-      doc.text(processArabicText(totalCostText), pageWidth - 15, finalY + 7, { align: 'right' });
+      doc.text(String(processArabicText(totalItemsText) || ''), pageWidth - 15, finalY, { align: 'right' });
+      doc.text(String(processArabicText(totalCostText) || ''), pageWidth - 15, finalY + 7, { align: 'right' });
 
       // Save PDF
       doc.save(`Purchase_Order_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
