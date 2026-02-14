@@ -1495,6 +1495,11 @@ export default function PurchaseRequests() {
   return (
     <ErrorBoundary fallbackTitle="Purchase Requests failed to load">
       <PurchaseRequestsContent />
+      <ExportStatusModal
+        open={exportStatusOpen}
+        onClose={() => setExportStatusOpen(false)}
+        proofs={exportProofs}
+      />
     </ErrorBoundary>
   );
 }
