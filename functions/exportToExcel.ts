@@ -1,5 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-import XLSX from 'npm:xlsx@0.18.5';
+import ExcelJS from 'npm:exceljs@4.4.0';
 
 Deno.serve(async (req) => {
   try {
@@ -16,44 +16,62 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid items data' }, { status: 400 });
     }
 
-    // Transform items to Excel format
-    const excelRows = items.map(item => ({
-      'SKU Code': item.sku_code || item.skuCode || '',
-      'Supplier': item.supplier || item.supplierResolved || '',
-      'Product': item.product_name || item.productName || '',
-      'Needed': item.total_needed || item.toBuy || 0,
-      'In Stock': item.available || 0,
-      'To Buy': item.to_buy || item.toBuy || 0,
-      'Unit Cost': item.cost_price || item.unitCost || 0,
-      'Total Cost': (item.to_buy || item.toBuy || 0) * (item.cost_price || item.unitCost || 0)
-    }));
-
     // Create workbook
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(excelRows);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Purchase Requests');
 
-    // Set column widths
-    worksheet['!cols'] = [
-      { wch: 15 },  // SKU Code
-      { wch: 20 },  // Supplier
-      { wch: 30 },  // Product
-      { wch: 10 },  // Needed
-      { wch: 10 },  // In Stock
-      { wch: 10 },  // To Buy
-      { wch: 12 },  // Unit Cost
-      { wch: 14 }   // Total Cost
+    // Define columns
+    sheet.columns = [
+      { header: 'SKU Code', key: 'sku_code', width: 15 },
+      { header: 'Supplier', key: 'supplier', width: 25 },
+      { header: 'Product', key: 'product_name', width: 40 },
+      { header: 'Needed', key: 'total_needed', width: 10 },
+      { header: 'In Stock', key: 'available', width: 10 },
+      { header: 'To Buy', key: 'to_buy', width: 10 },
+      { header: 'Unit Cost', key: 'unit_cost', width: 12 },
+      { header: 'Total Cost', key: 'total_cost', width: 14 }
     ];
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Purchase Requests');
+    // Style header row
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+    sheet.getRow(1).alignment = { horizontal: 'center', vertical: 'center' };
 
-    // Generate Excel file
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    // Add data rows
+    items.forEach(item => {
+      const toBuy = item.to_buy || item.toBuy || 0;
+      const unitCost = item.cost_price || item.unitCost || 0;
+      const totalCost = toBuy * unitCost;
 
-    return new Response(new Uint8Array(excelBuffer), {
+      sheet.addRow({
+        sku_code: item.sku_code || item.skuCode || '',
+        supplier: item.supplier || item.supplierResolved || '',
+        product_name: item.product_name || item.productName || '',
+        total_needed: item.total_needed || 0,
+        available: item.available || 0,
+        to_buy: toBuy,
+        unit_cost: unitCost,
+        total_cost: totalCost
+      });
+    });
+
+    // Format currency columns
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        row.getCell(7).numFmt = '$#,##0.00'; // Unit Cost
+        row.getCell(8).numFmt = '$#,##0.00'; // Total Cost
+      }
+    });
+
+    // Generate Excel buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    return new Response(buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${fileName || 'purchase-requests.xlsx'}"`
+        'Content-Disposition': `attachment; filename="${fileName || 'purchase-requests.xlsx'}"`,
+        'Content-Length': buffer.length.toString()
       }
     });
 
