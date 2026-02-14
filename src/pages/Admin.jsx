@@ -50,6 +50,7 @@ export default function AdminPage() {
   const [workspaceMembers, setWorkspaceMembers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [addMemberRole, setAddMemberRole] = useState('member');
+  const [repairingMemberships, setRepairingMemberships] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -378,6 +379,31 @@ export default function AdminPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <Button 
+            variant="outline"
+            onClick={async () => {
+              setRepairingMemberships(true);
+              try {
+                const { data } = await base44.functions.invoke('repairSuperAdminMemberships', {});
+                toast({
+                  title: 'Memberships Repaired',
+                  description: `Created: ${data.memberships_created}, Skipped: ${data.memberships_skipped}`
+                });
+                loadData(true);
+              } catch (error) {
+                toast({
+                  title: 'Repair failed',
+                  description: error.message,
+                  variant: 'destructive'
+                });
+              } finally {
+                setRepairingMemberships(false);
+              }
+            }}
+            disabled={repairingMemberships}
+          >
+            {repairingMemberships ? 'Repairing...' : 'Repair My Access'}
+          </Button>
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           <Button
             onClick={() => setShowCreateWorkspace(true)}
