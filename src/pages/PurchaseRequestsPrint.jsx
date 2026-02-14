@@ -153,8 +153,8 @@ export default function PurchaseRequestsPrint() {
       <div style={{ padding: '20px', background: 'white' }}>
         {supplierNames.map((supplierName, idx) => {
         const items = groupedBySupplier[supplierName];
-        const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
-        const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
+        const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+        const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
         const shouldPageBreak = mode === 'supplier' && idx > 0;
 
         return (
