@@ -337,77 +337,35 @@ export default function PurchaseRequests() {
 
       let failedImagesCount = 0;
 
-      // Enrich and normalize items with Master Data
-      const itemsWithData = await Promise.all(selectedItems.map(async (item, idx) => {
-        // Lookup Master Data by normalized SKU
-        const rawSku = item.sku_code || item.sku || item.SKU || item['SKU CODE'] || item.code || '';
-        const skuKey = normalizeSku(rawSku);
-        const md = masterLookup[skuKey];
-        
-        if (debugMode && idx < 5) {
-          console.log(`🔍 Row ${idx}:`, {
-            rawSku,
-            skuKey,
-            mdFound: !!md,
-            mdSupplier: md?.supplier_id,
-            mdProduct: md?.product_name
-          });
-        }
-        
-        // Resolve supplier from Master Data FIRST
-        let resolvedSupplier = '';
-        
-        if (md?.supplier_id) {
-          const supplierEntity = suppliersData.find(s => s.id === md.supplier_id);
-          if (supplierEntity) {
-            resolvedSupplier = (supplierEntity.supplier_name || supplierEntity.name || '').toString().trim();
-          }
-        }
-        
-        if (!resolvedSupplier) {
-          resolvedSupplier = (md?.supplier || md?.vendor || md?.Supplier || md?.brandSupplier || md?.vendorName || '').toString().trim()
-            || (item.supplier || '').toString().trim()
-            || 'Unassigned';
-        }
-        
-        // Resolve product name from Master Data FIRST (Arabic preferred)
-        let resolvedProduct = (md?.productNameAr || md?.name_ar || md?.arabicName || md?.arName || '').toString().trim();
-        
-        if (!resolvedProduct) {
-          resolvedProduct = (md?.product_name || md?.productName || md?.name || md?.title || md?.enName || '').toString().trim();
-        }
-        
-        if (!resolvedProduct) {
-          resolvedProduct = (item.product_name || '').toString().trim();
-        }
-        
-        if (!resolvedProduct && typeof item.product === 'string') {
-          resolvedProduct = item.product.trim();
-        }
-        
-        if (!resolvedProduct) {
-          resolvedProduct = 'Unknown Product';
-        }
-        
-        // Load image from Master Data
+      // Use UI-resolved data directly (no re-joining, no re-mapping)
+      const itemsWithData = await Promise.all(selectedItems.map(async (item) => {
+        // Load image if available
         let imageData = null;
-        if (md?.image_url) {
-          imageData = await loadImageAsBase64(md.image_url);
+        const skuEntity = skus.find(s => s.id === item.sku_id);
+        if (skuEntity?.image_url) {
+          imageData = await loadImageAsBase64(skuEntity.image_url);
           if (!imageData) failedImagesCount++;
         }
         
-        // Return normalized data (ALL STRINGS/NUMBERS, NEVER OBJECTS)
+        // Use UI-resolved values (already correct strings from purchaseNeeds)
+        const supplierResolved = String(item.supplier || 'Unassigned');
+        let productResolved = String(item.product_name || 'Unknown Product');
+        
+        // Safety check: ensure product is never an object
+        if (typeof productResolved !== 'string') {
+          productResolved = String(productResolved);
+        }
+        
         return {
           image: imageData,
-          supplier: resolvedSupplier,
-          skuCode: toStr(rawSku),
-          productName: resolvedProduct,
-          toBuy: Number(item.to_buy || item.qty || item.quantity || 0),
-          unitCost: Number(item.cost_price || item.unitCost || item.cost || item.unit_price || 0),
-          // Debug fields
-          _debugSkuKey: skuKey,
-          _debugRawSku: rawSku,
-          _debugMdMatch: !!md
+          supplier: supplierResolved,
+          skuCode: String(item.sku_code || ''),
+          productName: productResolved,
+          toBuy: Number(item.to_buy || 0),
+          unitCost: Number(item.cost_price || 0),
+          // Debug fields (pass through from UI)
+          _debugSkuKey: item._debugSkuKey || '',
+          _debugMdMatch: item._debugMdMatch || false
         };
       }));
 
