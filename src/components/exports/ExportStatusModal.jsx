@@ -156,7 +156,7 @@ export default function ExportStatusModal({ open, onClose, proofs, tenantId }) {
             </div>
 
             {proofs.excel?.data && (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
                 <div className="p-2 bg-white rounded border border-slate-200 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-600">File Size:</span>
@@ -188,6 +188,10 @@ export default function ExportStatusModal({ open, onClose, proofs, tenantId }) {
                   </div>
                 </div>
 
+                {proofs.excel.data.headers && (
+                  <ExcelHeadersProof headers={proofs.excel.data.headers} />
+                )}
+
                 {proofs.excel.data.serverValidation && (
                   <div className="p-2 bg-emerald-50 rounded border border-emerald-200 text-sm">
                     <p className="text-emerald-900">
@@ -198,6 +202,10 @@ export default function ExportStatusModal({ open, onClose, proofs, tenantId }) {
                     </p>
                   </div>
                 )}
+
+                <div className="flex gap-2">
+                  <DownloadTestXLSX tenantId={proofs.tenantId} />
+                </div>
               </div>
             )}
           </div>
