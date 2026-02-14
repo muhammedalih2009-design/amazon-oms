@@ -941,6 +941,14 @@ export default function PurchaseRequests() {
         </p>
         <div className="flex items-center gap-3">
           <Button 
+            onClick={handleExportToCSV}
+            variant="outline"
+            className="border-sky-200 text-sky-700 hover:bg-sky-50"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            CSV
+          </Button>
+          <Button 
             onClick={handleExportToExcel}
             variant="outline"
             className="border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50"
