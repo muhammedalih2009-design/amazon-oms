@@ -3,6 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { base44 } from '@/api/base44Client';
+import { useToast } from '@/components/ui/use-toast';
 
 const ExcelHeadersProof = ({ headers }) => {
   if (!headers) return null;
