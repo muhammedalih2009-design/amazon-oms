@@ -156,22 +156,89 @@ export default function PurchaseRequestsPrint() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-screen font-sans" style={{ direction: 'ltr' }}>
+    <div className="bg-white min-h-screen font-sans" style={{ direction: 'ltr' }}>
       <style>{`
+        @page {
+          margin: 0.5in;
+          size: A4;
+        }
         @media print {
-          body { margin: 0; padding: 10px; }
+          body { margin: 0; padding: 0; }
+          .print-page { page-break-after: always; position: relative; }
+          .print-page:last-child { page-break-after: avoid; }
+          .page-header { 
+            position: running(header);
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #6b7280;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+          }
           .page-break { page-break-before: always; }
           .supplier-section { page-break-inside: avoid; }
           .item-row:hover { background: white; }
         }
-        .item-image { max-width: 80px; max-height: 80px; object-fit: contain; }
+        .item-image { 
+          max-width: 80px; 
+          max-height: 80px; 
+          object-fit: contain;
+          display: block;
+          margin: 0 auto;
+        }
+        .image-placeholder {
+          width: 80px;
+          height: 80px;
+          background: #f3f4f6;
+          border: 1px dashed #d1d5db;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          color: #9ca3af;
+          margin: 0 auto;
+          border-radius: 4px;
+        }
         .product-cell { direction: rtl; unicode-bidi: plaintext; text-align: right; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th { background: #e5e7eb; font-weight: bold; padding: 8px; text-align: left; border: 1px solid #d1d5db; }
-        td { padding: 8px; border: 1px solid #e5e7eb; }
-        .supplier-section { margin-bottom: 30px; page-break-inside: avoid; }
-        .supplier-header { background: #f3f4f6; padding: 12px; margin-bottom: 10px; font-weight: bold; border-radius: 4px; display: flex; justify-content: space-between; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        th { background: #e5e7eb; font-weight: bold; padding: 8px; text-align: left; border: 1px solid #d1d5db; font-size: 11px; }
+        td { padding: 8px; border: 1px solid #e5e7eb; font-size: 10px; }
+        .supplier-section { margin-bottom: 25px; page-break-inside: avoid; }
+        .supplier-summary { 
+          background: #f3f4f6; 
+          padding: 10px 12px; 
+          margin-bottom: 10px; 
+          font-weight: bold;
+          border-radius: 4px;
+          display: flex;
+          justify-content: space-between;
+          border-left: 4px solid #4f46e5;
+          font-size: 11px;
+        }
+        .supplier-name { flex: 1; }
+        .supplier-stats { display: flex; gap: 20px; }
+        .supplier-stat { text-align: right; }
+        .supplier-stat-label { font-weight: normal; color: #6b7280; font-size: 9px; }
       `}</style>
+
+      <div style={{ padding: '20px', marginBottom: '20px', borderBottom: '2px solid #e5e7eb' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 'bold', margin: '0 0 8px 0' }}>Purchase Requests</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280' }}>
+          <div>
+            <strong>Workspace:</strong> {user?.email || 'Workspace'}<br />
+            {dateRange?.from && dateRange?.to && (
+              <>
+                <strong>Period:</strong> {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
+              </>
+            )}
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <strong>Generated:</strong> {format(new Date(), 'MMM d, yyyy HH:mm:ss')}<br />
+            <strong>Mode:</strong> {mode === 'supplier' ? 'Per Supplier' : 'All Items'}
+          </div>
+        </div>
+      </div>
 
       <div style={{ textAlign: 'center', marginBottom: 30, borderBottom: '2px solid #e5e7eb', paddingBottom: 15 }}>
         <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: '0 0 10px 0' }}>Purchase Requests</h1>
