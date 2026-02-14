@@ -284,6 +284,11 @@ export default function PurchaseRequests() {
     });
   };
 
+  const handleOpenPrintView = () => {
+    const printUrl = createPageUrl('PurchaseRequestsPrint');
+    window.open(printUrl, '_blank', 'width=1200,height=800');
+  };
+
   const handleExportPrintPDF = () => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
