@@ -8,6 +8,7 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import bidi from 'bidi-js';
 import JSZip from 'jszip';
+import html2canvas from 'html2canvas';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -256,25 +257,106 @@ export default function PurchaseRequests() {
           .toUpperCase();
       };
 
-      // Arabic text processing with RTL support and proper shaping
-      const processArabicText = (text) => {
-        if (!text) return '';
-        const str = String(text).trim();
-        if (!str) return '';
+      // Render HTML table to PDF using html2canvas (proper Arabic support)
+      const renderTableToPDF = async (doc, items, supplierName, startY, pageWidth) => {
+        // Create temporary HTML table
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.width = '800px';
+        container.style.background = 'white';
+        container.style.padding = '20px';
         
-        // Check if text contains Arabic characters
-        if (/[\u0600-\u06FF]/.test(str)) {
-          try {
-            // Apply bidi algorithm for proper RTL rendering
-            const bidified = bidi(str);
-            // Reverse for jsPDF (it doesn't handle RTL natively)
-            return bidified.split('').reverse().join('');
-          } catch (e) {
-            console.warn('Arabic processing failed:', e);
-            return str;
-          }
+        const tableHTML = `
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap');
+            .pdf-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-family: 'Noto Naskh Arabic', Arial, sans-serif;
+              font-size: 12px;
+            }
+            .pdf-table th {
+              background: #4f46e5;
+              color: white;
+              padding: 12px 8px;
+              text-align: center;
+              font-weight: bold;
+              border: 1px solid #ddd;
+            }
+            .pdf-table td {
+              padding: 12px 8px;
+              border: 1px solid #ddd;
+              text-align: center;
+            }
+            .pdf-table .product-cell {
+              direction: rtl;
+              text-align: right;
+              unicode-bidi: plaintext;
+              white-space: normal;
+              word-wrap: break-word;
+            }
+            .pdf-table .supplier-cell {
+              text-align: left;
+            }
+            .pdf-table .img-cell {
+              text-align: center;
+              width: 80px;
+            }
+            .pdf-table img {
+              max-width: 60px;
+              max-height: 60px;
+              object-fit: contain;
+            }
+          </style>
+          <table class="pdf-table">
+            <thead>
+              <tr>
+                ${debugMode ? '<th>IMAGE</th><th>SUPPLIER</th><th>SKU CODE</th><th>PRODUCT</th><th>TO BUY</th><th>UNIT COST</th><th>SKU_KEY</th><th>MD_MATCH</th>' : '<th>IMAGE</th><th>SUPPLIER</th><th>SKU CODE</th><th>PRODUCT</th><th>TO BUY</th><th>UNIT COST</th>'}
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(item => `
+                <tr>
+                  <td class="img-cell">${item.image ? `<img src="${item.image}" />` : ''}</td>
+                  <td class="supplier-cell">${item.supplier}</td>
+                  <td>${item.skuCode}</td>
+                  <td class="product-cell">${item.productName}</td>
+                  <td>${item.toBuy}</td>
+                  <td>$${item.unitCost.toFixed(2)}</td>
+                  ${debugMode ? `<td style="font-size: 9px;">${item._debugSkuKey}</td><td style="font-size: 9px;">${item._debugMdMatch ? 'YES' : 'NO'}</td>` : ''}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        
+        container.innerHTML = tableHTML;
+        document.body.appendChild(container);
+        
+        try {
+          // Wait for fonts to load
+          await document.fonts.ready;
+          
+          // Render to canvas
+          const canvas = await html2canvas(container, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff'
+          });
+          
+          // Add to PDF
+          const imgData = canvas.toDataURL('image/png');
+          const imgWidth = pageWidth - 30;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          
+          doc.addImage(imgData, 'PNG', 15, startY, imgWidth, imgHeight);
+          
+          return startY + imgHeight + 10;
+        } finally {
+          document.body.removeChild(container);
         }
-        return str;
       };
 
       // Load image as base64 with larger canvas
@@ -447,25 +529,20 @@ export default function PurchaseRequests() {
             );
           }
 
-          // Build table rows - ensure all values are strings/numbers
-          const tableRows = items.map(item => {
-            const baseRow = [
-              '', // Image placeholder
-              String(item.supplier),
-              String(item.skuCode),
-              String(processArabicText(item.productName)),
-              String(item.toBuy),
-              String(`$${item.unitCost.toFixed(2)}`)
-            ];
-            
-            if (debugMode) {
-              baseRow.push(String(item._debugSkuKey || ''));
-              baseRow.push(item._debugMdMatch ? 'YES' : 'NO');
-            }
-            
-            return baseRow;
-          });
+          // Render table using HTML canvas (proper Arabic support)
+          const finalY = await renderTableToPDF(doc, items, supplierName, 44, pageWidth);
 
+          // Totals
+          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
+          
+          doc.setFontSize(11);
+          doc.setFont('helvetica', 'bold');
+          doc.text(`Total Items: ${supplierItemCount}`, pageWidth - 15, finalY, { align: 'right' });
+          doc.text(`Total Cost: $${supplierTotal.toFixed(2)}`, pageWidth - 15, finalY + 7, { align: 'right' });
+
+          // Skip old autoTable code
+          if (false) {
           doc.autoTable({
             startY: 44,
             head: [headers],
@@ -523,16 +600,7 @@ export default function PurchaseRequests() {
               }
             }
           });
-
-          // Totals
-          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
-          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
-          
-          const finalY = doc.lastAutoTable.finalY + 10;
-          doc.setFontSize(11);
-          doc.setFont('helvetica', 'bold');
-          doc.text(`Total Items: ${supplierItemCount}`, pageWidth - 15, finalY, { align: 'right' });
-          doc.text(`Total Cost: $${supplierTotal.toFixed(2)}`, pageWidth - 15, finalY + 7, { align: 'right' });
+          }
 
           // Add to ZIP
           const pdfBlob = doc.output('blob');
@@ -610,25 +678,11 @@ export default function PurchaseRequests() {
           );
           doc.setTextColor(0, 0, 0);
 
-          // Table
-          const tableRows = items.map(item => {
-            const baseRow = [
-              '', // Image
-              String(item.supplier),
-              String(item.skuCode),
-              String(processArabicText(item.productName)),
-              String(item.toBuy),
-              String(`$${item.unitCost.toFixed(2)}`)
-            ];
-            
-            if (debugMode) {
-              baseRow.push(String(item._debugSkuKey || ''));
-              baseRow.push(item._debugMdMatch ? 'YES' : 'NO');
-            }
-            
-            return baseRow;
-          });
+          // Render table using HTML canvas (proper Arabic support)
+          await renderTableToPDF(doc, items, supplierName, startY + 12, pageWidth);
 
+          // Skip old autoTable code
+          if (false) {
           doc.autoTable({
             startY: startY + 12,
             head: [headers],
@@ -685,6 +739,7 @@ export default function PurchaseRequests() {
               }
             }
           });
+          }
         }
 
         // Grand total
