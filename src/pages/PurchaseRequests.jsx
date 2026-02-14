@@ -593,7 +593,7 @@ export default function PurchaseRequests() {
             variant: 'destructive',
             duration: 4000
           });
-          setTimeout(() => handleExportToExcel(), 500);
+          setTimeout(() => handleExportToExcel(true), 500);
         } else {
           const zipBlob = await zip.generateAsync({ type: 'blob' });
           const link = document.createElement('a');
