@@ -1,5 +1,4 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-import { crypto } from 'node:crypto';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
@@ -21,8 +20,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Generate unique job ID (URL-safe token)
-    const jobId = crypto.randomUUID();
+    // Generate unique job ID using Web Crypto API
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const jobId = Array.from(bytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
 
     // Set expiration to 10 minutes
     const expiresAt = new Date();
