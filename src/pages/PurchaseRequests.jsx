@@ -33,6 +33,7 @@ export default function PurchaseRequests() {
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [printViewHealthy, setPrintViewHealthy] = useState(null);
+  const [preparingPrint, setPreparingPrint] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -606,63 +607,79 @@ export default function PurchaseRequests() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                const sortedItems = [...purchaseNeeds].sort((a, b) => {
-                  const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-                  const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-                  const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-                  if (cmp !== 0) return cmp;
-                  return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-                });
-                const payload = {
-                  mode: 'single',
-                  dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
-                  generatedAt: new Date().toISOString(),
-                  rows: sortedItems.map(r => ({
-                    imageUrl: r.image_url || '',
-                    supplier: r.supplier || 'Unassigned',
-                    sku: r.sku_code || '',
-                    product: r.product_name || '',
-                    toBuy: Number(r.to_buy || 0),
-                    unitCost: Number(r.cost_price || 0)
-                  }))
-                };
-                sessionStorage.setItem('PR_PRINT_PAYLOAD', JSON.stringify(payload));
-                window.open(createPageUrl('PurchaseRequestsPrint?mode=single'), '_blank', 'noopener,noreferrer');
+              onClick={async () => {
+                setPreparingPrint(true);
+                try {
+                  const sortedItems = [...purchaseNeeds].sort((a, b) => {
+                    const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+                    const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+                    const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+                    if (cmp !== 0) return cmp;
+                    return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+                  });
+                  const response = await base44.functions.invoke('createPrintJob', {
+                    tenantId,
+                    mode: 'single',
+                    dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
+                    rows: sortedItems.map(r => ({
+                      imageUrl: r.image_url || '',
+                      supplier: r.supplier || 'Unassigned',
+                      sku: r.sku_code || '',
+                      product: r.product_name || '',
+                      toBuy: Number(r.to_buy || 0),
+                      unitCost: Number(r.cost_price || 0)
+                    }))
+                  });
+                  window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
+                } catch (error) {
+                  toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
+                } finally {
+                  setPreparingPrint(false);
+                }
               }}
-              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
+              disabled={preparingPrint}
+              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50 transition-colors"
               title="Open print view in new tab for all items (use browser print dialog)"
             >
+              {preparingPrint ? <Loader className="w-4 h-4 animate-spin mr-1" /> : null}
               📄 PDF (All)
             </button>
             <button
-              onClick={() => {
-                const sortedItems = [...purchaseNeeds].sort((a, b) => {
-                  const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-                  const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-                  const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-                  if (cmp !== 0) return cmp;
-                  return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-                });
-                const payload = {
-                  mode: 'supplier',
-                  dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
-                  generatedAt: new Date().toISOString(),
-                  rows: sortedItems.map(r => ({
-                    imageUrl: r.image_url || '',
-                    supplier: r.supplier || 'Unassigned',
-                    sku: r.sku_code || '',
-                    product: r.product_name || '',
-                    toBuy: Number(r.to_buy || 0),
-                    unitCost: Number(r.cost_price || 0)
-                  }))
-                };
-                sessionStorage.setItem('PR_PRINT_PAYLOAD', JSON.stringify(payload));
-                window.open(createPageUrl('PurchaseRequestsPrint?mode=supplier'), '_blank', 'noopener,noreferrer');
+              onClick={async () => {
+                setPreparingPrint(true);
+                try {
+                  const sortedItems = [...purchaseNeeds].sort((a, b) => {
+                    const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+                    const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+                    const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+                    if (cmp !== 0) return cmp;
+                    return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+                  });
+                  const response = await base44.functions.invoke('createPrintJob', {
+                    tenantId,
+                    mode: 'supplier',
+                    dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
+                    rows: sortedItems.map(r => ({
+                      imageUrl: r.image_url || '',
+                      supplier: r.supplier || 'Unassigned',
+                      sku: r.sku_code || '',
+                      product: r.product_name || '',
+                      toBuy: Number(r.to_buy || 0),
+                      unitCost: Number(r.cost_price || 0)
+                    }))
+                  });
+                  window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
+                } catch (error) {
+                  toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
+                } finally {
+                  setPreparingPrint(false);
+                }
               }}
-              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
+              disabled={preparingPrint}
+              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50 transition-colors"
               title="Open print view in new tab with page breaks per supplier (use browser print dialog)"
             >
+              {preparingPrint ? <Loader className="w-4 h-4 animate-spin mr-1" /> : null}
               📄 PDF (Supplier)
             </button>
             <Button
