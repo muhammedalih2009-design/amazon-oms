@@ -240,24 +240,8 @@ export default function PurchaseRequestsPrint() {
         </div>
       </div>
 
-      <div style={{ textAlign: 'center', marginBottom: 30, borderBottom: '2px solid #e5e7eb', paddingBottom: 15 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 'bold', margin: '0 0 10px 0' }}>Purchase Requests</h1>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280' }}>
-          <div>
-            <strong>Workspace:</strong> {user?.email || 'Workspace'}<br />
-            <strong>Date:</strong> {format(new Date(), 'MMM d, yyyy')}
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            {dateRange?.from && dateRange?.to && (
-              <>
-                <strong>Period:</strong> {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {supplierNames.map((supplierName, idx) => {
+      <div style={{ padding: '20px', background: 'white' }}>
+        {supplierNames.map((supplierName, idx) => {
         const items = groupedBySupplier[supplierName];
         const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
         const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
