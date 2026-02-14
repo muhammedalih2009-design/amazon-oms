@@ -269,12 +269,21 @@ export default function PurchaseRequests() {
 
     const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
     
+    // Sort by supplier first
+    const sorted = [...selectedItems].sort((a, b) => {
+      const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+      const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+      const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+    });
+
     // Get workspace name
     const workspaceName = tenant?.name || 'Workspace';
     const dateStr = format(new Date(), 'MMM d, yyyy');
 
     // Group items by supplier
-    const groupedBySupplier = selectedItems.reduce((acc, item) => {
+    const groupedBySupplier = sorted.reduce((acc, item) => {
       const supplier = item.supplier || 'Unassigned';
       if (!acc[supplier]) acc[supplier] = [];
       acc[supplier].push(item);
@@ -284,7 +293,7 @@ export default function PurchaseRequests() {
     const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
       if (a === 'Unassigned') return 1;
       if (b === 'Unassigned') return -1;
-      return a.localeCompare(b, 'ar', { sensitivity: 'base' });
+      return a.localeCompare(b, 'en', { sensitivity: 'base' });
     });
 
     // Build print HTML
