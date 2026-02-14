@@ -46,6 +46,20 @@ export default function PurchaseRequests() {
     if (tenantId) loadData();
   }, [tenantId]);
 
+  // Health check for print view
+  useEffect(() => {
+    const checkPrintView = async () => {
+      try {
+        const printUrl = createPageUrl('PurchaseRequestsPrint');
+        const response = await fetch(printUrl, { method: 'HEAD' });
+        setPrintViewHealthy(response.ok);
+      } catch (error) {
+        setPrintViewHealthy(false);
+      }
+    };
+    checkPrintView();
+  }, []);
+
   // Real-time stock updates
   useEffect(() => {
     if (!tenantId) return;
