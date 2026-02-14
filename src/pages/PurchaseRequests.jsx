@@ -1454,28 +1454,25 @@ export default function PurchaseRequests() {
           </Button>
         </div>
           </div>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-slate-600">PDF Mode:</span>
-            <button
-              onClick={() => {
-                setExportMode('single');
-                handleOpenPrintView('single');
-              }}
-              className="px-3 py-1 rounded-md transition-colors bg-white text-slate-600 border border-slate-200 hover:border-indigo-200"
-              title="Open in browser print dialog"
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => handleOpenPrintView('single')}
+              variant="outline"
+              size="sm"
+              className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+              title="Print all items on continuous pages"
             >
-              Single PDF (All)
-            </button>
-            <button
-              onClick={() => {
-                setExportMode('per-supplier');
-                handleOpenPrintView('supplier');
-              }}
-              className="px-3 py-1 rounded-md transition-colors bg-white text-slate-600 border border-slate-200 hover:border-indigo-200"
-              title="Page breaks between suppliers"
+              🖨️ PDF (All)
+            </Button>
+            <Button
+              onClick={() => handleOpenPrintView('supplier')}
+              variant="outline"
+              size="sm"
+              className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+              title="Print with page breaks between suppliers"
             >
-              PDF per Supplier
-            </button>
+              🖨️ PDF per Supplier
+            </Button>
             <button
               onClick={() => setDebugMode(!debugMode)}
               className={`px-3 py-1 rounded-md transition-colors ${
