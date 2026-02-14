@@ -222,10 +222,20 @@ export default function PurchaseRequests() {
 
     const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
 
+    // Sort by supplier, then by SKU code
+    const sorted = [...selectedItems].sort((a, b) => {
+      const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+      const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+      const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      // Stable sort by SKU code within same supplier
+      return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+    });
+
     // Build CSV with UTF-8 BOM for Excel
     const csvHeader = 'IMAGE_URL,SUPPLIER,SKU CODE,PRODUCT,TO BUY,UNIT COST\n';
     
-    const csvRows = selectedItems.map(item => {
+    const csvRows = sorted.map(item => {
       const imageUrl = '';
       const supplier = (item.supplier || '').replace(/"/g, '""');
       const skuCode = (item.sku_code || '').replace(/"/g, '""');
@@ -246,7 +256,7 @@ export default function PurchaseRequests() {
 
     toast({
       title: 'CSV Exported',
-      description: `${selectedItems.length} items`,
+      description: `${selectedItems.length} items (sorted by supplier)`,
       duration: 3000
     });
   };
