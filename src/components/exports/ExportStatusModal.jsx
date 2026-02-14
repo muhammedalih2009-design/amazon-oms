@@ -4,7 +4,56 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertCircle, X } from 'lucide-react';
 
-export default function ExportStatusModal({ open, onClose, proofs }) {
+const ExcelHeadersProof = ({ headers }) => {
+  if (!headers) return null;
+  return (
+    <div className="bg-slate-50 rounded p-3 space-y-2">
+      <p className="text-xs font-semibold text-slate-700">Response Headers:</p>
+      {Object.entries(headers).map(([key, value]) => (
+        <div key={key} className="text-xs font-mono text-slate-600">
+          <span className="font-bold text-slate-700">{key}:</span> {String(value).slice(0, 80)}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const DownloadTestXLSX = ({ tenantId }) => {
+  const [downloading, setDownloading] = React.useState(false);
+  const { toast } = useToast();
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const response = await base44.functions.invoke('generateTestXLSX', { tenantId });
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'Test_Purchase_Request.xlsx';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      toast({ title: 'Test XLSX Downloaded', description: 'Should open without format errors' });
+    } catch (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <Button
+      onClick={handleDownload}
+      disabled={downloading}
+      variant="outline"
+      size="sm"
+      className="text-xs"
+    >
+      {downloading ? 'Generating...' : '📥 Download Test XLSX (1 row)'}
+    </Button>
+  );
+};
+
+export default function ExportStatusModal({ open, onClose, proofs, tenantId }) {
   if (!proofs) return null;
 
   const renderStatus = (status) => {
