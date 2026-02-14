@@ -6,8 +6,6 @@ import { createPageUrl } from '@/utils';
 import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, CheckCircle2, AlertCircle } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
-import ExportStatusModal from '@/components/exports/ExportStatusModal';
-
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
@@ -16,7 +14,6 @@ import { CalendarIcon } from 'lucide-react';
 import DataTable from '@/components/shared/DataTable';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import { useToast } from '@/components/ui/use-toast';
-import ExportSelfTestPanel from '@/components/exports/ExportSelfTestPanel';
 
 export default function PurchaseRequests() {
   const { tenantId, subscription, isActive, user } = useTenant();
