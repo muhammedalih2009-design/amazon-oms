@@ -284,8 +284,8 @@ export default function PurchaseRequests() {
     });
   };
 
-  const handleOpenPrintView = () => {
-    const printUrl = createPageUrl('PurchaseRequestsPrint');
+  const handleOpenPrintView = (mode = 'single') => {
+    const printUrl = createPageUrl(`PurchaseRequestsPrint?mode=${mode}`);
     window.open(printUrl, '_blank', 'width=1200,height=800');
   };
 
