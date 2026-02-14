@@ -13,6 +13,7 @@ import { CalendarIcon } from 'lucide-react';
 import DataTable from '@/components/shared/DataTable';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import { useToast } from '@/components/ui/use-toast';
+import ExportSelfTestPanel from '@/components/exports/ExportSelfTestPanel';
 
 export default function PurchaseRequests() {
   const { tenantId, subscription, isActive } = useTenant();
