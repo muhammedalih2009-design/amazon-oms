@@ -1290,6 +1290,7 @@ export default function PurchaseRequests() {
             onClick={handleExportToCSV}
             variant="outline"
             className="border-sky-200 text-sky-700 hover:bg-sky-50"
+            title="Sorted by supplier"
           >
             <FileDown className="w-4 h-4 mr-2" />
             CSV
