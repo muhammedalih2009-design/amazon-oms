@@ -189,12 +189,12 @@ export default function PurchaseRequestsPrint() {
                 </tr>
               </thead>
               <tbody>
-                {items.map(item => (
-                  <tr key={item.sku_id} className="item-row">
+                {items.map((item, idx) => (
+                  <tr key={idx} className="item-row">
                     <td style={{ textAlign: 'center', padding: 6, width: 110, height: 90 }}>
-                      {item.image_url ? (
+                      {item.imageUrl ? (
                         <img 
-                          src={item.image_url} 
+                          src={item.imageUrl} 
                           alt="SKU" 
                           className="item-image"
                           onError={(e) => {
@@ -207,15 +207,15 @@ export default function PurchaseRequestsPrint() {
                       )}
                     </td>
                     <td style={{ fontSize: 10 }}>{item.supplier}</td>
-                    <td style={{ fontSize: 10, fontWeight: 600 }}>{item.sku_code}</td>
+                    <td style={{ fontSize: 10, fontWeight: 600 }}>{item.sku}</td>
                     <td className="product-cell" style={{ fontSize: 11 }}>
-                      {item.product_name}
+                      {item.product}
                     </td>
                     <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#4f46e5' }}>
-                      {item.to_buy}
+                      {item.toBuy}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: 10 }}>
-                      ${(item.cost_price || 0).toFixed(2)}
+                      ${(item.unitCost || 0).toFixed(2)}
                     </td>
                   </tr>
                 ))}
