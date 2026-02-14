@@ -577,18 +577,27 @@ export default function PurchaseRequests() {
 
     // Open print window
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    if (!printWindow) {
+      toast({
+        title: 'Popup Blocked',
+        description: 'Please allow popups to export PDF',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     printWindow.document.write(printHTML);
     printWindow.document.close();
 
-    // Trigger print after a short delay to allow rendering
+    // Trigger print after rendering
     setTimeout(() => {
       printWindow.focus();
       printWindow.print();
     }, 500);
 
     toast({
-      title: 'Print preview opened',
-      description: 'Click "Print" or save as PDF',
+      title: 'Print Dialog Opened',
+      description: 'Click "Print" to save as PDF',
       duration: 4000
     });
   };
