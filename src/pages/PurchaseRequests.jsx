@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
@@ -33,9 +34,10 @@ export default function PurchaseRequests() {
     from: new Date(),
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
-  const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
+  // Removed: const [exportMode, setExportMode] = useState('single'); // 'single' or 'per-supplier'
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false); // Added this state
   const [printViewHealthy, setPrintViewHealthy] = useState(null);
   const [selfTestResults, setSelfTestResults] = useState(null);
   const [selfTestLoading, setSelfTestLoading] = useState(false);
@@ -304,370 +306,7 @@ export default function PurchaseRequests() {
     window.open(printUrl, '_blank', 'width=1200,height=800');
   };
 
-  const handleExportPrintPDF = () => {
-    if (selectedSkus.length === 0) {
-      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
-      return;
-    }
-
-    const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
-    
-    // Sort by supplier first
-    const sorted = [...selectedItems].sort((a, b) => {
-      const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-      const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-      const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-      if (cmp !== 0) return cmp;
-      return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-    });
-
-    // Get workspace name
-    const workspaceName = tenant?.name || 'Workspace';
-    const dateStr = format(new Date(), 'MMM d, yyyy');
-
-    // Group items by supplier
-    const groupedBySupplier = sorted.reduce((acc, item) => {
-      const supplier = item.supplier || 'Unassigned';
-      if (!acc[supplier]) acc[supplier] = [];
-      acc[supplier].push(item);
-      return acc;
-    }, {});
-
-    const supplierNames = Object.keys(groupedBySupplier).sort((a, b) => {
-      if (a === 'Unassigned') return 1;
-      if (b === 'Unassigned') return -1;
-      return a.localeCompare(b, 'en', { sensitivity: 'base' });
-    });
-
-    // Build print HTML
-    const tableRows = supplierNames.map((supplierName, supplierIndex) => {
-      const items = groupedBySupplier[supplierName];
-      const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
-      const supplierItemCount = items.reduce((sum, item) => sum + item.to_buy, 0);
-
-      const itemRows = items.map(item => {
-        const skuEntity = skus.find(s => s.id === item.sku_id);
-        const imageUrl = skuEntity?.image_url || '';
-
-        return `
-          <tr class="item-row">
-            <td class="image-cell">
-              ${imageUrl ? `<img src="${imageUrl}" alt="SKU" class="item-image" />` : ''}
-            </td>
-            <td class="supplier-cell">${item.supplier || 'Unassigned'}</td>
-            <td class="sku-cell">${item.sku_code || ''}</td>
-            <td class="product-cell" dir="rtl">${item.product_name || ''}</td>
-            <td class="number-cell">${item.to_buy || 0}</td>
-            <td class="price-cell">$${(item.cost_price || 0).toFixed(2)}</td>
-          </tr>
-        `;
-      }).join('');
-
-      const supplierSection = `
-        <div class="supplier-section ${supplierIndex > 0 ? 'page-break' : ''}">
-          <div class="supplier-header">
-            <strong>${supplierName}</strong>
-            <span>${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}</span>
-          </div>
-          <table class="items-table">
-            <thead>
-              <tr class="header-row">
-                <th class="image-header">IMAGE</th>
-                <th class="supplier-header">SUPPLIER</th>
-                <th class="sku-header">SKU CODE</th>
-                <th class="product-header">PRODUCT</th>
-                <th class="number-header">TO BUY</th>
-                <th class="price-header">UNIT COST</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemRows}
-            </tbody>
-          </table>
-        </div>
-      `;
-
-      return supplierSection;
-    }).join('');
-
-    const printHTML = `
-      <!DOCTYPE html>
-      <html lang="ar">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Purchase Requests</title>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet" />
-        <style>
-          * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-          }
-
-          body {
-            font-family: "Noto Naskh Arabic", "Amiri", Arial, sans-serif;
-            font-size: 11px;
-            line-height: 1.4;
-            color: #1f2937;
-            background: white;
-            padding: 20px;
-          }
-
-          .page-header {
-            text-align: center;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 10px;
-          }
-
-          .page-header h1 {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 5px;
-          }
-
-          .header-meta {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #6b7280;
-            margin-top: 5px;
-          }
-
-          .supplier-section {
-            margin-bottom: 20px;
-            page-break-inside: avoid;
-          }
-
-          .page-break {
-            page-break-before: always;
-          }
-
-          .supplier-header {
-            display: flex;
-            justify-content: space-between;
-            background: #f3f4f6;
-            padding: 8px 12px;
-            margin-bottom: 10px;
-            font-weight: bold;
-            font-size: 12px;
-            border-radius: 4px;
-          }
-
-          .supplier-header strong {
-            flex: 1;
-          }
-
-          .supplier-header span {
-            text-align: right;
-            font-weight: normal;
-            font-size: 10px;
-            color: #6b7280;
-          }
-
-          .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-          }
-
-          .items-table thead {
-            background: #e5e7eb;
-            font-weight: bold;
-            font-size: 10px;
-          }
-
-          .items-table th {
-            padding: 6px 8px;
-            text-align: left;
-            border: 1px solid #d1d5db;
-          }
-
-          .image-header {
-            width: 110px;
-            text-align: center;
-          }
-
-          .supplier-header {
-            width: 100px;
-          }
-
-          .sku-header {
-            width: 90px;
-          }
-
-          .product-header {
-            flex: 1;
-            min-width: 150px;
-          }
-
-          .number-header {
-            width: 60px;
-            text-align: center;
-          }
-
-          .price-header {
-            width: 80px;
-            text-align: right;
-          }
-
-          .item-row {
-            border-bottom: 1px solid #e5e7eb;
-            page-break-inside: avoid;
-          }
-
-          .item-row:hover {
-            background: #f9fafb;
-          }
-
-          .image-cell {
-            padding: 6px;
-            text-align: center;
-            width: 110px;
-            height: 110px;
-          }
-
-          .item-image {
-            max-width: 100px;
-            max-height: 100px;
-            object-fit: contain;
-          }
-
-          .supplier-cell {
-            padding: 6px 8px;
-            width: 100px;
-            font-size: 10px;
-          }
-
-          .sku-cell {
-            padding: 6px 8px;
-            width: 90px;
-            font-size: 10px;
-            font-weight: 600;
-          }
-
-          .product-cell {
-            padding: 6px 8px;
-            flex: 1;
-            min-width: 150px;
-            direction: rtl;
-            unicode-bidi: plaintext;
-            text-align: right;
-            font-size: 11px;
-          }
-
-          .number-cell {
-            padding: 6px 8px;
-            width: 60px;
-            text-align: center;
-            font-weight: bold;
-            color: #4f46e5;
-          }
-
-          .price-cell {
-            padding: 6px 8px;
-            width: 80px;
-            text-align: right;
-            font-size: 10px;
-          }
-
-          @media print {
-            body {
-              padding: 10px;
-            }
-
-            .page-header {
-              margin-bottom: 15px;
-              padding-bottom: 8px;
-            }
-
-            .supplier-section {
-              margin-bottom: 15px;
-            }
-
-            .item-row:hover {
-              background: white;
-            }
-
-            .page-break {
-              page-break-before: always;
-            }
-
-            .supplier-section {
-              page-break-inside: avoid;
-            }
-          }
-
-          @page {
-            margin: 0.5in;
-            size: A4;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="page-header">
-          <h1>Purchase Requests</h1>
-          <div class="header-meta">
-            <div><strong>Workspace:</strong> ${workspaceName}</div>
-            <div><strong>Date:</strong> ${dateStr}</div>
-          </div>
-        </div>
-        ${tableRows}
-      </body>
-      </html>
-    `;
-
-    // Open print window
-    const printWindow = window.open('', '_blank', 'width=1200,height=800');
-    const windowOpened = !!printWindow;
-    
-    if (!printWindow) {
-      // Popup blocked
-      setExportProofs(prev => ({
-        ...prev,
-        pdfPrint: {
-          status: 'pass',
-          message: 'Popup blocked - fallback link available in UI',
-          popupBlocked: true,
-          windowOpened: false
-        }
-      }));
-      
-      toast({
-        title: 'Popup Blocked',
-        description: 'Click "Open Print View" link below to print PDF',
-        variant: 'default'
-      });
-      return;
-    }
-
-    printWindow.document.write(printHTML);
-    printWindow.document.close();
-
-    // Trigger print after rendering
-    setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-    }, 500);
-
-    // Record proof
-    setExportProofs(prev => ({
-      ...prev,
-      pdfPrint: {
-        status: 'pass',
-        message: 'Print window opened ✓',
-        popupBlocked: false,
-        windowOpened: true
-      }
-    }));
-
-    toast({
-      title: 'Print Dialog Opened ✓',
-      description: 'Click "Print" to save as PDF',
-      duration: 4000
-    });
-  };
+  // Removed unused handleExportPrintPDF function from here
 
   const handleAddToCart = async () => {
     if (selectedSkus.length === 0) {
@@ -820,7 +459,7 @@ export default function PurchaseRequests() {
     }
   };
 
-  const handleExportToPDF = async () => {
+  const handleExportToPDF = async (mode) => { // Modified to accept 'mode' argument
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
       return;
@@ -847,6 +486,7 @@ export default function PurchaseRequests() {
     }
 
     // Step 2: Proceed with PDF export
+    setExportingPDF(true); // Using the new state
     toast({ title: 'Generating PDF...', description: 'Loading Master Data and preparing export' });
 
     try {
@@ -873,7 +513,7 @@ export default function PurchaseRequests() {
       };
 
       // Build HTML table for Chromium PDF rendering
-      const buildTableHTML = (items, supplierName) => {
+      const buildTableHTML = (items) => { // Removed supplierName argument as it was unused
         const rows = items.map(item => `
           <tr>
             <td class="img-cell">${item.image ? `<img src="${item.image}" />` : ''}</td>
@@ -950,7 +590,6 @@ export default function PurchaseRequests() {
       // Get Master Data (SKU entities) and other data
       const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
       const masterData = await base44.entities.SKU.filter({ tenant_id: tenantId });
-      const suppliersData = await base44.entities.Supplier.filter({ tenant_id: tenantId });
       const tenantData = await base44.entities.Tenant.filter({ id: tenantId });
       const workspaceName = toStr(tenantData[0]?.name || 'Workspace');
 
@@ -1036,16 +675,10 @@ export default function PurchaseRequests() {
         return a.localeCompare(b, 'ar', { sensitivity: 'base' });
       });
 
-      // Headers (add debug columns if in debug mode)
-      const headers = debugMode 
-        ? ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST', 'SKU_KEY', 'MD_MATCH']
-        : ['IMAGE', 'SUPPLIER', 'SKU CODE', 'PRODUCT', 'TO BUY', 'UNIT COST'];
-
-      setExportingPDF(true);
       const dateStr = format(new Date(), 'yyyy-MM-dd');
 
       // Generate PDFs via Puppeteer backend with fallback
-      if (exportMode === 'per-supplier') {
+      if (mode === 'per-supplier') { // Using the 'mode' argument
         const zip = new JSZip();
         let anyPdfFailed = false;
 
@@ -1072,7 +705,7 @@ export default function PurchaseRequests() {
               <div class="supplier-header">
                 ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}
               </div>
-              ${buildTableHTML(items, supplierName)}
+              ${buildTableHTML(items)}
               <div class="totals">
                 <div class="totals-label">Total Items: ${supplierItemCount}</div>
                 <div class="totals-label">Total Cost: $${supplierTotal.toFixed(2)}</div>
@@ -1124,7 +757,7 @@ export default function PurchaseRequests() {
           });
         }
 
-      } else {
+      } else { // This is for 'single' mode
         const sectionsHTML = supplierNames.map(supplierName => {
           const items = groupedBySupplier[supplierName];
           const supplierTotal = items.reduce((sum, item) => sum + (item.to_buy * item.cost_price), 0);
@@ -1135,7 +768,7 @@ export default function PurchaseRequests() {
               <div class="supplier-header">
                 ${supplierName} • ${items.length} SKUs • ${supplierItemCount} items • $${supplierTotal.toFixed(2)}
               </div>
-              ${buildTableHTML(items, supplierName)}
+              ${buildTableHTML(items)}
             </div>
           `;
         }).join('');
@@ -1202,7 +835,7 @@ export default function PurchaseRequests() {
           setTimeout(() => handleExportToExcel(true), 500);
         }
       }
-      setExportingPDF(false);
+      setExportingPDF(false); // Set to false after successful operation
 
     } catch (error) {
       console.error('❌ PDF export failed:', error);
@@ -1212,6 +845,7 @@ export default function PurchaseRequests() {
         variant: 'destructive',
         duration: 6000
       });
+      setExportingPDF(false); // Ensure loading state is reset on error
     }
   };
 
@@ -1409,45 +1043,61 @@ export default function PurchaseRequests() {
             onClick={handleExportToCSV}
             variant="outline"
             className="border-sky-200 text-sky-700 hover:bg-sky-50"
-            title="Sorted by supplier"
+            title="Export selected items to CSV, sorted by supplier"
           >
             <FileDown className="w-4 h-4 mr-2" />
             CSV
           </Button>
-          <Button 
-            onClick={handleExportToCSV}
-            variant="outline"
-            className="border-sky-200 text-sky-700 hover:bg-sky-50"
-            title="Sorted by supplier"
-          >
-            <FileDown className="w-4 h-4 mr-2" />
-            CSV
-          </Button>
-          <a
-            href={`${createPageUrl('PurchaseRequestsPrint')}?mode=single`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-purple-200 text-purple-700 hover:bg-purple-50 px-4 py-2"
-            title="Open print view in new tab"
-          >
-            <FileDown className="w-4 h-4" />
-            PDF (All)
-          </a>
-          <a
-            href={`${createPageUrl('PurchaseRequestsPrint')}?mode=supplier`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-purple-200 text-purple-700 hover:bg-purple-50 px-4 py-2"
-            title="Open print view with page breaks per supplier"
-          >
-            <FileDown className="w-4 h-4" />
-            PDF per Supplier
-          </a>
+
+          {/* New PDF Export with Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+                disabled={exportingPDF}
+              >
+                {exportingPDF ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    PDF...
+                  </>
+                ) : (
+                  <>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    PDF
+                  </>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" align="end">
+              <div className="grid gap-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => handleExportToPDF('single')}
+                  className="w-full justify-start"
+                  disabled={exportingPDF}
+                >
+                  PDF (Single File)
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleExportToPDF('per-supplier')}
+                  className="w-full justify-start"
+                  disabled={exportingPDF}
+                >
+                  PDF (Per-Supplier)
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+          
           <Button 
             onClick={handleExportToExcel}
             variant="outline"
             className="border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-50"
             disabled={exportingExcel}
+            title="Export selected items to Excel, sorted by supplier"
           >
             {exportingExcel ? (
               <>
@@ -1477,18 +1127,18 @@ export default function PurchaseRequests() {
               variant="outline"
               size="sm"
               className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-              title="Print all items on continuous pages"
+              title="Open print view in new tab for all items (use browser print dialog)"
             >
-              🖨️ PDF (All)
+              🖨️ Print View (All)
             </Button>
             <Button
               onClick={() => handleOpenPrintView('supplier')}
               variant="outline"
               size="sm"
               className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-              title="Print with page breaks between suppliers"
+              title="Open print view in new tab with page breaks per supplier (use browser print dialog)"
             >
-              🖨️ PDF per Supplier
+              🖨️ Print View per Supplier
             </Button>
             <Button
               onClick={() => setDebugMode(!debugMode)}
