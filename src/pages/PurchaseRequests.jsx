@@ -314,44 +314,21 @@ export default function PurchaseRequests() {
       return;
     }
 
-    // Step 1: Run preflight checks
-    toast({ title: 'Running preflight checks...', description: 'Validating export engines' });
-
-    try {
-      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
-
-      const preflightResponse = await base44.functions.invoke('checkExportPreflight', {
-        items: selectedItems,
-        tenantId
-      });
-
-      const preflight = preflightResponse.data;
-
-      if (!preflight.ok) {
-        toast({
-          title: 'Export Not Ready',
-          description: `${preflight.reason}. Error ID: ${preflight.errorId || 'unknown'}`,
-          variant: 'destructive',
-          duration: 6000
-        });
-        return;
-      }
-
-      if (!preflight.pdfReady) {
-        toast({
-          title: 'PDF Engine Not Available',
-          description: 'Falling back to Excel export',
-          variant: 'destructive'
-        });
-        setTimeout(() => handleExportToExcel(true), 500);
-        return;
-      }
-
-    } catch (preflight_error) {
-      console.error('Preflight check failed:', preflight_error);
+    // Hard gate: Check self-test results first
+    if (selfTestResults && selfTestResults.pdfTest.status !== 'PASS') {
       toast({
-        title: 'Preflight Check Failed',
-        description: 'Could not validate export. Try again.',
+        title: 'PDF Engine Failed Self-Test',
+        description: `${selfTestResults.pdfTest.reason}. Run self-test to fix (Error ID: ${selfTestResults.pdfTest.errorId})`,
+        variant: 'destructive',
+        duration: 6000
+      });
+      return;
+    }
+
+    if (!selfTestResults) {
+      toast({
+        title: 'Run Export Self-Test First',
+        description: 'Click "Run Export Self-Test" to validate engines before exporting',
         variant: 'destructive'
       });
       return;
