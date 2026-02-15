@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
       processed_rows: 0,
       cursor: 0,
       chunk_size: 400,
-      parse_errors_json: parseErrors.length > 0 ? parseErrors.slice(0, 100) : null,
+      parse_errors_json: parseErrors.slice(0, 100),
       total_parse_errors: parseErrors.length,
       parsed_rows_json: JSON.stringify(settlementRows),
       header_map_json: JSON.stringify(headerMap),
