@@ -14,30 +14,77 @@ Deno.serve(async (req) => {
       status: 'processing'
     });
 
-    // Fetch all workspace data in parallel
+    // Fetch all workspace data in parallel with error handling
+    const fetchEntity = async (entityName, query) => {
+      try {
+        const result = await base44.asServiceRole.entities[entityName].filter(query);
+        return { data: result || [], error: null };
+      } catch (err) {
+        console.warn(`Failed to fetch ${entityName}:`, err.message);
+        return { data: [], error: err.message };
+      }
+    };
+
     const [
-      orders,
-      orderLines,
-      skus,
-      stores,
-      purchases,
-      currentStock,
-      suppliers,
-      stockMovements,
-      importBatches,
-      tasks
+      ordersResult,
+      orderLinesResult,
+      skusResult,
+      storesResult,
+      purchasesResult,
+      currentStockResult,
+      suppliersResult,
+      stockMovementsResult,
+      importBatchesResult,
+      tasksResult,
+      checklistResult,
+      commentsResult,
+      returnsResult
     ] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.Store.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.Purchase.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.Supplier.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.StockMovement.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.ImportBatch.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.Task.filter({ tenant_id: tenantId })
+      fetchEntity('Order', { tenant_id: tenantId }),
+      fetchEntity('OrderLine', { tenant_id: tenantId }),
+      fetchEntity('SKU', { tenant_id: tenantId }),
+      fetchEntity('Store', { tenant_id: tenantId }),
+      fetchEntity('Purchase', { tenant_id: tenantId }),
+      fetchEntity('CurrentStock', { tenant_id: tenantId }),
+      fetchEntity('Supplier', { tenant_id: tenantId }),
+      fetchEntity('StockMovement', { tenant_id: tenantId }),
+      fetchEntity('ImportBatch', { tenant_id: tenantId }),
+      fetchEntity('Task', { tenant_id: tenantId }),
+      fetchEntity('TaskChecklistItem', {}),
+      fetchEntity('TaskComment', {}),
+      fetchEntity('Return', { tenant_id: tenantId })
     ]);
+
+    const orders = ordersResult.data;
+    const orderLines = orderLinesResult.data;
+    const skus = skusResult.data;
+    const stores = storesResult.data;
+    const purchases = purchasesResult.data;
+    const currentStock = currentStockResult.data;
+    const suppliers = suppliersResult.data;
+    const stockMovements = stockMovementsResult.data;
+    const importBatches = importBatchesResult.data;
+    const tasks = tasksResult.data;
+    const checklistItems = checklistResult.data;
+    const comments = commentsResult.data;
+    const returns = returnsResult.data;
+
+    // Track errors for diagnostics
+    const entityErrors = Object.entries({
+      Order: ordersResult.error,
+      OrderLine: orderLinesResult.error,
+      SKU: skusResult.error,
+      Store: storesResult.error,
+      Purchase: purchasesResult.error,
+      CurrentStock: currentStockResult.error,
+      Supplier: suppliersResult.error,
+      StockMovement: stockMovementsResult.error,
+      ImportBatch: importBatchesResult.error,
+      Task: tasksResult.error,
+      TaskChecklistItem: checklistResult.error,
+      TaskComment: commentsResult.error,
+      Return: returnsResult.error
+    }).filter(([_, err]) => err !== null);
 
     // Build backup payload
     const backupData = {
@@ -53,7 +100,10 @@ Deno.serve(async (req) => {
         suppliers,
         stockMovements,
         importBatches,
-        tasks
+        tasks,
+        checklistItems,
+        comments,
+        returns
       },
       stats: {
         orders: orders.length,
@@ -61,9 +111,25 @@ Deno.serve(async (req) => {
         purchases: purchases.length,
         suppliers: suppliers.length,
         stores: stores.length,
-        tasks: tasks.length
-      }
+        tasks: tasks.length,
+        orderLines: orderLines.length,
+        currentStock: currentStock.length,
+        stockMovements: stockMovements.length,
+        importBatches: importBatches.length,
+        checklistItems: checklistItems.length,
+        comments: comments.length,
+        returns: returns.length
+      },
+      warnings: entityErrors.length > 0 ? entityErrors.map(([name, err]) => `${name}: ${err}`) : []
     };
+
+    // Validation: if workspace has SKUs/orders/purchases but backup shows zero, fail
+    const hasData = (orders.length + skus.length + purchases.length) > 0;
+    const backupHasData = (backupData.stats.orders + backupData.stats.skus + backupData.stats.purchases) > 0;
+    
+    if (hasData && !backupHasData) {
+      throw new Error(`Backup validation failed: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
+    }
 
     // Convert to JSON and compress with gzip
     const jsonString = JSON.stringify(backupData);
@@ -109,11 +175,12 @@ Deno.serve(async (req) => {
       throw new Error('Failed to upload backup file');
     }
 
-    // Update job with success
+    // Update job with success and stats
     await base44.asServiceRole.entities.BackupJob.update(jobId, {
       status: 'completed',
       file_url: uploadResponse.file_url,
       file_size_bytes: compressedBytes.length,
+      stats: backupData.stats,
       completed_at: new Date().toISOString()
     });
 
