@@ -33,12 +33,9 @@ export default function PurchaseRequests() {
   });
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
-  const [printViewHealthy, setPrintViewHealthy] = useState(null);
   const [preparingPrint, setPreparingPrint] = useState(false);
   const [telegramConfigured, setTelegramConfigured] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(true);
-  const [exportingPDF, setExportingPDF] = useState(false);
-  const [showPrintMenu, setShowPrintMenu] = useState(false);
   const [telegramModalOpen, setTelegramModalOpen] = useState(false);
 
   useEffect(() => {
@@ -60,19 +57,7 @@ export default function PurchaseRequests() {
     }
   };
 
-  // Health check for print view
-  useEffect(() => {
-    const checkPrintView = async () => {
-      try {
-        const printUrl = createPageUrl('PurchaseRequestsPrint');
-        const response = await fetch(printUrl, { method: 'HEAD' });
-        setPrintViewHealthy(response.ok);
-      } catch (error) {
-        setPrintViewHealthy(false);
-      }
-    };
-    checkPrintView();
-  }, []);
+
 
   // Real-time stock updates
   useEffect(() => {
@@ -271,19 +256,18 @@ export default function PurchaseRequests() {
     });
   };
 
-  const handleExportPDF = async () => {
+  const handlePrintPDF = async (mode) => {
     if (selectedSkus.length === 0) {
       toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
       return;
     }
 
-    setExportingPDF(true);
-    toast({ title: 'Generating PDF...', description: 'Please wait' });
+    setPreparingPrint(true);
 
     try {
       const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
       
-      // Sort by supplier
+      // Sort by supplier, then SKU
       const sorted = [...selectedItems].sort((a, b) => {
         const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
         const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
@@ -292,49 +276,36 @@ export default function PurchaseRequests() {
         return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
       });
 
-      const response = await base44.functions.invoke('exportPurchaseRequestPDF', {
-        items: sorted.map(r => ({
+      const response = await base44.functions.invoke('createPrintJob', {
+        tenantId,
+        mode,
+        dateRange: { 
+          from: dateRange.from?.toISOString(), 
+          to: dateRange.to?.toISOString() 
+        },
+        rows: sorted.map(r => ({
           imageUrl: r.image_url || '',
           supplier: r.supplier || 'Unassigned',
           sku: r.sku_code || '',
           product: r.product_name || '',
           toBuy: Number(r.to_buy || 0),
           unitCost: Number(r.cost_price || 0)
-        })),
-        fileName: `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`
+        }))
       });
 
-      // Handle binary response
-      let pdfBlob;
-      if (response.data instanceof Blob) {
-        pdfBlob = response.data;
-      } else if (response.data instanceof ArrayBuffer) {
-        pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-      } else {
-        pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-      }
-
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(pdfBlob);
-      link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-
-      toast({
-        title: 'PDF Exported ✓',
-        description: `${sorted.length} items`,
-        duration: 3000
-      });
+      window.open(
+        createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), 
+        '_blank', 
+        'noopener,noreferrer'
+      );
     } catch (error) {
-      console.error('PDF export failed:', error);
-      toast({
-        title: 'PDF Export Failed',
-        description: error.message,
-        variant: 'destructive',
-        duration: 4000
+      toast({ 
+        title: 'Print Preparation Failed', 
+        description: error.message, 
+        variant: 'destructive' 
       });
     } finally {
-      setExportingPDF(false);
+      setPreparingPrint(false);
     }
   };
 
@@ -550,26 +521,6 @@ export default function PurchaseRequests() {
           <p className="text-slate-500">Calculate inventory needs for pending orders</p>
         </div>
         <div className="flex gap-3 items-center">
-          {printViewHealthy !== null && (
-            <div className={`flex items-center gap-2 text-xs px-3 py-1 rounded-lg ${
-              printViewHealthy 
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-red-100 text-red-700'
-            }`}>
-              {printViewHealthy ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  Print View: OK
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-4 h-4" />
-                  Print View Unavailable
-                </>
-              )}
-            </div>
-          )}
-
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
         </div>
       </div>
@@ -682,21 +633,41 @@ export default function PurchaseRequests() {
           </Button>
 
           <Button 
-            onClick={handleExportPDF}
+            onClick={() => handlePrintPDF('single')}
             variant="outline"
             className="border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
-            disabled={exportingPDF}
-            title="Export selected items to PDF (Legacy jsPDF)"
+            disabled={preparingPrint}
+            title="Print all items as one document"
           >
-            {exportingPDF ? (
+            {preparingPrint ? (
               <>
                 <Loader className="w-4 h-4 mr-2 animate-spin" />
-                PDF...
+                Loading...
               </>
             ) : (
               <>
                 <FileDown className="w-4 h-4 mr-2" />
-                PDF
+                PDF (All)
+              </>
+            )}
+          </Button>
+
+          <Button 
+            onClick={() => handlePrintPDF('supplier')}
+            variant="outline"
+            className="border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+            disabled={preparingPrint}
+            title="Print with page break per supplier"
+          >
+            {preparingPrint ? (
+              <>
+                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <FileDown className="w-4 h-4 mr-2" />
+                PDF (Supplier Pages)
               </>
             )}
           </Button>
@@ -731,92 +702,6 @@ export default function PurchaseRequests() {
         </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <button
-                onClick={() => setShowPrintMenu(!showPrintMenu)}
-                className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                Print View (Fallback) ▾
-              </button>
-              {showPrintMenu && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[160px]">
-                  <button
-                    onClick={async () => {
-                      setShowPrintMenu(false);
-                setPreparingPrint(true);
-                try {
-                  const sortedItems = [...purchaseNeeds].sort((a, b) => {
-                    const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-                    const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-                    const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-                    if (cmp !== 0) return cmp;
-                    return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-                  });
-                  const response = await base44.functions.invoke('createPrintJob', {
-                    tenantId,
-                    mode: 'single',
-                    dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
-                    rows: sortedItems.map(r => ({
-                      imageUrl: r.image_url || '',
-                      supplier: r.supplier || 'Unassigned',
-                      sku: r.sku_code || '',
-                      product: r.product_name || '',
-                      toBuy: Number(r.to_buy || 0),
-                      unitCost: Number(r.cost_price || 0)
-                    }))
-                  });
-                      window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
-                    } catch (error) {
-                      toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
-                    } finally {
-                      setPreparingPrint(false);
-                    }
-                  }}
-                  disabled={preparingPrint}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
-                >
-                  📄 All Items (Single PDF)
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowPrintMenu(false);
-                setPreparingPrint(true);
-                try {
-                  const sortedItems = [...purchaseNeeds].sort((a, b) => {
-                    const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
-                    const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
-                    const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
-                    if (cmp !== 0) return cmp;
-                    return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
-                  });
-                  const response = await base44.functions.invoke('createPrintJob', {
-                    tenantId,
-                    mode: 'supplier',
-                    dateRange: { from: dateRange.from?.toISOString(), to: dateRange.to?.toISOString() },
-                    rows: sortedItems.map(r => ({
-                      imageUrl: r.image_url || '',
-                      supplier: r.supplier || 'Unassigned',
-                      sku: r.sku_code || '',
-                      product: r.product_name || '',
-                      toBuy: Number(r.to_buy || 0),
-                      unitCost: Number(r.cost_price || 0)
-                    }))
-                  });
-                    window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
-                  } catch (error) {
-                    toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
-                  } finally {
-                    setPreparingPrint(false);
-                  }
-                }}
-                disabled={preparingPrint}
-                className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
-              >
-                📄 Per Supplier (Page Breaks)
-              </button>
-            </div>
-          )}
-        </div>
             <Button
               onClick={() => setDebugMode(!debugMode)}
               variant={debugMode ? 'default' : 'outline'}

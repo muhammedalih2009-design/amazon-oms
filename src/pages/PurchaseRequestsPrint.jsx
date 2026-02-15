@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 
 export default function PurchaseRequestsPrint() {
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('job');
-  const mode = urlParams.get('mode') || 'single';
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,21 +36,42 @@ export default function PurchaseRequestsPrint() {
     fetchPayload();
   }, [jobId]);
 
+  useEffect(() => {
+    if (payload && !error) {
+      // Auto-trigger print after data loads
+      const timer = setTimeout(() => {
+        window.print();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [payload, error]);
+
   if (error) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
-        <h2 style={{ color: '#dc2626', marginBottom: '16px' }}>⚠️ Print View Error</h2>
-        <p style={{ color: '#6b7280', marginBottom: '24px' }}>{error}</p>
+      <div style={{ 
+        padding: '40px', 
+        textAlign: 'center', 
+        fontFamily: 'system-ui, sans-serif',
+        maxWidth: '600px',
+        margin: '100px auto'
+      }}>
+        <h2 style={{ color: '#dc2626', marginBottom: '16px', fontSize: '24px' }}>
+          ⚠️ Print View Error
+        </h2>
+        <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '16px' }}>
+          {error}
+        </p>
         <button
           onClick={() => window.history.back()}
           style={{
-            padding: '8px 16px',
+            padding: '10px 20px',
             backgroundColor: '#4f46e5',
             color: 'white',
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
-            fontSize: '14px'
+            fontSize: '14px',
+            fontWeight: '500'
           }}
         >
           Go Back
@@ -61,10 +81,20 @@ export default function PurchaseRequestsPrint() {
   }
 
   if (loading || !payload) {
-    return <div style={{ padding: '40px', textAlign: 'center' }}>Loading print view...</div>;
+    return (
+      <div style={{ 
+        padding: '40px', 
+        textAlign: 'center',
+        fontFamily: 'system-ui, sans-serif'
+      }}>
+        <div style={{ fontSize: '16px', color: '#6b7280' }}>Loading print view...</div>
+      </div>
+    );
   }
 
-  const { rows, dateRange, generatedAt } = payload;
+  const { rows, dateRange, generatedAt, mode } = payload;
+  
+  // Group by supplier
   const groupedBySupplier = rows.reduce((acc, item) => {
     const supplier = item.supplier || 'Unassigned';
     if (!acc[supplier]) acc[supplier] = [];
@@ -82,173 +112,350 @@ export default function PurchaseRequestsPrint() {
   const totalItems = rows.reduce((sum, r) => sum + r.toBuy, 0);
 
   return (
-    <div className="bg-white min-h-screen font-sans" style={{ direction: 'ltr' }}>
-      <style>{`
-        @page {
-          margin: 0.5in;
-          size: A4;
-        }
-        @media print {
-          body { margin: 0; padding: 0; }
-          .print-page { page-break-after: always; position: relative; }
-          .print-page:last-child { page-break-after: avoid; }
-          .page-header { 
-            position: running(header);
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #6b7280;
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 8px;
+    <html lang="ar">
+      <head>
+        <meta charSet="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Purchase Requests - Print</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet" />
+        <style>{`
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: 'Cairo', 'Noto Naskh Arabic', Tahoma, Arial, sans-serif;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #1f2937;
+            background: #ffffff;
+            padding: 20px;
+          }
+
+          .no-print {
+            margin-bottom: 20px;
+            text-align: center;
+          }
+
+          .print-button {
+            padding: 12px 24px;
+            background: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Cairo', sans-serif;
+          }
+
+          .print-button:hover {
+            background: #4338ca;
+          }
+
+          .header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 3px solid #4f46e5;
+          }
+
+          .header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #1f2937;
             margin-bottom: 8px;
           }
-          .page-break { page-break-before: always; }
-          .supplier-section { page-break-inside: avoid; }
-          .item-row:hover { background: white; }
-        }
-        .item-image { 
-          max-width: 80px; 
-          max-height: 80px; 
-          object-fit: contain;
-          display: block;
-          margin: 0 auto;
-        }
-        .image-placeholder {
-          width: 80px;
-          height: 80px;
-          background: #f3f4f6;
-          border: 1px dashed #d1d5db;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 11px;
-          color: #9ca3af;
-          margin: 0 auto;
-          border-radius: 4px;
-        }
-        .product-cell { direction: rtl; unicode-bidi: plaintext; text-align: right; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-        th { background: #e5e7eb; font-weight: bold; padding: 8px; text-align: left; border: 1px solid #d1d5db; font-size: 11px; }
-        td { padding: 8px; border: 1px solid #e5e7eb; font-size: 10px; }
-        .supplier-section { margin-bottom: 25px; page-break-inside: avoid; }
-        .supplier-summary { 
-          background: #f3f4f6; 
-          padding: 10px 12px; 
-          margin-bottom: 10px; 
-          font-weight: bold;
-          border-radius: 4px;
-          display: flex;
-          justify-content: space-between;
-          border-left: 4px solid #4f46e5;
-          font-size: 11px;
-        }
-        .supplier-name { flex: 1; }
-        .supplier-stats { display: flex; gap: 20px; }
-        .supplier-stat { text-align: right; }
-        .supplier-stat-label { font-weight: normal; color: #6b7280; font-size: 9px; }
-      `}</style>
 
-      <div style={{ padding: '20px', marginBottom: '20px', borderBottom: '2px solid #e5e7eb' }}>
-         <h1 style={{ fontSize: 18, fontWeight: 'bold', margin: '0 0 8px 0' }}>Purchase Requests</h1>
-         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280' }}>
-           <div>
-             <strong>Workspace:</strong> Purchase Requests<br />
-             {dateRange?.from && dateRange?.to && (
-               <>
-                 <strong>Period:</strong> {format(new Date(dateRange.from), 'MMM d')} - {format(new Date(dateRange.to), 'MMM d, yyyy')}
-               </>
-             )}
-           </div>
-           <div style={{ textAlign: 'right' }}>
-             <strong>Generated:</strong> {format(new Date(generatedAt), 'MMM d, yyyy HH:mm:ss')}<br />
-             <strong>Mode:</strong> {mode === 'supplier' ? 'Per Supplier' : 'All Items'}
-           </div>
-         </div>
-       </div>
+          .header-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #6b7280;
+            flex-wrap: wrap;
+            gap: 8px;
+          }
 
-      <div style={{ padding: '20px', background: 'white' }}>
+          .supplier-section {
+            margin-bottom: 32px;
+            page-break-inside: avoid;
+          }
+
+          .supplier-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+
+          .supplier-stats {
+            font-size: 12px;
+            font-weight: 400;
+            opacity: 0.95;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 10px;
+          }
+
+          thead {
+            background: #f3f4f6;
+          }
+
+          th {
+            padding: 10px 8px;
+            text-align: center;
+            font-weight: 700;
+            color: #1f2937;
+            border: 1px solid #d1d5db;
+            background: #e5e7eb;
+          }
+
+          td {
+            padding: 8px;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+            vertical-align: middle;
+            min-height: 100px;
+          }
+
+          .img-cell {
+            width: 100px;
+            text-align: center;
+          }
+
+          .img-cell img {
+            width: 90px;
+            height: 90px;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto;
+            border-radius: 4px;
+          }
+
+          .img-placeholder {
+            width: 90px;
+            height: 90px;
+            background: #f3f4f6;
+            border: 2px dashed #d1d5db;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            border-radius: 4px;
+            font-size: 9px;
+            color: #9ca3af;
+          }
+
+          .supplier-cell {
+            text-align: left;
+            font-weight: 500;
+            width: 120px;
+          }
+
+          .sku-cell {
+            font-weight: 600;
+            color: #4f46e5;
+            width: 100px;
+          }
+
+          .product-cell {
+            direction: rtl;
+            text-align: right;
+            padding: 10px 12px;
+            word-wrap: break-word;
+            white-space: normal;
+            max-width: 250px;
+          }
+
+          .qty-cell {
+            font-weight: 700;
+            color: #059669;
+            width: 70px;
+          }
+
+          .cost-cell {
+            text-align: right;
+            font-family: 'Courier New', monospace;
+            width: 90px;
+          }
+
+          .subtotal-row {
+            background: #f9fafb;
+            padding: 10px 15px;
+            margin-top: 8px;
+            border-radius: 4px;
+            text-align: right;
+            font-weight: 600;
+            font-size: 11px;
+            border: 1px solid #e5e7eb;
+          }
+
+          .grand-total {
+            background: #eef2ff;
+            padding: 18px 20px;
+            margin-top: 24px;
+            border-left: 5px solid #4f46e5;
+            font-weight: 700;
+            font-size: 14px;
+            text-align: right;
+            border-radius: 4px;
+          }
+
+          .page-break {
+            page-break-after: always;
+            break-after: page;
+          }
+
+          @media print {
+            body {
+              padding: 0;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            .no-print {
+              display: none !important;
+            }
+
+            .supplier-section {
+              page-break-inside: avoid;
+            }
+
+            .page-break {
+              page-break-after: always;
+              break-after: page;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            th, td {
+              border: 1px solid #d1d5db;
+              padding: 8px;
+              vertical-align: middle;
+            }
+
+            th {
+              background: #f3f4f6 !important;
+            }
+
+            .supplier-header {
+              background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            .grand-total {
+              background: #eef2ff !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
+        `}</style>
+      </head>
+      <body>
+        <div className="no-print">
+          <button onClick={() => window.print()} className="print-button">
+            🖨️ Print / Save as PDF
+          </button>
+        </div>
+
+        <div className="header">
+          <h1>Purchase Requests</h1>
+          <div className="header-meta">
+            <div>
+              <strong>Generated:</strong> {format(new Date(generatedAt), 'MMM d, yyyy HH:mm:ss')}
+              {dateRange?.from && dateRange?.to && (
+                <> | <strong>Period:</strong> {format(new Date(dateRange.from), 'MMM d')} - {format(new Date(dateRange.to), 'MMM d, yyyy')}</>
+              )}
+            </div>
+            <div>
+              <strong>Mode:</strong> {mode === 'supplier' ? 'Page per Supplier' : 'All Items'}
+            </div>
+          </div>
+        </div>
+
         {supplierNames.map((supplierName, idx) => {
-        const items = groupedBySupplier[supplierName];
-        const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
-        const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
-        const shouldPageBreak = mode === 'supplier' && idx > 0;
+          const items = groupedBySupplier[supplierName];
+          const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
+          const supplierItemCount = items.reduce((sum, item) => sum + item.toBuy, 0);
+          const shouldPageBreak = mode === 'supplier' && idx < supplierNames.length - 1;
 
-        return (
-          <div key={supplierName} className={`supplier-section ${shouldPageBreak ? 'page-break' : ''}`}>
-            <div className="supplier-summary">
-              <div className="supplier-name">{supplierName}</div>
-              <div className="supplier-stats">
-                <div className="supplier-stat">
-                  <div>{items.length}</div>
-                  <div className="supplier-stat-label">SKUs</div>
+          return (
+            <div key={supplierName}>
+              <div className="supplier-section">
+                <div className="supplier-header">
+                  <span>{supplierName}</span>
+                  <span className="supplier-stats">
+                    {items.length} SKUs | {supplierItemCount} items | ${supplierTotal.toFixed(2)}
+                  </span>
                 </div>
-                <div className="supplier-stat">
-                  <div>{supplierItemCount}</div>
-                  <div className="supplier-stat-label">Items</div>
-                </div>
-                <div className="supplier-stat">
-                  <div>${supplierTotal.toFixed(2)}</div>
-                  <div className="supplier-stat-label">Total</div>
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>IMAGE</th>
+                      <th>SUPPLIER</th>
+                      <th>SKU CODE</th>
+                      <th>PRODUCT</th>
+                      <th>TO BUY</th>
+                      <th>UNIT COST</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item, itemIdx) => (
+                      <tr key={itemIdx}>
+                        <td className="img-cell">
+                          {item.imageUrl ? (
+                            <img 
+                              src={item.imageUrl} 
+                              alt="Product"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = '<div class="img-placeholder">No Image</div>';
+                              }}
+                            />
+                          ) : (
+                            <div className="img-placeholder">No Image</div>
+                          )}
+                        </td>
+                        <td className="supplier-cell">{item.supplier}</td>
+                        <td className="sku-cell">{item.sku}</td>
+                        <td className="product-cell">{item.product}</td>
+                        <td className="qty-cell">{item.toBuy}</td>
+                        <td className="cost-cell">${(item.unitCost || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="subtotal-row">
+                  Subtotal: ${supplierTotal.toFixed(2)}
                 </div>
               </div>
+
+              {shouldPageBreak && <div className="page-break"></div>}
             </div>
+          );
+        })}
 
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 110, textAlign: 'center' }}>IMAGE</th>
-                  <th style={{ width: 100 }}>SUPPLIER</th>
-                  <th style={{ width: 90 }}>SKU CODE</th>
-                  <th style={{ flex: 1, minWidth: 150 }}>PRODUCT</th>
-                  <th style={{ width: 60, textAlign: 'center' }}>TO BUY</th>
-                  <th style={{ width: 80, textAlign: 'right' }}>UNIT COST</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, idx) => (
-                  <tr key={idx} className="item-row">
-                    <td style={{ textAlign: 'center', padding: 6, width: 110, height: 90 }}>
-                      {item.imageUrl ? (
-                        <img 
-                          src={item.imageUrl} 
-                          alt="SKU" 
-                          className="item-image"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.parentElement.innerHTML = '<div class="image-placeholder">No image</div>';
-                          }}
-                        />
-                      ) : (
-                        <div className="image-placeholder">No image</div>
-                      )}
-                    </td>
-                    <td style={{ fontSize: 10 }}>{item.supplier}</td>
-                    <td style={{ fontSize: 10, fontWeight: 600 }}>{item.sku}</td>
-                    <td className="product-cell" style={{ fontSize: 11 }}>
-                      {item.product}
-                    </td>
-                    <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#4f46e5' }}>
-                      {item.toBuy}
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: 10 }}>
-                      ${(item.unitCost || 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
-      </div>
-
-      <div style={{ padding: '20px' }}>
-       <div style={{ marginTop: 10, padding: 15, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, textAlign: 'right' }}>
-         <div style={{ fontSize: 12, marginBottom: 8 }}>
-           <strong>GRAND TOTAL:</strong> {totalItems} items • <strong>${totalValue.toFixed(2)}</strong>
-         </div>
-       </div>
-      </div>
-      </div>
-      );
-      }
+        <div className="grand-total">
+          GRAND TOTAL: {totalItems} items | ${totalValue.toFixed(2)}
+        </div>
+      </body>
+    </html>
+  );
+}
