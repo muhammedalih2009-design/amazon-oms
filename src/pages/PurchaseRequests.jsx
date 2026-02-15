@@ -36,6 +36,8 @@ export default function PurchaseRequests() {
   const [preparingPrint, setPreparingPrint] = useState(false);
   const [telegramConfigured, setTelegramConfigured] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(true);
+  const [exportingPDF, setExportingPDF] = useState(false);
+  const [showPrintMenu, setShowPrintMenu] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -265,6 +267,72 @@ export default function PurchaseRequests() {
       description: `${selectedItems.length} items (sorted by supplier)`,
       duration: 3000
     });
+  };
+
+  const handleExportPDF = async () => {
+    if (selectedSkus.length === 0) {
+      toast({ title: 'No items selected', description: 'Please select SKUs to export', variant: 'destructive' });
+      return;
+    }
+
+    setExportingPDF(true);
+    toast({ title: 'Generating PDF...', description: 'Please wait' });
+
+    try {
+      const selectedItems = purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id));
+      
+      // Sort by supplier
+      const sorted = [...selectedItems].sort((a, b) => {
+        const sa = (a.supplier || 'Unassigned').toString().trim().toLowerCase();
+        const sb = (b.supplier || 'Unassigned').toString().trim().toLowerCase();
+        const cmp = sa.localeCompare(sb, 'en', { sensitivity: 'base' });
+        if (cmp !== 0) return cmp;
+        return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
+      });
+
+      const response = await base44.functions.invoke('exportPurchaseRequestPDF', {
+        items: sorted.map(r => ({
+          supplier: r.supplier || 'Unassigned',
+          sku: r.sku_code || '',
+          product: r.product_name || '',
+          toBuy: Number(r.to_buy || 0),
+          unitCost: Number(r.cost_price || 0)
+        })),
+        fileName: `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`
+      });
+
+      // Handle binary response
+      let pdfBlob;
+      if (response.data instanceof Blob) {
+        pdfBlob = response.data;
+      } else if (response.data instanceof ArrayBuffer) {
+        pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      } else {
+        pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      }
+
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(pdfBlob);
+      link.download = `Purchase_Requests_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      toast({
+        title: 'PDF Exported ✓',
+        description: `${sorted.length} items`,
+        duration: 3000
+      });
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      toast({
+        title: 'PDF Export Failed',
+        description: error.message,
+        variant: 'destructive',
+        duration: 4000
+      });
+    } finally {
+      setExportingPDF(false);
+    }
   };
 
 
@@ -597,6 +665,25 @@ export default function PurchaseRequests() {
             CSV
           </Button>
 
+          <Button 
+            onClick={handleExportPDF}
+            variant="outline"
+            className="border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+            disabled={exportingPDF}
+            title="Export selected items to PDF (Legacy jsPDF)"
+          >
+            {exportingPDF ? (
+              <>
+                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                PDF...
+              </>
+            ) : (
+              <>
+                <FileDown className="w-4 h-4 mr-2" />
+                PDF
+              </>
+            )}
+          </Button>
 
           <Button 
             onClick={handleExportToExcel}
@@ -628,8 +715,18 @@ export default function PurchaseRequests() {
         </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
+            <div className="relative">
+              <button
+                onClick={() => setShowPrintMenu(!showPrintMenu)}
+                className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Print View (Fallback) ▾
+              </button>
+              {showPrintMenu && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[160px]">
+                  <button
+                    onClick={async () => {
+                      setShowPrintMenu(false);
                 setPreparingPrint(true);
                 try {
                   const sortedItems = [...purchaseNeeds].sort((a, b) => {
@@ -652,22 +749,21 @@ export default function PurchaseRequests() {
                       unitCost: Number(r.cost_price || 0)
                     }))
                   });
-                  window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
-                } catch (error) {
-                  toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
-                } finally {
-                  setPreparingPrint(false);
-                }
-              }}
-              disabled={preparingPrint}
-              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50 transition-colors"
-              title="Open print view in new tab for all items (use browser print dialog)"
-            >
-              {preparingPrint ? <Loader className="w-4 h-4 animate-spin mr-1" /> : null}
-              📄 PDF (All)
-            </button>
-            <button
-              onClick={async () => {
+                      window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
+                    } catch (error) {
+                      toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
+                    } finally {
+                      setPreparingPrint(false);
+                    }
+                  }}
+                  disabled={preparingPrint}
+                  className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
+                >
+                  📄 All Items (Single PDF)
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowPrintMenu(false);
                 setPreparingPrint(true);
                 try {
                   const sortedItems = [...purchaseNeeds].sort((a, b) => {
@@ -690,20 +786,21 @@ export default function PurchaseRequests() {
                       unitCost: Number(r.cost_price || 0)
                     }))
                   });
-                  window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
-                } catch (error) {
-                  toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
-                } finally {
-                  setPreparingPrint(false);
-                }
-              }}
-              disabled={preparingPrint}
-              className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50 transition-colors"
-              title="Open print view in new tab with page breaks per supplier (use browser print dialog)"
-            >
-              {preparingPrint ? <Loader className="w-4 h-4 animate-spin mr-1" /> : null}
-              📄 PDF (Supplier)
-            </button>
+                    window.open(createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), '_blank', 'noopener,noreferrer');
+                  } catch (error) {
+                    toast({ title: 'Print Preparation Failed', description: error.message, variant: 'destructive' });
+                  } finally {
+                    setPreparingPrint(false);
+                  }
+                }}
+                disabled={preparingPrint}
+                className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
+              >
+                📄 Per Supplier (Page Breaks)
+              </button>
+            </div>
+          )}
+        </div>
             <Button
               onClick={() => setDebugMode(!debugMode)}
               variant={debugMode ? 'default' : 'outline'}

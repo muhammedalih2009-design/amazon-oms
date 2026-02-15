@@ -33,6 +33,7 @@ import { useToast } from '@/components/ui/use-toast';
 import RefreshButton from '@/components/shared/RefreshButton';
 import UserAutocomplete from '@/components/shared/UserAutocomplete';
 import TelegramSettings from '@/components/admin/TelegramSettings';
+import ExportSettings from '@/components/admin/ExportSettings';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -596,6 +597,7 @@ export default function AdminPage() {
 
         <TabsContent value="integrations" className="space-y-6">
           <TelegramSettings />
+          <ExportSettings />
         </TabsContent>
       </Tabs>
 
