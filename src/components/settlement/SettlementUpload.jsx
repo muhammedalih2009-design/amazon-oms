@@ -50,63 +50,75 @@ export default function SettlementUpload({ onSuccess }) {
       return;
     }
 
-    // Debug: log what we're sending
     console.log(`[Settlement Upload] Preparing import. WorkspaceID: ${tenantId}, File: ${file.name}, Size: ${file.size} bytes`);
 
     setLoading(true);
     setImportResult(null);
 
     try {
-      // Build FormData
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('workspace_id', tenantId);
+      // Convert file to base64 since base44.functions.invoke sends JSON
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64Content = reader.result.split(',')[1]; // Remove data:text/csv;base64, prefix
+          
+              const response = await base44.functions.invoke('importSettlementCSV', {
+            file_name: file.name,
+            file_content: base64Content,
+            workspace_id: tenantId
+          });
+          const data = response.data;
 
-      console.log(`[Settlement Upload] Sending FormData with file and workspace_id`);
+          if (data.success) {
+            setImportResult({
+              success: true,
+              rowsCount: data.rowsCount,
+              matchedCount: data.matchedCount,
+              unmatchedCount: data.unmatchedCount,
+              parseErrors: data.parseErrors || [],
+              totalParseErrors: data.totalParseErrors || 0
+            });
 
-      // Call function - base44 will send as multipart/form-data automatically for FormData
-      const response = await base44.functions.invoke('importSettlementCSV', formData);
-      const data = response.data;
+            const msg = data.totalParseErrors > 0
+              ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
+              : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
 
-      if (data.success) {
-        setImportResult({
-          success: true,
-          rowsCount: data.rowsCount,
-          matchedCount: data.matchedCount,
-          unmatchedCount: data.unmatchedCount,
-          parseErrors: data.parseErrors || [],
-          totalParseErrors: data.totalParseErrors || 0
-        });
+            toast({
+              title: 'Import successful',
+              description: msg
+            });
 
-        const msg = data.totalParseErrors > 0
-          ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
-          : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
+            setFile(null);
+            setTimeout(() => onSuccess(), 1000);
+          }
+        } catch (error) {
+          const errorData = error.response?.data || {};
+          
+          setImportResult({
+            success: false,
+            code: errorData.code || 'UNKNOWN_ERROR',
+            message: errorData.message || error.message,
+            details: errorData.details || [],
+            sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
+          });
 
-        toast({
-          title: 'Import successful',
-          description: msg
-        });
+          toast({
+            title: 'Import failed',
+            description: errorData.message || error.message,
+            variant: 'destructive'
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
 
-        setFile(null);
-        setTimeout(() => onSuccess(), 1000);
-      }
+      reader.readAsDataURL(file);
     } catch (error) {
-      const errorData = error.response?.data || {};
-      
-      setImportResult({
-        success: false,
-        code: errorData.code || 'UNKNOWN_ERROR',
-        message: errorData.message || error.message,
-        details: errorData.details || [],
-        sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
-      });
-
       toast({
-        title: 'Import failed',
-        description: errorData.message || error.message,
+        title: 'Error reading file',
+        description: error.message,
         variant: 'destructive'
       });
-    } finally {
       setLoading(false);
     }
   };
