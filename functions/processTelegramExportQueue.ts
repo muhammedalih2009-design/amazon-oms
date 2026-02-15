@@ -28,24 +28,39 @@ async function sendTelegramMessage(text) {
 }
 
 async function sendTelegramPhoto(photoUrl, caption) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
   
   try {
-    // Download image
+    // Download image as bytes
     const imageResponse = await fetch(photoUrl);
     if (!imageResponse.ok) {
-      throw new Error('Failed to download image');
+      throw new Error(`Image fetch failed: ${imageResponse.status}`);
     }
+
+    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
     
-    const imageBlob = await imageResponse.blob();
+    // Validate it's actually an image
+    if (!contentType.startsWith('image/')) {
+      throw new Error(`Not an image: ${contentType}`);
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const imageBytes = new Uint8Array(imageBuffer);
+    
+    // Determine file extension
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    
+    // Create blob with proper type
+    const blob = new Blob([imageBytes], { type: contentType });
     
     // Send as multipart form data
     const formData = new FormData();
     formData.append('chat_id', TELEGRAM_CHAT_ID);
-    formData.append('photo', imageBlob, 'product.jpg');
+    formData.append('photo', blob, `product.${ext}`);
     formData.append('caption', caption);
+    formData.append('parse_mode', 'HTML');
     
-    const response = await fetch(url, {
+    const response = await fetch(telegramUrl, {
       method: 'POST',
       body: formData
     });
@@ -53,7 +68,6 @@ async function sendTelegramPhoto(photoUrl, caption) {
     if (!response.ok) {
       const error = await response.json();
       if (error.error_code === 429) {
-        // Rate limit hit
         const retryAfter = error.parameters?.retry_after || 30;
         throw new Error(`RATE_LIMIT:${retryAfter}`);
       }
@@ -65,8 +79,7 @@ async function sendTelegramPhoto(photoUrl, caption) {
     if (error.message.startsWith('RATE_LIMIT:')) {
       throw error;
     }
-    // If image fails, fall back to text
-    throw new Error(`Image upload failed: ${error.message}`);
+    throw new Error(`Photo upload failed: ${error.message}`);
   }
 }
 
@@ -154,6 +167,8 @@ Deno.serve(async (req) => {
         }
 
         const caption = `<b>SKU:</b> ${item.sku || 'N/A'}\n<b>Qty:</b> ${item.toBuy}\n<b>Unit Cost:</b> $${(item.unitCost || 0).toFixed(2)}`;
+        const productName = item.product ? `\n<b>Product:</b> ${item.product.substring(0, 50)}${item.product.length > 50 ? '...' : ''}` : '';
+        const fullCaption = `${caption}${productName}`;
 
         let success = false;
         let retryCount = 0;
@@ -162,12 +177,16 @@ Deno.serve(async (req) => {
         while (!success && retryCount < maxRetries) {
           try {
             if (item.imageUrl) {
-              await sendTelegramPhoto(item.imageUrl, caption);
+              // Try to send as photo
+              await sendTelegramPhoto(item.imageUrl, fullCaption);
+              success = true;
+              sentCount++;
             } else {
-              await sendTelegramMessage(caption);
+              // No image URL, send text only
+              await sendTelegramMessage(`${fullCaption}\n\n<i>(No image available)</i>`);
+              success = true;
+              sentCount++;
             }
-            success = true;
-            sentCount++;
 
             // Update progress every 5 items
             if (sentCount % 5 === 0) {
@@ -188,25 +207,29 @@ Deno.serve(async (req) => {
               continue;
             }
 
-            // If image failed, try text fallback on last retry
-            if (retryCount === maxRetries && item.imageUrl) {
+            // If image failed and it's last retry, try text fallback
+            if (retryCount === maxRetries) {
               try {
-                await sendTelegramMessage(`${caption}\n\n<i>(Image failed to load)</i>`);
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${error.message})</i>`);
                 success = true;
                 sentCount++;
+                // Log as a soft failure
+                failedLog.push({
+                  sku: item.sku,
+                  product: item.product,
+                  supplier: supplierName,
+                  reason: `Image failed, sent as text: ${error.message}`
+                });
               } catch (fallbackError) {
                 console.error('Fallback message also failed:', fallbackError);
+                failedCount++;
+                failedLog.push({
+                  sku: item.sku,
+                  product: item.product,
+                  supplier: supplierName,
+                  reason: `Complete failure: ${fallbackError.message}`
+                });
               }
-            }
-
-            if (retryCount >= maxRetries) {
-              failedCount++;
-              failedLog.push({
-                sku: item.sku,
-                product: item.product,
-                supplier: supplierName,
-                reason: error.message
-              });
             }
           }
         }
