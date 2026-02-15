@@ -8,32 +8,58 @@ export default function PurchaseRequestsPrint() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadPayload = () => {
+    const loadPayload = async () => {
       try {
-        // Try to read from sessionStorage first
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('jobId');
+
+        // Primary path: fetch from backend via jobId
+        if (jobId) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
+
+          try {
+            const response = await base44.functions.invoke('getPrintJob', { jobId });
+            clearTimeout(timeoutId);
+
+            if (response.data?.payload) {
+              setPayload(response.data.payload);
+              setLoading(false);
+              return;
+            } else {
+              setError('Print job returned no data. Please try again.');
+              setLoading(false);
+              return;
+            }
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+
+            // Handle specific error codes
+            if (fetchError.message?.includes('404') || fetchError.message?.includes('not found')) {
+              setError('Print job not found. It may have been deleted. Please regenerate PDF.');
+            } else if (fetchError.message?.includes('410') || fetchError.message?.includes('expired')) {
+              setError('Print job expired. Please go back and regenerate PDF (jobs expire after 10 minutes).');
+            } else if (fetchError.name === 'AbortError') {
+              setError('Request timeout. Please check your connection and try again.');
+            } else {
+              setError(`Failed to load print job: ${fetchError.message}`);
+            }
+            setLoading(false);
+            return;
+          }
+        }
+
+        // Fallback: try sessionStorage (backward compatibility)
         const storedPayload = sessionStorage.getItem('pr_print_payload');
-        
         if (storedPayload) {
           const parsed = JSON.parse(storedPayload);
           setPayload(parsed);
           setLoading(false);
-          // Clear after reading to prevent stale data
           sessionStorage.removeItem('pr_print_payload');
           return;
         }
 
-        // Fallback: try URL parameter (for small payloads)
-        const urlParams = new URLSearchParams(window.location.search);
-        const dataParam = urlParams.get('data');
-        
-        if (dataParam) {
-          const parsed = JSON.parse(decodeURIComponent(dataParam));
-          setPayload(parsed);
-          setLoading(false);
-          return;
-        }
-
-        // No data found
+        // No data source found
         setError('Print data missing. Please go back to Purchase Requests page and click PDF again.');
         setLoading(false);
       } catch (err) {

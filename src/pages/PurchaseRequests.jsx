@@ -276,32 +276,52 @@ export default function PurchaseRequests() {
         return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
       });
 
-      const payload = {
+      const rows = sorted.map(r => ({
+        imageUrl: r.image_url || '',
+        supplier: r.supplier || 'Unassigned',
+        sku: r.sku_code || '',
+        product: r.product_name || '',
+        toBuy: Number(r.to_buy || 0),
+        unitCost: Number(r.cost_price || 0)
+      }));
+
+      // Create print job in backend for reliable cross-window access
+      const response = await base44.functions.invoke('createPrintJob', {
+        tenantId,
         mode,
-        workspaceId: tenantId,
         dateRange: { 
           from: dateRange.from?.toISOString(), 
           to: dateRange.to?.toISOString() 
         },
-        rows: sorted.map(r => ({
-          imageUrl: r.image_url || '',
-          supplier: r.supplier || 'Unassigned',
-          sku: r.sku_code || '',
-          product: r.product_name || '',
-          toBuy: Number(r.to_buy || 0),
-          unitCost: Number(r.cost_price || 0)
-        })),
+        rows
+      });
+
+      const jobId = response.data.jobId;
+
+      // Fallback: also store in sessionStorage for backward compatibility
+      sessionStorage.setItem('pr_print_payload', JSON.stringify({
+        mode,
+        dateRange: { 
+          from: dateRange.from?.toISOString(), 
+          to: dateRange.to?.toISOString() 
+        },
+        rows,
         generatedAt: new Date().toISOString()
-      };
+      }));
 
-      // Store in sessionStorage for reliable data passing
-      sessionStorage.setItem('pr_print_payload', JSON.stringify(payload));
-
-      window.open(
-        createPageUrl(`PurchaseRequestsPrint?mode=${mode}`), 
+      const printWindow = window.open(
+        createPageUrl(`PurchaseRequestsPrint?jobId=${jobId}&mode=${mode}`), 
         '_blank', 
         'noopener,noreferrer'
       );
+
+      if (!printWindow) {
+        toast({ 
+          title: 'Popup Blocked', 
+          description: 'Please allow popups for this site to open print view', 
+          variant: 'destructive' 
+        });
+      }
     } catch (error) {
       toast({ 
         title: 'Print Preparation Failed', 
