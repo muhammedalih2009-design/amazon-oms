@@ -1,10 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 Deno.serve(async (req) => {
-  if (req.method !== 'GET') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405 });
-  }
-
   try {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
@@ -13,8 +9,17 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const url = new URL(req.url);
-    const jobId = url.searchParams.get('jobId');
+    // Support both GET and POST methods
+    let jobId;
+    if (req.method === 'GET') {
+      const url = new URL(req.url);
+      jobId = url.searchParams.get('jobId');
+    } else if (req.method === 'POST') {
+      const body = await req.json();
+      jobId = body.jobId;
+    } else {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
 
     if (!jobId) {
       return Response.json({ error: 'jobId required' }, { status: 400 });
