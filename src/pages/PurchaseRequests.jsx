@@ -3,7 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { format, parseISO, isWithinInterval } from 'date-fns';
 import { createPageUrl } from '@/utils';
-import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon } from 'lucide-react';
 import DataTable from '@/components/shared/DataTable';
 import PaywallBanner from '@/components/ui/PaywallBanner';
+import TelegramExportModal from '@/components/purchases/TelegramExportModal';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function PurchaseRequests() {
@@ -38,6 +39,7 @@ export default function PurchaseRequests() {
   const [checkingTelegram, setCheckingTelegram] = useState(true);
   const [exportingPDF, setExportingPDF] = useState(false);
   const [showPrintMenu, setShowPrintMenu] = useState(false);
+  const [telegramModalOpen, setTelegramModalOpen] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadData();
@@ -656,6 +658,19 @@ export default function PurchaseRequests() {
               Telegram not configured. Go to Settings → Integrations → Telegram
             </div>
           )}
+
+          {telegramConfigured && (
+            <Button 
+              onClick={() => setTelegramModalOpen(true)}
+              variant="outline"
+              className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              title="Send to Telegram with photos and captions"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Telegram
+            </Button>
+          )}
+
           <Button 
             onClick={handleExportToCSV}
             variant="outline"
@@ -822,6 +837,15 @@ export default function PurchaseRequests() {
         emptyIcon={ClipboardList}
         emptyTitle="No purchase needs"
         emptyDescription="All pending orders are covered by current stock"
+      />
+
+      {/* Telegram Export Modal */}
+      <TelegramExportModal
+        open={telegramModalOpen}
+        onClose={() => setTelegramModalOpen(false)}
+        tenantId={tenantId}
+        items={purchaseNeeds.filter(p => selectedSkus.includes(p.sku_id))}
+        dateRange={dateRange}
       />
     </div>
   );
