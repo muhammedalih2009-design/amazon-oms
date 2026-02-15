@@ -252,17 +252,22 @@ export default function BackupManager({ tenantId }) {
       for (const item of importBatches) await base44.entities.ImportBatch.delete(item.id);
       for (const item of tasks) await base44.entities.Task.delete(item.id);
 
-      // Restore from backup (in correct order)
-      if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(backupData.suppliers.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.stores?.length) await base44.entities.Store.bulkCreate(backupData.stores.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.skus?.length) await base44.entities.SKU.bulkCreate(backupData.skus.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(backupData.importBatches.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.orders?.length) await base44.entities.Order.bulkCreate(backupData.orders.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.orderLines?.length) await base44.entities.OrderLine.bulkCreate(backupData.orderLines.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.purchases?.length) await base44.entities.Purchase.bulkCreate(backupData.purchases.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.currentStock?.length) await base44.entities.CurrentStock.bulkCreate(backupData.currentStock.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(backupData.stockMovements.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backupData.tasks?.length) await base44.entities.Task.bulkCreate(backupData.tasks.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      // Restore from backup (in correct order, removing built-in fields)
+      const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, ...rest }) => rest);
+
+      if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
+      if (backupData.stores?.length) await base44.entities.Store.bulkCreate(stripBuiltins(backupData.stores));
+      if (backupData.skus?.length) await base44.entities.SKU.bulkCreate(stripBuiltins(backupData.skus));
+      if (backupData.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(stripBuiltins(backupData.importBatches));
+      if (backupData.orders?.length) await base44.entities.Order.bulkCreate(stripBuiltins(backupData.orders));
+      if (backupData.orderLines?.length) await base44.entities.OrderLine.bulkCreate(stripBuiltins(backupData.orderLines));
+      if (backupData.purchases?.length) await base44.entities.Purchase.bulkCreate(stripBuiltins(backupData.purchases));
+      if (backupData.currentStock?.length) await base44.entities.CurrentStock.bulkCreate(stripBuiltins(backupData.currentStock));
+      if (backupData.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(stripBuiltins(backupData.stockMovements));
+      if (backupData.tasks?.length) await base44.entities.Task.bulkCreate(stripBuiltins(backupData.tasks));
+      if (backupData.checklistItems?.length) await base44.entities.TaskChecklistItem.bulkCreate(stripBuiltins(backupData.checklistItems));
+      if (backupData.comments?.length) await base44.entities.TaskComment.bulkCreate(stripBuiltins(backupData.comments));
+      if (backupData.returns?.length) await base44.entities.Return.bulkCreate(stripBuiltins(backupData.returns));
 
       setShowRestoreDialog(false);
       setSelectedBackup(null);
@@ -403,10 +408,13 @@ export default function BackupManager({ tenantId }) {
                </h3>
                <p className="text-sm text-slate-500">
                  {format(new Date(backup.timestamp), 'MMM d, yyyy h:mm a')} • 
-                 {backup.stats?.orders || 0} orders • {backup.stats?.skus || 0} SKUs • {backup.stats?.purchases || 0} purchases
+                 {backup.stats?.stores || 0} stores • {backup.stats?.skus || 0} SKUs • {backup.stats?.orders || 0} orders • {backup.stats?.purchases || 0} purchases
+               </p>
+               <p className="text-xs text-slate-400 mt-1">
+                 {backup.stats && Object.entries(backup.stats).map(([k, v]) => v > 0 && `${k}(${v})`).filter(Boolean).join(' • ')}
                  {backup.file_size_bytes && <> • {(backup.file_size_bytes / 1024 / 1024).toFixed(2)} MB</>}
                </p>
-             </div>
+               </div>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
