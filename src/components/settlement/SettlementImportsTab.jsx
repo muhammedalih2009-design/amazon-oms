@@ -27,7 +27,7 @@ export default function SettlementImportsTab({
 
   return (
     <div className="space-y-6">
-      <SettlementUpload tenantId={tenantId} onSuccess={onImportSuccess} />
+      <SettlementUpload onSuccess={onImportSuccess} />
 
       <div className="bg-white rounded-lg border border-slate-200 p-6">
         <h3 className="font-semibold text-slate-900 mb-4">Recent Imports</h3>

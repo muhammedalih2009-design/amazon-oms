@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useTenant } from '@/components/hooks/useTenant';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Upload, Loader, AlertCircle, CheckCircle2, Download } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-export default function SettlementUpload({ tenantId, onSuccess }) {
+export default function SettlementUpload({ onSuccess }) {
+  const { tenant, tenantId } = useTenant();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [file, setFile] = useState(null);
@@ -37,18 +39,29 @@ export default function SettlementUpload({ tenantId, onSuccess }) {
   };
 
   const handleImport = async () => {
-    if (!file) {
-      toast({ title: 'Select a CSV file first', variant: 'destructive' });
+    // Pre-validation on frontend
+    if (!tenantId) {
+      toast({ title: 'No workspace selected', description: 'Please select a workspace first', variant: 'destructive' });
       return;
     }
+
+    if (!file) {
+      toast({ title: 'Select a CSV file', description: 'Please choose a CSV file to import', variant: 'destructive' });
+      return;
+    }
+
+    // Debug: log what we're sending
+    console.log(`[Settlement Upload] Preparing import. WorkspaceID: ${tenantId}, File: ${file.name}, Size: ${file.size} bytes`);
 
     setLoading(true);
     setImportResult(null);
 
     try {
       const formData = new FormData();
-      formData.append('csvFile', file);
-      formData.append('tenantId', tenantId);
+      formData.append('file', file);  // Must match backend expectation
+      formData.append('workspace_id', tenantId);  // Must match backend expectation
+
+      console.log(`[Settlement Upload] Calling importSettlementCSV with fields: file, workspace_id`);
 
       const response = await base44.functions.invoke('importSettlementCSV', formData);
       const data = response.data;
