@@ -24,10 +24,9 @@ const EXPECTED_HEADERS_MAP = {
 };
 
 Deno.serve(async (req) => {
+  let importJob = null;
   try {
-    const base44 = createClientFromRequest(req);
-    
-    // Parse JSON body
+    // Parse JSON body first (before creating base44 client)
     const body = await req.json();
     const fileName = body.file_name;
     const fileContentBase64 = body.file_content;
@@ -35,6 +34,9 @@ Deno.serve(async (req) => {
     const monthKey = body.month_key;
 
     console.log(`[Settlement] Request received. FileName: ${fileName}, WorkspaceID: ${workspaceId}`);
+
+    // Now create the client after body is parsed
+    const base44 = createClientFromRequest(req);
 
     // Validate required fields
     if (!fileContentBase64) {
@@ -111,7 +113,7 @@ Deno.serve(async (req) => {
     }
 
     // Create import job
-    const importJob = await base44.asServiceRole.entities.SettlementImport.create({
+    importJob = await base44.asServiceRole.entities.SettlementImport.create({
       tenant_id: workspaceId,
       file_name: fileName,
       uploaded_by_user_id: user.id,
