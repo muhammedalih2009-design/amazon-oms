@@ -376,8 +376,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Batch updates sequentially to avoid rate limiting
-    const BATCH_SIZE = 10;
+    // Batch updates with large batches and long delays
+    const BATCH_SIZE = 100;
     for (let i = 0; i < updateBatch.length; i += BATCH_SIZE) {
       const chunk = updateBatch.slice(i, i + BATCH_SIZE);
       await Promise.all(
@@ -385,9 +385,9 @@ Deno.serve(async (req) => {
           base44.asServiceRole.entities.SettlementRow.update(item.id, item.data)
         )
       );
-      // Wait between batches to avoid rate limits
+      // Substantial delay between batches for large imports
       if (i + BATCH_SIZE < updateBatch.length) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
     }
 
