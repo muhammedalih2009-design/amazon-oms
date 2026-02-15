@@ -292,6 +292,7 @@ export default function PurchaseRequests() {
 
       const response = await base44.functions.invoke('exportPurchaseRequestPDF', {
         items: sorted.map(r => ({
+          imageUrl: r.image_url || '',
           supplier: r.supplier || 'Unassigned',
           sku: r.sku_code || '',
           product: r.product_name || '',
