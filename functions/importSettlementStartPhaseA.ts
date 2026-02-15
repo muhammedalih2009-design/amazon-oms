@@ -1,5 +1,16 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+// Helper: normalize parse errors to JSON string
+function normalizeParseErrors(errors) {
+  try {
+    if (typeof errors === 'string') return errors;
+    return JSON.stringify(errors ?? []);
+  } catch (e) {
+    console.error('Error normalizing parse errors:', e);
+    return '[]';
+  }
+}
+
 const EXPECTED_HEADERS_MAP = {
   'datetime': ['date/time', 'datetime', 'date', 'time', 'transaction date'],
   'settlement_id': ['settlement id', 'settlementid', 'settlement-id'],
@@ -260,6 +271,17 @@ Deno.serve(async (req) => {
       ? monthDates[0].toISOString().substring(0, 7)
       : new Date().toISOString().substring(0, 7);
 
+    // Prepare parse errors as normalized JSON string
+    const parseErrorsJson = normalizeParseErrors(parseErrors.slice(0, 100));
+    
+    // Validation guard: ensure it's a string
+    if (typeof parseErrorsJson !== 'string') {
+      throw new Error('parse_errors_json_not_string: failed to normalize errors');
+    }
+    
+    // Self-test logging
+    console.log(`[Settlement] Parse errors normalized. Type: ${typeof parseErrorsJson}, Length: ${parseErrorsJson.length}, Content: ${parseErrorsJson.substring(0, 100)}`);
+
     // Create import job
     const importJob = await base44.asServiceRole.entities.SettlementImport.create({
       tenant_id: tenantId,
@@ -271,7 +293,7 @@ Deno.serve(async (req) => {
       processed_rows: 0,
       cursor: 0,
       chunk_size: 400,
-      parse_errors_json: JSON.stringify(parseErrors.slice(0, 100)),
+      parse_errors_json: parseErrorsJson,
       total_parse_errors: parseErrors.length,
       parsed_rows_json: JSON.stringify(settlementRows),
       header_map_json: JSON.stringify(headerMap),
