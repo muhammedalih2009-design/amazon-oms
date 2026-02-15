@@ -91,9 +91,9 @@ export default function TelegramExportModal({
       const supplier = (item.supplier || '').replace(/"/g, '""');
       const imageUrl = (item.imageUrl || 'N/A').replace(/"/g, '""');
       const strategy = (item.strategy || 'N/A').replace(/"/g, '""');
-      const attemptA = (item.attemptA || 'N/A').replace(/"/g, '""');
-      const attemptB = (item.attemptB || 'N/A').replace(/"/g, '""');
-      const reason = (item.reason || item.finalError || item.completeFailure || 'Unknown').replace(/"/g, '""');
+      const attemptA = (item.attemptAError || item.attemptA || 'N/A').replace(/"/g, '""');
+      const attemptB = (item.attemptBError || item.attemptB || 'N/A').replace(/"/g, '""');
+      const reason = (item.finalReason || item.reason || item.finalError || item.completeFailure || 'Unknown').replace(/"/g, '""');
       return `"${sku}","${product}","${supplier}","${imageUrl}","${strategy}","${attemptA}","${attemptB}","${reason}"`;
     }).join('\n');
 

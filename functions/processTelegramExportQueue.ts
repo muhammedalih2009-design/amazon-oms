@@ -389,12 +389,30 @@ Deno.serve(async (req) => {
               const normalized = normalizeImageUrl(item.imageUrl);
               
               if (!normalized) {
-                // Invalid URL, send as text
-                await sendTelegramMessage(`${fullCaption}\n\n<i>(No valid image URL)</i>`);
+                // Invalid URL, send as text with specific reason
+                const rawValue = String(item.imageUrl || '').trim().substring(0, 50);
+                const invalidReason = !item.imageUrl ? 'Empty URL' : 
+                                     rawValue === 'null' ? 'Literal "null"' :
+                                     rawValue === 'undefined' ? 'Literal "undefined"' :
+                                     rawValue.length < 5 ? 'Too short' : 
+                                     'Invalid format';
+                
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Invalid image URL: ${invalidReason})</i>`);
                 success = true;
                 sentCount++;
                 textFallbackCount++;
-                attemptLog.push('Invalid URL, sent as text');
+                attemptLog.push(`Invalid URL (${invalidReason}), sent as text`);
+                
+                failedLog.push({
+                  sku: item.sku,
+                  product: item.product,
+                  supplier: supplierName,
+                  imageUrl: rawValue || 'empty',
+                  strategy: 'validation-rejected',
+                  attemptAError: 'Not attempted',
+                  attemptBError: 'Not attempted',
+                  finalReason: `Invalid URL: ${invalidReason}`
+                });
                 break;
               }
 
@@ -449,12 +467,13 @@ Deno.serve(async (req) => {
                 } else {
                   attemptLog.push(`✗ Method B failed: ${imageResult.reason}`);
                   
-                  // ATTEMPT C: Text fallback
-                  await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable)</i>`);
+                  // ATTEMPT C: Text fallback with specific reason
+                  const fallbackReason = `Direct URL: ${urlError.message} | Fetch: ${imageResult.reason}`;
+                  await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${imageResult.reason})</i>`);
                   success = true;
                   sentCount++;
                   textFallbackCount++;
-                  attemptLog.push('✓ Method C: Text fallback');
+                  attemptLog.push(`✓ Method C: Text fallback (${fallbackReason})`);
                   
                   failedLog.push({
                     sku: item.sku,
@@ -462,8 +481,9 @@ Deno.serve(async (req) => {
                     supplier: supplierName,
                     imageUrl: normalized,
                     strategy: imageResult.strategy,
-                    attemptA: urlError.message,
-                    attemptB: imageResult.reason,
+                    attemptAError: urlError.message,
+                    attemptBError: imageResult.reason,
+                    finalReason: fallbackReason,
                     debugLog: isDebugItem ? imageResult.debugLog : undefined
                   });
                   
@@ -473,12 +493,23 @@ Deno.serve(async (req) => {
                 }
               }
             } else {
-              // No image URL provided
-              await sendTelegramMessage(`${fullCaption}\n\n<i>(No image available)</i>`);
+              // No image URL provided at all
+              await sendTelegramMessage(`${fullCaption}\n\n<i>(No image URL provided)</i>`);
               success = true;
               sentCount++;
               textFallbackCount++;
-              attemptLog.push('No imageUrl provided');
+              attemptLog.push('No imageUrl field');
+              
+              failedLog.push({
+                sku: item.sku,
+                product: item.product,
+                supplier: supplierName,
+                imageUrl: 'none',
+                strategy: 'no-url',
+                attemptAError: 'No URL to attempt',
+                attemptBError: 'No URL to attempt',
+                finalReason: 'No image URL in data'
+              });
               
               if (isDebugItem) {
                 console.log(`=== DEBUG ${debugCounter}/${DEBUG_ITEMS_COUNT} (${item.sku}) ===`);
