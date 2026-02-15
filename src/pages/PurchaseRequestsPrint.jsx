@@ -460,9 +460,22 @@ export default function PurchaseRequestsPrint() {
                             <img 
                               src={item.imageUrl} 
                               alt="Product"
+                              loading="lazy"
+                              crossOrigin="anonymous"
                               onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.parentElement.innerHTML = '<div class="img-placeholder">No Image</div>';
+                                // Only show placeholder after genuine load failure
+                                if (!e.target.dataset.retried) {
+                                  e.target.dataset.retried = 'true';
+                                  // Force reload once
+                                  const originalSrc = e.target.src;
+                                  e.target.src = '';
+                                  setTimeout(() => {
+                                    e.target.src = originalSrc + (originalSrc.includes('?') ? '&' : '?') + 'retry=1';
+                                  }, 100);
+                                } else {
+                                  e.target.style.display = 'none';
+                                  e.target.parentElement.innerHTML = '<div class="img-placeholder" title="' + item.imageUrl.substring(0, 50) + '">Load Failed</div>';
+                                }
                               }}
                             />
                           ) : (

@@ -175,12 +175,22 @@ export default function PurchaseRequests() {
           || 'Unassigned';
       }
 
+      // Normalize image URL
+      const rawImageUrl = sku?.image_url || '';
+      const normalizedImageUrl = rawImageUrl && 
+                                 rawImageUrl !== 'null' && 
+                                 rawImageUrl !== 'undefined' && 
+                                 rawImageUrl.trim().length > 5 
+                                   ? rawImageUrl.trim() 
+                                   : '';
+
       return {
         id: skuId,
         sku_id: skuId,
         sku_code: sku?.sku_code || 'Unknown',
         product_name: sku?.product_name || 'Unknown',
         cost_price: sku?.cost_price || 0,
+        image_url: normalizedImageUrl,
         supplier_id: sku?.supplier_id,
         supplier: supplierResolved,
         total_needed: needed,
