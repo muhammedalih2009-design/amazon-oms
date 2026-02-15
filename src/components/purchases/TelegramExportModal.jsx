@@ -84,13 +84,17 @@ export default function TelegramExportModal({
   const downloadFailedItems = () => {
     if (!status?.failedItemsLog || status.failedItemsLog.length === 0) return;
 
-    const csvHeader = 'SKU,Product,Supplier,Reason\n';
+    const csvHeader = 'SKU,Product,Supplier,Image URL,Strategy,Attempt A Error,Attempt B Error,Final Reason\n';
     const csvRows = status.failedItemsLog.map(item => {
       const sku = (item.sku || '').replace(/"/g, '""');
       const product = (item.product || '').replace(/"/g, '""');
       const supplier = (item.supplier || '').replace(/"/g, '""');
-      const reason = (item.reason || '').replace(/"/g, '""');
-      return `"${sku}","${product}","${supplier}","${reason}"`;
+      const imageUrl = (item.imageUrl || 'N/A').replace(/"/g, '""');
+      const strategy = (item.strategy || 'N/A').replace(/"/g, '""');
+      const attemptA = (item.attemptA || 'N/A').replace(/"/g, '""');
+      const attemptB = (item.attemptB || 'N/A').replace(/"/g, '""');
+      const reason = (item.reason || item.finalError || item.completeFailure || 'Unknown').replace(/"/g, '""');
+      return `"${sku}","${product}","${supplier}","${imageUrl}","${strategy}","${attemptA}","${attemptB}","${reason}"`;
     }).join('\n');
 
     const csvContent = '\uFEFF' + csvHeader + csvRows;
@@ -198,9 +202,10 @@ export default function TelegramExportModal({
                     <p className="text-lg font-semibold text-slate-900">
                       All items sent successfully!
                     </p>
-                    <p className="text-sm text-slate-600">
-                      {status.sentItems} items delivered to Telegram
-                    </p>
+                    <div className="text-sm text-slate-600 space-y-1">
+                      <p>📸 Photos: {status.photoSentCount || 0}</p>
+                      <p>📝 Text: {status.textFallbackCount || 0}</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center space-y-2">
@@ -209,7 +214,8 @@ export default function TelegramExportModal({
                       Export completed with errors
                     </p>
                     <div className="text-sm text-slate-600 space-y-1">
-                      <p>✓ Sent: {status.sentItems} items</p>
+                      <p>📸 Photos: {status.photoSentCount || 0}</p>
+                      <p>📝 Text: {status.textFallbackCount || 0}</p>
                       <p>✗ Failed: {status.failedItems} items</p>
                     </div>
                   </div>
