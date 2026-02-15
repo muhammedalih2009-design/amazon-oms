@@ -29,13 +29,19 @@ Deno.serve(async (req) => {
     const csvText = await csvFile.text();
     const cleanText = csvText.replace(/^\uFEFF/, ''); // Remove BOM if present
 
-    // Split by newline and find header row
-    const lines = cleanText.split(/\r\n|\n/).map(l => l.trim()).filter(l => l.length > 0);
+    // Split by newline (keep non-empty)
+    const lines = cleanText.split(/\r\n|\n/);
+    
+    // Find header row - first line containing key settlement columns
     let headerLineIdx = -1;
     let headerLine = '';
+    const requiredHeaderKeywords = ['date/time', 'order', 'sku', 'total'];
 
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes('date/time') || lines[i].toLowerCase().includes('datetime')) {
+      const lowerLine = lines[i].toLowerCase();
+      const hasRequiredKeywords = requiredHeaderKeywords.some(kw => lowerLine.includes(kw));
+      
+      if (hasRequiredKeywords && (lowerLine.includes('date') || lowerLine.includes('time'))) {
         headerLineIdx = i;
         headerLine = lines[i];
         break;
@@ -43,55 +49,96 @@ Deno.serve(async (req) => {
     }
 
     if (headerLineIdx === -1) {
-      throw new Error('Could not find header row with "date/time" or "datetime"');
+      throw new Error('Could not find header row. Expected columns: date/time, order id, sku, total');
     }
 
-    // Parse CSV header (handle quoted fields)
+    console.log(`[Settlement Import] Header detected at line ${headerLineIdx}: ${headerLine.substring(0, 100)}`);
+
+    // Parse CSV header with flexible mapping
     const headers = parseCSVLine(headerLine);
-    const headerMap = {};
+    const headerMap = {}; // Maps normalized header name -> column index
+
     headers.forEach((h, idx) => {
-      headerMap[h.toLowerCase().replace(/["\s]/g, '')] = idx;
+      const normalized = h.trim().toLowerCase().replace(/["\s]/g, '').replace(/[/-]/g, '');
+      headerMap[normalized] = idx;
     });
 
-    // Require columns
-    const requiredCols = ['datetime', 'settlementid', 'type', 'orderid', 'sku', 'quantity', 'total'];
-    for (const col of requiredCols) {
-      if (!Object.keys(headerMap).some(h => h.includes(col))) {
-        throw new Error(`Missing required column: ${col}`);
-      }
+    console.log(`[Settlement Import] Parsed headers:`, Object.keys(headerMap).slice(0, 10));
+
+    // Check for critical columns only
+    const hasOrderId = Object.keys(headerMap).some(h => h.includes('orderid') || h.includes('order'));
+    const hasTotal = Object.keys(headerMap).some(h => h === 'total');
+
+    if (!hasOrderId || !hasTotal) {
+      throw new Error('Missing critical columns: need "order id" and "total"');
     }
 
     // Parse data rows
     const dataRows = lines.slice(headerLineIdx + 1);
     const settlementRows = [];
     const monthDates = [];
+    let parseErrorCount = 0;
 
     for (const line of dataRows) {
       if (!line.trim()) continue;
 
-      const fields = parseCSVLine(line);
-      const row = {};
-      headers.forEach((h, idx) => {
-        row[h.toLowerCase().replace(/["\s]/g, '')] = fields[idx] || '';
-      });
-
       try {
-        // Parse datetime
-        const datetimeStr = row.datetime || row.datetimevalue || '';
+        const fields = parseCSVLine(line);
+        const row = {};
+        
+        // Build row object with flexible header mapping
+        headers.forEach((h, idx) => {
+          const normalized = h.trim().toLowerCase().replace(/["\s]/g, '').replace(/[/-]/g, '');
+          row[normalized] = fields[idx] || '';
+        });
+
+        // Find datetime column (try multiple variants)
+        let datetimeStr = '';
+        const dateTimeKeys = Object.keys(row).filter(k => k.includes('date') || k.includes('time'));
+        if (dateTimeKeys.length > 0) {
+          datetimeStr = row[dateTimeKeys[0]] || '';
+        }
+
+        if (!datetimeStr) {
+          parseErrorCount++;
+          continue;
+        }
+
         const datetime = new Date(datetimeStr);
         if (isNaN(datetime.getTime())) {
-          console.warn(`Skipping row with invalid datetime: ${datetimeStr}`);
+          parseErrorCount++;
           continue;
         }
         monthDates.push(datetime);
 
-        // Parse numeric fields
-        const quantity = Math.abs(parseFloat(row.quantity || '0') || 0);
-        const total = parseFloat(row.total || '0') || 0;
+        // Find order_id (handle variations)
+        let orderId = '';
+        const orderIdKeys = Object.keys(row).filter(k => k.includes('order') && (k.includes('id') || k === 'order'));
+        if (orderIdKeys.length > 0) {
+          orderId = row[orderIdKeys[0]] || '';
+        }
+        if (!orderId) {
+          parseErrorCount++;
+          continue;
+        }
 
-        // Determine sign
-        const typeStr = (row.type || '').toLowerCase();
-        const isRefund = typeStr.includes('refund') || total < 0;
+        // Safe number parsing helper
+        const safeParseFloat = (val) => {
+          if (!val || typeof val !== 'string') return 0;
+          const cleaned = val.trim().replace(/,/g, '');
+          const parsed = parseFloat(cleaned);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+
+        // Parse quantities and amounts
+        const quantityRaw = Object.keys(row).find(k => k === 'quantity');
+        const quantity = Math.abs(safeParseFloat(row[quantityRaw]));
+
+        const totalVal = safeParseFloat(row.total);
+
+        // Determine sign based on type and total value
+        const typeStr = (Object.keys(row).find(k => k === 'type') ? row[Object.keys(row).find(k => k === 'type')] : '').toLowerCase();
+        const isRefund = typeStr.includes('refund') || totalVal < 0;
         const sign = isRefund ? -1 : 1;
         const signedQty = quantity * sign;
 
@@ -99,39 +146,42 @@ Deno.serve(async (req) => {
           tenant_id: tenantId,
           settlement_import_id: importJob.id,
           datetime: datetime.toISOString(),
-          settlement_id: row.settlementid || '',
-          type: row.type || '',
-          order_id: row.orderid || '',
-          sku: row.sku || '',
-          description: row.description || '',
+          settlement_id: row[Object.keys(row).find(k => k === 'settlementid' || k.includes('settlement'))] || '',
+          type: row[Object.keys(row).find(k => k === 'type')] || '',
+          order_id: orderId,
+          sku: row[Object.keys(row).find(k => k === 'sku')] || '',
+          description: row[Object.keys(row).find(k => k === 'description')] || '',
           quantity: quantity,
           signed_qty: signedQty,
-          marketplace: row.marketplace || '',
-          fulfillment: row.fulfillment || '',
-          order_city: row.ordercity || '',
-          order_state: row.orderstate || '',
-          order_postal: row.orderpostal || '',
-          product_sales: parseFloat(row.productsales || '0') || 0,
-          shipping_credits: parseFloat(row.shippingcredits || '0') || 0,
-          promotional_rebates: parseFloat(row.promotionalrebates || '0') || 0,
-          selling_fees: parseFloat(row.sellingfees || '0') || 0,
-          fba_fees: parseFloat(row.fbafees || '0') || 0,
-          other_transaction_fees: parseFloat(row.othertransactionfees || '0') || 0,
-          other: parseFloat(row.other || '0') || 0,
-          total: total,
+          marketplace: row[Object.keys(row).find(k => k === 'marketplace')] || '',
+          fulfillment: row[Object.keys(row).find(k => k === 'fulfillment')] || '',
+          order_city: row[Object.keys(row).find(k => k.includes('city'))] || '',
+          order_state: row[Object.keys(row).find(k => k.includes('state'))] || '',
+          order_postal: row[Object.keys(row).find(k => k.includes('postal') || k.includes('zip'))] || '',
+          product_sales: safeParseFloat(row[Object.keys(row).find(k => k.includes('productsales') || k.includes('product'))]),
+          shipping_credits: safeParseFloat(row[Object.keys(row).find(k => k.includes('shipping'))]),
+          promotional_rebates: safeParseFloat(row[Object.keys(row).find(k => k.includes('promotional'))]),
+          selling_fees: safeParseFloat(row[Object.keys(row).find(k => k.includes('sellingfees') || k.includes('selling'))]),
+          fba_fees: safeParseFloat(row[Object.keys(row).find(k => k.includes('fba'))]),
+          other_transaction_fees: safeParseFloat(row[Object.keys(row).find(k => k.includes('othertransaction'))]),
+          other: safeParseFloat(row[Object.keys(row).find(k => k === 'other')]),
+          total: totalVal,
           is_refund_like: isRefund,
           match_status: 'unmatched_order'
         };
 
         settlementRows.push(settlementRow);
       } catch (err) {
+        parseErrorCount++;
         console.warn(`Error parsing row:`, err.message);
       }
     }
 
     if (settlementRows.length === 0) {
-      throw new Error('No valid data rows found in CSV');
+      throw new Error(`No valid data rows found. Total rows in file: ${lines.length}, Parse errors: ${parseErrorCount}`);
     }
+
+    console.log(`[Settlement Import] Parsed ${settlementRows.length} valid rows (${parseErrorCount} errors). Sample row:`, settlementRows[0]);
 
     // Bulk insert rows
     await base44.asServiceRole.entities.SettlementRow.bulkCreate(settlementRows);
