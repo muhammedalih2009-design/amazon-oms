@@ -26,8 +26,11 @@ const EXPECTED_HEADERS_MAP = {
 Deno.serve(async (req) => {
   let importJob = null;
   try {
-    // Parse JSON body first (before creating base44 client)
-    const body = await req.json();
+    // Clone request so we can read body independently from base44 client
+    const clonedReq = req.clone();
+    
+    // Parse JSON body from cloned request
+    const body = await clonedReq.json();
     const fileName = body.file_name;
     const fileContentBase64 = body.file_content;
     const workspaceId = body.workspace_id;
@@ -35,7 +38,7 @@ Deno.serve(async (req) => {
 
     console.log(`[Settlement] Request received. FileName: ${fileName}, WorkspaceID: ${workspaceId}`);
 
-    // Now create the client after body is parsed
+    // Create base44 client from original request
     const base44 = createClientFromRequest(req);
 
     // Validate required fields
