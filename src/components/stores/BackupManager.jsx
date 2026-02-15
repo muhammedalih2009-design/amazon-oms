@@ -34,19 +34,93 @@ export default function BackupManager({ tenantId }) {
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(null);
+  const [jobPolling, setJobPolling] = useState(null);
 
   useEffect(() => {
     loadBackups();
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!jobPolling) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await base44.entities.BackupJob.filter({ id: jobPolling.jobId });
+        if (!job || job.length === 0) return;
+
+        const currentJob = job[0];
+        
+        if (currentJob.status === 'completed') {
+          setBackups(prev => [{
+            id: currentJob.id,
+            name: currentJob.backup_name,
+            timestamp: currentJob.started_at,
+            file_url: currentJob.file_url,
+            file_size_bytes: currentJob.file_size_bytes,
+            stats: currentJob.stats,
+            serverBackup: true
+          }, ...prev]);
+          
+          toast({ 
+            title: '✓ Backup completed', 
+            description: `${(currentJob.file_size_bytes / 1024 / 1024).toFixed(2)} MB saved` 
+          });
+          setCreating(false);
+          setJobPolling(null);
+          setShowCreateDialog(false);
+          setBackupName('');
+        } else if (currentJob.status === 'failed') {
+          toast({ 
+            title: 'Backup failed', 
+            description: currentJob.error_message, 
+            variant: 'destructive' 
+          });
+          setCreating(false);
+          setJobPolling(null);
+        }
+      } catch (error) {
+        console.error('Job polling error:', error);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [jobPolling]);
+
   const loadBackups = async () => {
     setLoading(true);
     try {
+      // Load server-side backups
+      const serverBackups = await base44.entities.BackupJob.filter({ 
+        tenant_id: tenantId,
+        status: 'completed'
+      });
+      
+      const formatted = serverBackups.map(job => ({
+        id: job.id,
+        name: job.backup_name,
+        timestamp: job.started_at,
+        file_url: job.file_url,
+        file_size_bytes: job.file_size_bytes,
+        stats: job.stats || {},
+        serverBackup: true
+      }));
+
+      // Also load legacy localStorage backups (read-only)
       const backupsKey = `backups_${tenantId}`;
       const stored = localStorage.getItem(backupsKey);
-      setBackups(stored ? JSON.parse(stored) : []);
+      const legacyBackups = stored ? JSON.parse(stored) : [];
+
+      setBackups([...formatted, ...legacyBackups]);
     } catch (error) {
       console.error('Failed to load backups:', error);
+      // Fallback to localStorage only
+      try {
+        const backupsKey = `backups_${tenantId}`;
+        const stored = localStorage.getItem(backupsKey);
+        setBackups(stored ? JSON.parse(stored) : []);
+      } catch (fallbackError) {
+        console.error('Fallback load failed:', fallbackError);
+      }
     }
     setLoading(false);
   };
@@ -54,66 +128,53 @@ export default function BackupManager({ tenantId }) {
   const createBackup = async () => {
     setCreating(true);
     try {
-      // Fetch all workspace data
-      const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
-        base44.entities.Order.filter({ tenant_id: tenantId }),
-        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-        base44.entities.SKU.filter({ tenant_id: tenantId }),
-        base44.entities.Store.filter({ tenant_id: tenantId }),
-        base44.entities.Purchase.filter({ tenant_id: tenantId }),
-        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-        base44.entities.Supplier.filter({ tenant_id: tenantId }),
-        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
-        base44.entities.ImportBatch.filter({ tenant_id: tenantId }),
-        base44.entities.Task.filter({ tenant_id: tenantId })
-      ]);
+      // Create backup job on server
+      const response = await base44.functions.invoke('createBackupJob', {
+        tenantId,
+        backupName: backupName || `Backup ${format(new Date(), 'MMM d, yyyy h:mm a')}`
+      });
 
-      const timestamp = new Date().toISOString();
-      const backup = {
-        id: `backup_${Date.now()}`,
-        name: backupName || `Backup ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
-        timestamp,
-        data: {
-          orders,
-          orderLines,
-          skus,
-          stores,
-          purchases,
-          currentStock,
-          suppliers,
-          stockMovements,
-          importBatches,
-          tasks
-        },
-        stats: {
-          orders: orders.length,
-          skus: skus.length,
-          purchases: purchases.length
-        }
-      };
+      const jobId = response.data.jobId;
+      setJobPolling({ jobId });
 
-      // Store in localStorage
-      const backupsKey = `backups_${tenantId}`;
-      const existing = localStorage.getItem(backupsKey);
-      const allBackups = existing ? JSON.parse(existing) : [];
-      allBackups.unshift(backup);
-      localStorage.setItem(backupsKey, JSON.stringify(allBackups));
+      // Immediately trigger async execution
+      base44.functions.invoke('executeBackupJob', { 
+        jobId, 
+        tenantId 
+      }).catch(err => {
+        console.error('Async backup execution failed:', err);
+        toast({ 
+          title: 'Backup processing error', 
+          description: err.message, 
+          variant: 'destructive' 
+        });
+      });
 
-      setBackups(allBackups);
-      setShowCreateDialog(false);
-      setBackupName('');
-      toast({ title: '✓ Backup created successfully' });
+      toast({ 
+        title: 'Backup in progress...', 
+        description: 'Creating backup. This may take a moment.' 
+      });
     } catch (error) {
       toast({ 
         title: 'Backup failed', 
         description: error.message, 
         variant: 'destructive' 
       });
+      setCreating(false);
     }
-    setCreating(false);
   };
 
   const downloadBackup = (backup) => {
+    // Server backup: download from file_url
+    if (backup.serverBackup && backup.file_url) {
+      const a = document.createElement('a');
+      a.href = backup.file_url;
+      a.download = `backup_${backup.name.replace(/\s+/g, '_')}_${format(new Date(backup.timestamp), 'yyyyMMdd')}.json.gz`;
+      a.click();
+      return;
+    }
+
+    // Legacy localStorage backup: download as JSON
     const json = JSON.stringify(backup, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -184,11 +245,24 @@ export default function BackupManager({ tenantId }) {
   };
 
   const deleteBackup = (backupId) => {
-    const backupsKey = `backups_${tenantId}`;
+    // Remove from UI state
     const filtered = backups.filter(b => b.id !== backupId);
-    localStorage.setItem(backupsKey, JSON.stringify(filtered));
     setBackups(filtered);
-    toast({ title: 'Backup deleted' });
+    
+    // If server backup, no deletion needed (immutable in Base44)
+    const backup = backups.find(b => b.id === backupId);
+    if (!backup?.serverBackup) {
+      // Only delete legacy localStorage backups
+      const backupsKey = `backups_${tenantId}`;
+      const remaining = filtered.filter(b => !b.serverBackup);
+      if (remaining.length === 0) {
+        localStorage.removeItem(backupsKey);
+      } else {
+        localStorage.setItem(backupsKey, JSON.stringify(remaining));
+      }
+    }
+    
+    toast({ title: 'Backup removed from list' });
   };
 
   const handleFileUpload = (e) => {
