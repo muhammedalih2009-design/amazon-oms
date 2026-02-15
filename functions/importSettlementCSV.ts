@@ -26,18 +26,39 @@ const EXPECTED_HEADERS_MAP = {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
+    
+    // Parse FormData
     const formData = await req.formData();
-    const csvFile = formData.get('csvFile');
-    const tenantId = formData.get('tenantId');
+    const csvFile = formData.get('file');
+    const workspaceId = formData.get('workspace_id');
+    const monthKey = formData.get('month_key');
 
-    if (!csvFile || !tenantId) {
+    // Debug: log received fields
+    const receivedFields = Array.from(formData.keys());
+    console.log(`[Settlement] Request received. Fields: ${receivedFields.join(', ')}, File: ${csvFile?.name || 'none'}, WorkspaceID: ${workspaceId || 'none'}`);
+
+    // Validate required fields
+    if (!csvFile) {
       return Response.json({
+        ok: false,
         code: 'VALIDATION_ERROR',
-        message: 'Missing CSV file or workspace ID',
-        details: []
+        message: 'Missing CSV file. Expected form field: "file"',
+        missing: ['file'],
+        received_fields: receivedFields
       }, { status: 400 });
     }
 
+    if (!workspaceId) {
+      return Response.json({
+        ok: false,
+        code: 'VALIDATION_ERROR',
+        message: 'Missing workspace ID. Expected form field: "workspace_id"',
+        missing: ['workspace_id'],
+        received_fields: receivedFields
+      }, { status: 400 });
+    }
+
+    // Authenticate user
     const user = await base44.auth.me();
     if (!user) {
       return Response.json({
@@ -47,14 +68,35 @@ Deno.serve(async (req) => {
       }, { status: 401 });
     }
 
+    // Verify user has access to workspace
+    try {
+      const memberships = await base44.asServiceRole.entities.Membership.filter({
+        user_id: user.id,
+        tenant_id: workspaceId
+      });
+
+      if (memberships.length === 0) {
+        return Response.json({
+          code: 'VALIDATION_ERROR',
+          message: 'No access to this workspace',
+          details: []
+        }, { status: 403 });
+      }
+    } catch (err) {
+      console.warn(`[Settlement] Workspace access check failed: ${err.message}`);
+    }
+
     // Create import job
     const importJob = await base44.asServiceRole.entities.SettlementImport.create({
-      tenant_id: tenantId,
+      tenant_id: workspaceId,
       file_name: csvFile.name,
       uploaded_by_user_id: user.id,
       status: 'processing',
+      month_key: monthKey,
       import_started_at: new Date().toISOString()
     });
+
+    console.log(`[Settlement] Import job created. ID: ${importJob.id}, File: ${csvFile.name}, Size: ${csvFile.size} bytes`);
 
     // Read CSV file
     const csvText = await csvFile.text();
@@ -62,6 +104,12 @@ Deno.serve(async (req) => {
     const cleanText = csvText.replace(/^\uFEFF/, ''); // Remove BOM if present
 
     if (!cleanText.trim()) {
+      await base44.asServiceRole.entities.SettlementImport.update(importJob.id, {
+        status: 'failed',
+        error_message: 'File is empty',
+        import_completed_at: new Date().toISOString()
+      });
+
       return Response.json({
         code: 'VALIDATION_ERROR',
         message: 'File is empty',
@@ -73,12 +121,20 @@ Deno.serve(async (req) => {
     const lines = cleanText.split(/\r\n|\n/).filter(l => l.trim().length > 0);
 
     if (lines.length === 0) {
+      await base44.asServiceRole.entities.SettlementImport.update(importJob.id, {
+        status: 'failed',
+        error_message: 'File contains no data rows',
+        import_completed_at: new Date().toISOString()
+      });
+
       return Response.json({
         code: 'VALIDATION_ERROR',
         message: 'File contains no data rows',
         details: []
       }, { status: 400 });
     }
+
+    console.log(`[Settlement] File parsed. Total lines: ${lines.length}, BOM: ${bomDetected}`);
 
     // Find header row - first line matching expected settlement report format
     let headerLineIdx = -1;
