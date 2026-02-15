@@ -3,38 +3,47 @@ import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 
 export default function PurchaseRequestsPrint() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const jobId = urlParams.get('job');
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchPayload = async () => {
+    const loadPayload = () => {
       try {
-        if (!jobId) {
-          setError('Print job ID missing. Please go back and click PDF again.');
+        // Try to read from sessionStorage first
+        const storedPayload = sessionStorage.getItem('pr_print_payload');
+        
+        if (storedPayload) {
+          const parsed = JSON.parse(storedPayload);
+          setPayload(parsed);
+          setLoading(false);
+          // Clear after reading to prevent stale data
+          sessionStorage.removeItem('pr_print_payload');
+          return;
+        }
+
+        // Fallback: try URL parameter (for small payloads)
+        const urlParams = new URLSearchParams(window.location.search);
+        const dataParam = urlParams.get('data');
+        
+        if (dataParam) {
+          const parsed = JSON.parse(decodeURIComponent(dataParam));
+          setPayload(parsed);
           setLoading(false);
           return;
         }
 
-        const response = await base44.functions.invoke('getPrintJob', { jobId });
-        setPayload(response.data.payload);
+        // No data found
+        setError('Print data missing. Please go back to Purchase Requests page and click PDF again.');
+        setLoading(false);
       } catch (err) {
-        if (err.response?.status === 410) {
-          setError('Print job expired. Please go back and click PDF again.');
-        } else if (err.response?.status === 404) {
-          setError('Print job not found. Please go back and click PDF again.');
-        } else {
-          setError(`Failed to load print data: ${err.message}`);
-        }
-      } finally {
+        setError(`Failed to load print data: ${err.message}`);
         setLoading(false);
       }
     };
 
-    fetchPayload();
-  }, [jobId]);
+    loadPayload();
+  }, []);
 
   useEffect(() => {
     if (payload && !error) {

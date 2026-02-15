@@ -276,9 +276,9 @@ export default function PurchaseRequests() {
         return (a.sku_code || '').localeCompare(b.sku_code || '', 'en', { sensitivity: 'base' });
       });
 
-      const response = await base44.functions.invoke('createPrintJob', {
-        tenantId,
+      const payload = {
         mode,
+        workspaceId: tenantId,
         dateRange: { 
           from: dateRange.from?.toISOString(), 
           to: dateRange.to?.toISOString() 
@@ -290,11 +290,15 @@ export default function PurchaseRequests() {
           product: r.product_name || '',
           toBuy: Number(r.to_buy || 0),
           unitCost: Number(r.cost_price || 0)
-        }))
-      });
+        })),
+        generatedAt: new Date().toISOString()
+      };
+
+      // Store in sessionStorage for reliable data passing
+      sessionStorage.setItem('pr_print_payload', JSON.stringify(payload));
 
       window.open(
-        createPageUrl(`PurchaseRequestsPrint?job=${response.data.jobId}`), 
+        createPageUrl(`PurchaseRequestsPrint?mode=${mode}`), 
         '_blank', 
         'noopener,noreferrer'
       );
