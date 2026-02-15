@@ -57,12 +57,14 @@ export default function SettlementUpload({ onSuccess }) {
     setImportResult(null);
 
     try {
+      // Build FormData
       const formData = new FormData();
-      formData.append('file', file);  // Must match backend expectation
-      formData.append('workspace_id', tenantId);  // Must match backend expectation
+      formData.append('file', file);
+      formData.append('workspace_id', tenantId);
 
-      console.log(`[Settlement Upload] Calling importSettlementCSV with fields: file, workspace_id`);
+      console.log(`[Settlement Upload] Sending FormData with file and workspace_id`);
 
+      // Call function - base44 will send as multipart/form-data automatically for FormData
       const response = await base44.functions.invoke('importSettlementCSV', formData);
       const data = response.data;
 
