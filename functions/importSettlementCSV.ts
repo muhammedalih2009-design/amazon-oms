@@ -336,8 +336,9 @@ Deno.serve(async (req) => {
       base44.asServiceRole.entities.SKU.filter({ tenant_id: tenantId })
     ]);
 
-    // Match rows
+    // Match rows and collect updates
     let matchedCount = 0;
+    const updateBatch = [];
 
     for (let i = 0; i < settlementRows.length; i++) {
       const row = settlementRows[i];
@@ -362,13 +363,31 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Update settlement row with match info
+      // Collect update
       if (insertedRow?.id) {
-        await base44.asServiceRole.entities.SettlementRow.update(insertedRow.id, {
-          matched_order_id: matchedOrderId,
-          matched_sku_id: matchedSkuId,
-          match_status: matchStatus
+        updateBatch.push({
+          id: insertedRow.id,
+          data: {
+            matched_order_id: matchedOrderId,
+            matched_sku_id: matchedSkuId,
+            match_status: matchStatus
+          }
         });
+      }
+    }
+
+    // Batch updates in chunks to avoid rate limiting
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < updateBatch.length; i += BATCH_SIZE) {
+      const chunk = updateBatch.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        chunk.map(item =>
+          base44.asServiceRole.entities.SettlementRow.update(item.id, item.data)
+        )
+      );
+      // Small delay between batches
+      if (i + BATCH_SIZE < updateBatch.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 
