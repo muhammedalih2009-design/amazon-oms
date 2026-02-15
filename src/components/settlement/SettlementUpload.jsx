@@ -56,69 +56,63 @@ export default function SettlementUpload({ onSuccess }) {
     setImportResult(null);
 
     try {
-      // Convert file to base64 since base44.functions.invoke sends JSON
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const base64Content = reader.result.split(',')[1]; // Remove data:text/csv;base64, prefix
-          
-              const response = await base44.functions.invoke('importSettlementCSV', {
-            file_name: file.name,
-            file_content: base64Content,
-            workspace_id: tenantId
-          });
-          const data = response.data;
+      // Create FormData with file
+      const formData = new FormData();
+      formData.append('csvFile', file);
+      formData.append('tenantId', tenantId);
 
-          if (data.success) {
-            setImportResult({
-              success: true,
-              rowsCount: data.rowsCount,
-              matchedCount: data.matchedCount,
-              unmatchedCount: data.unmatchedCount,
-              parseErrors: data.parseErrors || [],
-              totalParseErrors: data.totalParseErrors || 0
-            });
+      // Use fetch directly since base44.functions sends as JSON by default
+      const response = await fetch('/api/settlements/import', {
+        method: 'POST',
+        body: formData
+        // Don't set Content-Type header - browser will set it with boundary
+      });
 
-            const msg = data.totalParseErrors > 0
-              ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
-              : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
+      const data = await response.json();
 
-            toast({
-              title: 'Import successful',
-              description: msg
-            });
+      if (!response.ok) {
+        throw new Error(data.message || 'Import failed');
+      }
 
-            setFile(null);
-            setTimeout(() => onSuccess(), 1000);
-          }
-        } catch (error) {
-          const errorData = error.response?.data || {};
-          
-          setImportResult({
-            success: false,
-            code: errorData.code || 'UNKNOWN_ERROR',
-            message: errorData.message || error.message,
-            details: errorData.details || [],
-            sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
-          });
+      if (data.success) {
+        setImportResult({
+          success: true,
+          rowsCount: data.rowsCount,
+          matchedCount: data.matchedCount,
+          unmatchedCount: data.unmatchedCount,
+          parseErrors: data.parseErrors || [],
+          totalParseErrors: data.totalParseErrors || 0
+        });
 
-          toast({
-            title: 'Import failed',
-            description: errorData.message || error.message,
-            variant: 'destructive'
-          });
-        } finally {
-          setLoading(false);
-        }
-      };
+        const msg = data.totalParseErrors > 0
+          ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
+          : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
 
-      reader.readAsDataURL(file);
+        toast({
+          title: 'Import successful',
+          description: msg
+        });
+
+        setFile(null);
+        setTimeout(() => onSuccess(), 1000);
+      }
     } catch (error) {
+      const errorData = error.response?.data || {};
+
+      setImportResult({
+        success: false,
+        code: errorData.code || 'UNKNOWN_ERROR',
+        message: errorData.message || error.message,
+        details: errorData.details || [],
+        sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
+      });
+
       toast({
-        title: 'Error reading file',
-        description: error.message,
+        title: 'Import failed',
+        description: error.message || 'Unknown error occurred',
         variant: 'destructive'
       });
+    } finally {
       setLoading(false);
     }
   };

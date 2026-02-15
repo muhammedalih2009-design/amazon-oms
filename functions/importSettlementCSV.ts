@@ -26,64 +26,29 @@ const EXPECTED_HEADERS_MAP = {
 Deno.serve(async (req) => {
   let importJob = null;
   try {
-    // Clone request so we can read body independently from base44 client
-    const clonedReq = req.clone();
-    
-    // Parse JSON body from cloned request
-    const body = await clonedReq.json();
-    const fileName = body.file_name;
-    const fileContentBase64 = body.file_content;
-    const workspaceId = body.workspace_id;
-    const monthKey = body.month_key;
-
-    console.log(`[Settlement] Request received. FileName: ${fileName}, WorkspaceID: ${workspaceId}`);
-
-    // Create base44 client from original request
     const base44 = createClientFromRequest(req);
+    
+    // Parse FormData
+    const formData = await req.formData();
+    const csvFile = formData.get('csvFile');
+    const tenantId = formData.get('tenantId');
+
+    console.log(`[Settlement] Request received. File: ${csvFile?.name || 'none'}, TenantID: ${tenantId || 'none'}`);
 
     // Validate required fields
-    if (!fileContentBase64) {
+    if (!csvFile) {
       return Response.json({
-        ok: false,
         code: 'VALIDATION_ERROR',
-        message: 'Missing CSV file content. Expected field: "file_content" (base64)',
-        missing: ['file_content'],
-        received: Object.keys(body)
+        message: 'Missing CSV file',
+        details: []
       }, { status: 400 });
     }
 
-    if (!workspaceId) {
+    if (!tenantId) {
       return Response.json({
-        ok: false,
         code: 'VALIDATION_ERROR',
-        message: 'Missing workspace ID. Expected field: "workspace_id"',
-        missing: ['workspace_id'],
-        received: Object.keys(body)
-      }, { status: 400 });
-    }
-
-    if (!fileName) {
-      return Response.json({
-        ok: false,
-        code: 'VALIDATION_ERROR',
-        message: 'Missing file name. Expected field: "file_name"',
-        missing: ['file_name'],
-        received: Object.keys(body)
-      }, { status: 400 });
-    }
-
-    // Decode base64 to text
-    let csvText;
-    try {
-      csvText = new TextDecoder().decode(
-        Uint8Array.from(atob(fileContentBase64), c => c.charCodeAt(0))
-      );
-    } catch (err) {
-      return Response.json({
-        ok: false,
-        code: 'VALIDATION_ERROR',
-        message: 'Invalid base64 file content',
-        details: [err.message]
+        message: 'Missing tenant ID',
+        details: []
       }, { status: 400 });
     }
 
@@ -117,17 +82,17 @@ Deno.serve(async (req) => {
 
     // Create import job
     importJob = await base44.asServiceRole.entities.SettlementImport.create({
-      tenant_id: workspaceId,
-      file_name: fileName,
+      tenant_id: tenantId,
+      file_name: csvFile.name,
       uploaded_by_user_id: user.id,
       status: 'processing',
-      month_key: monthKey,
       import_started_at: new Date().toISOString()
     });
 
-    console.log(`[Settlement] Import job created. ID: ${importJob.id}, File: ${fileName}`);
+    console.log(`[Settlement] Import job created. ID: ${importJob.id}, File: ${csvFile.name}, Size: ${csvFile.size} bytes`);
 
-    // Process CSV text
+    // Read and process CSV file
+    const csvText = await csvFile.text();
     const bomDetected = csvText.startsWith('\uFEFF');
     const cleanText = csvText.replace(/^\uFEFF/, ''); // Remove BOM if present
 
@@ -162,7 +127,7 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    console.log(`[Settlement] File parsed. Total lines: ${lines.length}, BOM: ${bomDetected}, File: ${fileName}`);
+    console.log(`[Settlement] File parsed. Total lines: ${lines.length}, BOM: ${bomDetected}, File: ${csvFile.name}`);
 
     // Find header row - first line matching expected settlement report format
     let headerLineIdx = -1;
@@ -207,7 +172,7 @@ Deno.serve(async (req) => {
       }
     });
 
-    console.log(`[Settlement] File: ${fileName}, BOM: ${bomDetected}, Header at line ${headerLineIdx}, Columns: ${rawHeaders.length}, Mapped: ${Object.keys(headerMap).length}`, headerMap);
+    console.log(`[Settlement] File: ${csvFile.name}, BOM: ${bomDetected}, Header at line ${headerLineIdx}, Columns: ${rawHeaders.length}, Mapped: ${Object.keys(headerMap).length}`, headerMap);
 
     // Validate required column mappings
     if (!headerMap.order_id) {
@@ -338,7 +303,7 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    console.log(`[Settlement] Import: ${fileName}, Rows: ${settlementRows.length}, Errors: ${parseErrors.length}`);
+    console.log(`[Settlement] Import: ${csvFile.name}, Rows: ${settlementRows.length}, Errors: ${parseErrors.length}`);
 
     // Bulk insert rows
     const insertedRows = await base44.asServiceRole.entities.SettlementRow.bulkCreate(settlementRows);
