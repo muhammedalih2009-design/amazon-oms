@@ -13,8 +13,16 @@ export default function SettlementImportsTab({
 }) {
   const getStatusIcon = (status) => {
     if (status === 'completed') return <CheckCircle2 className="w-5 h-5 text-emerald-600" />;
+    if (status === 'completed_with_errors') return <AlertCircle className="w-5 h-5 text-amber-600" />;
     if (status === 'failed') return <AlertCircle className="w-5 h-5 text-red-600" />;
-    return <Clock className="w-5 h-5 text-amber-600" />;
+    return <Clock className="w-5 h-5 text-slate-400" />;
+  };
+
+  const getStatusBadge = (status, parseErrors) => {
+    if (status === 'completed' && parseErrors === 0) return 'Success';
+    if (status === 'completed_with_errors' || parseErrors > 0) return 'Completed with errors';
+    if (status === 'failed') return 'Failed';
+    return 'Processing';
   };
 
   return (
@@ -45,12 +53,20 @@ export default function SettlementImportsTab({
                       <p className="text-sm text-slate-500">
                         {format(new Date(imp.created_date), 'MMM d, yyyy h:mm a')} • Month: {imp.month_key}
                       </p>
+                      {imp.error_message && (
+                        <p className="text-xs text-red-600 mt-1">Error: {imp.error_message}</p>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">{imp.rows_count} rows</p>
                     <p className="text-xs text-slate-500">
                       {imp.matched_rows_count} matched, {imp.unmatched_rows_count} unmatched
+                    </p>
+                    <p className={`text-xs font-medium mt-1 ${
+                      imp.total_parse_errors > 0 ? 'text-amber-600' : 'text-emerald-600'
+                    }`}>
+                      {getStatusBadge(imp.status, imp.total_parse_errors)}
                     </p>
                   </div>
                 </div>
