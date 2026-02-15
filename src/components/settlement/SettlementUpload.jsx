@@ -56,63 +56,69 @@ export default function SettlementUpload({ onSuccess }) {
     setImportResult(null);
 
     try {
-      // Create FormData with file
-      const formData = new FormData();
-      formData.append('csvFile', file);
-      formData.append('tenantId', tenantId);
+      // Convert file to base64
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64Content = reader.result.split(',')[1]; // Remove data:text/csv;base64, prefix
 
-      // Use fetch directly since base44.functions sends as JSON by default
-      const response = await fetch('/api/settlements/import', {
-        method: 'POST',
-        body: formData
-        // Don't set Content-Type header - browser will set it with boundary
-      });
+          const response = await base44.functions.invoke('importSettlementCSV', {
+            file_name: file.name,
+            file_content: base64Content,
+            workspace_id: tenantId
+          });
+          const data = response.data;
 
-      const data = await response.json();
+          if (data.success) {
+            setImportResult({
+              success: true,
+              rowsCount: data.rowsCount,
+              matchedCount: data.matchedCount,
+              unmatchedCount: data.unmatchedCount,
+              parseErrors: data.parseErrors || [],
+              totalParseErrors: data.totalParseErrors || 0
+            });
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Import failed');
-      }
+            const msg = data.totalParseErrors > 0
+              ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
+              : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
 
-      if (data.success) {
-        setImportResult({
-          success: true,
-          rowsCount: data.rowsCount,
-          matchedCount: data.matchedCount,
-          unmatchedCount: data.unmatchedCount,
-          parseErrors: data.parseErrors || [],
-          totalParseErrors: data.totalParseErrors || 0
-        });
+            toast({
+              title: 'Import successful',
+              description: msg
+            });
 
-        const msg = data.totalParseErrors > 0
-          ? `${data.rowsCount} rows imported (${data.matchedCount} matched, ${data.totalParseErrors} parse warnings)`
-          : `${data.rowsCount} rows imported (${data.matchedCount} matched)`;
+            setFile(null);
+            setTimeout(() => onSuccess(), 1000);
+          }
+        } catch (error) {
+          const errorData = error.response?.data || {};
 
-        toast({
-          title: 'Import successful',
-          description: msg
-        });
+          setImportResult({
+            success: false,
+            code: errorData.code || 'UNKNOWN_ERROR',
+            message: errorData.message || error.message,
+            details: errorData.details || [],
+            sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
+          });
 
-        setFile(null);
-        setTimeout(() => onSuccess(), 1000);
-      }
+          toast({
+            title: 'Import failed',
+            description: errorData.message || error.message,
+            variant: 'destructive'
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      reader.readAsDataURL(file);
     } catch (error) {
-      const errorData = error.response?.data || {};
-
-      setImportResult({
-        success: false,
-        code: errorData.code || 'UNKNOWN_ERROR',
-        message: errorData.message || error.message,
-        details: errorData.details || [],
-        sampleExpectedHeaders: errorData.sampleExpectedHeaders || []
-      });
-
       toast({
-        title: 'Import failed',
-        description: error.message || 'Unknown error occurred',
+        title: 'Error reading file',
+        description: error.message,
         variant: 'destructive'
       });
-    } finally {
       setLoading(false);
     }
   };
