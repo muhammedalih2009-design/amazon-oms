@@ -188,6 +188,44 @@ export default function BackupManager({ tenantId }) {
   const restoreBackup = async (backup) => {
     setRestoring(true);
     try {
+      let backupData = backup.data;
+
+      // Server backup: download and decompress
+      if (backup.serverBackup && backup.file_url) {
+        const response = await fetch(backup.file_url);
+        if (!response.ok) throw new Error('Failed to download backup file');
+        
+        const buffer = await response.arrayBuffer();
+        // Try decompression (gzip)
+        const decompressedStream = new Blob([buffer], { type: 'application/gzip' }).stream()?.pipeThrough(new DecompressionStream('gzip'));
+        let jsonString;
+        
+        if (decompressedStream) {
+          const reader = decompressedStream.getReader();
+          const chunks = [];
+          let done = false;
+          while (!done) {
+            const { value, done: isDone } = await reader.read();
+            if (value) chunks.push(value);
+            done = isDone;
+          }
+          const decompressed = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
+          let offset = 0;
+          for (const chunk of chunks) {
+            decompressed.set(chunk, offset);
+            offset += chunk.length;
+          }
+          const decoder = new TextDecoder();
+          jsonString = decoder.decode(decompressed);
+        } else {
+          // Fallback: assume uncompressed
+          const decoder = new TextDecoder();
+          jsonString = decoder.decode(new Uint8Array(buffer));
+        }
+
+        backupData = JSON.parse(jsonString).data;
+      }
+
       // Delete all existing workspace data
       const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
         base44.entities.Order.filter({ tenant_id: tenantId }),
@@ -215,16 +253,16 @@ export default function BackupManager({ tenantId }) {
       for (const item of tasks) await base44.entities.Task.delete(item.id);
 
       // Restore from backup (in correct order)
-      if (backup.data.suppliers?.length) await base44.entities.Supplier.bulkCreate(backup.data.suppliers.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.stores?.length) await base44.entities.Store.bulkCreate(backup.data.stores.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.skus?.length) await base44.entities.SKU.bulkCreate(backup.data.skus.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(backup.data.importBatches.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.orders?.length) await base44.entities.Order.bulkCreate(backup.data.orders.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.orderLines?.length) await base44.entities.OrderLine.bulkCreate(backup.data.orderLines.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.purchases?.length) await base44.entities.Purchase.bulkCreate(backup.data.purchases.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.currentStock?.length) await base44.entities.CurrentStock.bulkCreate(backup.data.currentStock.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(backup.data.stockMovements.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
-      if (backup.data.tasks?.length) await base44.entities.Task.bulkCreate(backup.data.tasks.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(backupData.suppliers.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.stores?.length) await base44.entities.Store.bulkCreate(backupData.stores.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.skus?.length) await base44.entities.SKU.bulkCreate(backupData.skus.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(backupData.importBatches.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.orders?.length) await base44.entities.Order.bulkCreate(backupData.orders.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.orderLines?.length) await base44.entities.OrderLine.bulkCreate(backupData.orderLines.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.purchases?.length) await base44.entities.Purchase.bulkCreate(backupData.purchases.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.currentStock?.length) await base44.entities.CurrentStock.bulkCreate(backupData.currentStock.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(backupData.stockMovements.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
+      if (backupData.tasks?.length) await base44.entities.Task.bulkCreate(backupData.tasks.map(({ id, created_date, updated_date, created_by, ...rest }) => rest));
 
       setShowRestoreDialog(false);
       setSelectedBackup(null);
@@ -265,6 +303,31 @@ export default function BackupManager({ tenantId }) {
     toast({ title: 'Backup removed from list' });
   };
 
+  const cleanupLegacyBackups = async () => {
+    const backupsKey = `backups_${tenantId}`;
+    const stored = localStorage.getItem(backupsKey);
+    if (!stored) return;
+
+    try {
+      const allBackups = JSON.parse(stored);
+      // Filter to keep only small backups (< 1MB serialized)
+      const safe = allBackups.filter(b => {
+        const size = JSON.stringify(b).length;
+        return size < 1024 * 1024;
+      });
+
+      if (safe.length < allBackups.length) {
+        if (safe.length === 0) {
+          localStorage.removeItem(backupsKey);
+        } else {
+          localStorage.setItem(backupsKey, JSON.stringify(safe));
+        }
+      }
+    } catch (error) {
+      console.error('Legacy cleanup failed:', error);
+    }
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file && file.type === 'application/json') {
@@ -294,7 +357,7 @@ export default function BackupManager({ tenantId }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Backup & Restore</h2>
-          <p className="text-sm text-slate-500">Create manual backups of your workspace data</p>
+          <p className="text-sm text-slate-500">Create and restore workspace data backups</p>
         </div>
         <div className="flex gap-2">
           <label htmlFor="upload-backup">
@@ -332,14 +395,18 @@ export default function BackupManager({ tenantId }) {
       ) : (
         <div className="space-y-3">
           {backups.map(backup => (
-            <div key={backup.id} className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50">
-              <div className="flex-1">
-                <h3 className="font-semibold text-slate-900">{backup.name}</h3>
-                <p className="text-sm text-slate-500">
-                  {format(new Date(backup.timestamp), 'MMM d, yyyy h:mm a')} • 
-                  {backup.stats.orders} orders • {backup.stats.skus} SKUs • {backup.stats.purchases} purchases
-                </p>
-              </div>
+           <div key={backup.id} className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50">
+             <div className="flex-1">
+               <h3 className="font-semibold text-slate-900">
+                 {backup.name}
+                 {backup.serverBackup && <span className="ml-2 text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Server</span>}
+               </h3>
+               <p className="text-sm text-slate-500">
+                 {format(new Date(backup.timestamp), 'MMM d, yyyy h:mm a')} • 
+                 {backup.stats?.orders || 0} orders • {backup.stats?.skus || 0} SKUs • {backup.stats?.purchases || 0} purchases
+                 {backup.file_size_bytes && <> • {(backup.file_size_bytes / 1024 / 1024).toFixed(2)} MB</>}
+               </p>
+             </div>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
