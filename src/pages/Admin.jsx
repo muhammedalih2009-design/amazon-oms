@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { Shield, Users, Building2, Plus, Edit, Trash2, Eye, Ban, CheckCircle, XCircle } from 'lucide-react';
+import { Shield, Users, Building2, Plus, Edit, Trash2, Eye, Ban, CheckCircle, XCircle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import RefreshButton from '@/components/shared/RefreshButton';
 import UserAutocomplete from '@/components/shared/UserAutocomplete';
+import TelegramSettings from '@/components/admin/TelegramSettings';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
   const { user, isPlatformAdmin } = useTenant();
@@ -375,7 +377,7 @@ export default function AdminPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Platform Admin</h1>
-            <p className="text-slate-500">Manage workspaces and users</p>
+            <p className="text-slate-500">Manage workspaces, users, and integrations</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -415,8 +417,21 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <Tabs defaultValue="workspaces" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="workspaces">
+            <Building2 className="w-4 h-4 mr-2" />
+            Workspaces
+          </TabsTrigger>
+          <TabsTrigger value="integrations">
+            <Settings className="w-4 h-4 mr-2" />
+            Integrations
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="workspaces" className="space-y-6">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <div className="flex items-center gap-3">
             <Building2 className="w-8 h-8 text-indigo-600" />
@@ -577,6 +592,12 @@ export default function AdminPage() {
           </table>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="integrations" className="space-y-6">
+          <TelegramSettings />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Workspace Dialog */}
       <Dialog open={showCreateWorkspace} onOpenChange={setShowCreateWorkspace}>

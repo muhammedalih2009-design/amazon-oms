@@ -34,10 +34,27 @@ export default function PurchaseRequests() {
   const [exportingExcel, setExportingExcel] = useState(false);
   const [printViewHealthy, setPrintViewHealthy] = useState(null);
   const [preparingPrint, setPreparingPrint] = useState(false);
+  const [telegramConfigured, setTelegramConfigured] = useState(false);
+  const [checkingTelegram, setCheckingTelegram] = useState(true);
 
   useEffect(() => {
     if (tenantId) loadData();
   }, [tenantId]);
+
+  useEffect(() => {
+    checkTelegramConfig();
+  }, []);
+
+  const checkTelegramConfig = async () => {
+    try {
+      const { data } = await base44.functions.invoke('checkTelegramConfig', {});
+      setTelegramConfigured(data.configured);
+    } catch (error) {
+      setTelegramConfigured(false);
+    } finally {
+      setCheckingTelegram(false);
+    }
+  };
 
   // Health check for print view
   useEffect(() => {
@@ -565,6 +582,11 @@ export default function PurchaseRequests() {
           {selectedSkus.length} SKU(s) selected
         </p>
         <div className="flex items-center gap-3">
+          {!telegramConfigured && !checkingTelegram && (
+            <div className="text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200">
+              Telegram not configured. Go to Settings → Integrations → Telegram
+            </div>
+          )}
           <Button 
             onClick={handleExportToCSV}
             variant="outline"
