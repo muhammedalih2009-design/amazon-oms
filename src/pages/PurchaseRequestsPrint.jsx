@@ -39,6 +39,8 @@ export default function PurchaseRequestsPrint() {
               setError('Print job not found. It may have been deleted. Please regenerate PDF.');
             } else if (fetchError.message?.includes('410') || fetchError.message?.includes('expired')) {
               setError('Print job expired. Please go back and regenerate PDF (jobs expire after 10 minutes).');
+            } else if (fetchError.message?.includes('405') || fetchError.message?.includes('Method')) {
+              setError('Print service method mismatch. Please try again.');
             } else if (fetchError.name === 'AbortError') {
               setError('Request timeout. Please check your connection and try again.');
             } else {
