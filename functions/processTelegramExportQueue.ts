@@ -27,36 +27,128 @@ async function sendTelegramMessage(text) {
   return response.json();
 }
 
-async function sendTelegramPhoto(photoUrl, caption) {
-  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+async function resolvePublicImageBytes(imageUrl, base44, sku, debugMode = false) {
+  const debugLog = [];
   
+  if (!imageUrl) {
+    debugLog.push('No imageUrl provided');
+    return { success: false, debugLog, reason: 'No image URL' };
+  }
+
   try {
-    // Download image as bytes
-    const imageResponse = await fetch(photoUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Image fetch failed: ${imageResponse.status}`);
+    // Check if it's a Base44 private file URL (needs signed URL)
+    const isBase44File = imageUrl.includes('storage.googleapis.com') || 
+                         imageUrl.includes('base44.com/files/') ||
+                         imageUrl.startsWith('/files/') ||
+                         !imageUrl.startsWith('http');
+
+    let fetchUrl = imageUrl;
+
+    if (isBase44File) {
+      debugLog.push(`Detected Base44 file: ${imageUrl.substring(0, 60)}...`);
+      
+      // Try to generate signed URL if it's a storage path
+      try {
+        // Extract file path from URL
+        let filePath = imageUrl;
+        if (imageUrl.includes('storage.googleapis.com')) {
+          const match = imageUrl.match(/\/([^?]+)/);
+          filePath = match ? match[1] : imageUrl;
+        }
+        
+        // Generate signed URL with 10 min TTL
+        const signedResponse = await base44.asServiceRole.integrations.Core.CreateFileSignedUrl({
+          file_uri: filePath,
+          expires_in: 600
+        });
+        
+        if (signedResponse?.signed_url) {
+          fetchUrl = signedResponse.signed_url;
+          debugLog.push(`Generated signed URL (600s TTL)`);
+        }
+      } catch (signError) {
+        debugLog.push(`Signed URL generation failed: ${signError.message}`);
+        // Continue with original URL as fallback
+      }
     }
 
-    const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-    
+    debugLog.push(`Fetching: ${fetchUrl.substring(0, 80)}...`);
+
+    // Fetch image with redirects
+    const imageResponse = await fetch(fetchUrl, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'TelegramBot/1.0'
+      }
+    });
+
+    debugLog.push(`Fetch status: ${imageResponse.status}`);
+
+    if (!imageResponse.ok) {
+      return { 
+        success: false, 
+        debugLog, 
+        reason: `HTTP ${imageResponse.status}` 
+      };
+    }
+
+    const contentType = imageResponse.headers.get('content-type') || '';
+    debugLog.push(`Content-Type: ${contentType}`);
+
     // Validate it's actually an image
     if (!contentType.startsWith('image/')) {
-      throw new Error(`Not an image: ${contentType}`);
+      return { 
+        success: false, 
+        debugLog, 
+        reason: `Not an image (${contentType})` 
+      };
     }
 
     const imageBuffer = await imageResponse.arrayBuffer();
+    const sizeKB = Math.round(imageBuffer.byteLength / 1024);
+    debugLog.push(`Size: ${sizeKB} KB`);
+
+    // Check minimum size (avoid broken images)
+    if (imageBuffer.byteLength < 2048) {
+      return { 
+        success: false, 
+        debugLog, 
+        reason: `Too small (${sizeKB} KB)` 
+      };
+    }
+
     const imageBytes = new Uint8Array(imageBuffer);
+    const ext = contentType.includes('png') ? 'png' : 
+                contentType.includes('gif') ? 'gif' : 'jpg';
+
+    return {
+      success: true,
+      buffer: imageBytes,
+      mime: contentType,
+      filename: `${sku || 'product'}.${ext}`,
+      debugLog,
+      sizeKB
+    };
+
+  } catch (error) {
+    debugLog.push(`Error: ${error.message}`);
+    return { 
+      success: false, 
+      debugLog, 
+      reason: error.message 
+    };
+  }
+}
+
+async function sendTelegramPhoto(imageBytes, mime, filename, caption) {
+  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  
+  try {
+    const blob = new Blob([imageBytes], { type: mime });
     
-    // Determine file extension
-    const ext = contentType.includes('png') ? 'png' : 'jpg';
-    
-    // Create blob with proper type
-    const blob = new Blob([imageBytes], { type: contentType });
-    
-    // Send as multipart form data
     const formData = new FormData();
     formData.append('chat_id', TELEGRAM_CHAT_ID);
-    formData.append('photo', blob, `product.${ext}`);
+    formData.append('photo', blob, filename);
     formData.append('caption', caption);
     formData.append('parse_mode', 'HTML');
     
@@ -136,6 +228,8 @@ Deno.serve(async (req) => {
     const failedLog = job.failed_items_log || [];
     let currentIndex = job.current_index;
     let globalIndex = 0;
+    const debugMode = true; // Enable debug for first 5 items
+    let debugCounter = 0;
 
     // Process each supplier
     for (const supplierName of supplierNames) {
@@ -170,6 +264,9 @@ Deno.serve(async (req) => {
         const productName = item.product ? `\n<b>Product:</b> ${item.product.substring(0, 50)}${item.product.length > 50 ? '...' : ''}` : '';
         const fullCaption = `${caption}${productName}`;
 
+        const isDebugItem = debugMode && debugCounter < 5;
+        if (isDebugItem) debugCounter++;
+
         let success = false;
         let retryCount = 0;
         const maxRetries = 3;
@@ -177,15 +274,62 @@ Deno.serve(async (req) => {
         while (!success && retryCount < maxRetries) {
           try {
             if (item.imageUrl) {
-              // Try to send as photo
-              await sendTelegramPhoto(item.imageUrl, fullCaption);
-              success = true;
-              sentCount++;
+              // Resolve image bytes with signed URL support
+              const imageResult = await resolvePublicImageBytes(
+                item.imageUrl, 
+                base44, 
+                item.sku,
+                isDebugItem
+              );
+
+              if (isDebugItem) {
+                console.log(`=== DEBUG ITEM ${debugCounter} (${item.sku}) ===`);
+                console.log(`Image URL: ${item.imageUrl}`);
+                console.log(`Debug log:`, imageResult.debugLog);
+                console.log(`Success: ${imageResult.success}`);
+              }
+
+              if (imageResult.success) {
+                // Send as photo
+                await sendTelegramPhoto(
+                  imageResult.buffer,
+                  imageResult.mime,
+                  imageResult.filename,
+                  fullCaption
+                );
+                success = true;
+                sentCount++;
+
+                if (isDebugItem) {
+                  console.log(`✓ Sent as photo (${imageResult.sizeKB} KB)`);
+                }
+              } else {
+                // Image resolution failed, send as text
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${imageResult.reason})</i>`);
+                success = true;
+                sentCount++;
+
+                failedLog.push({
+                  sku: item.sku,
+                  product: item.product,
+                  supplier: supplierName,
+                  reason: `Image failed: ${imageResult.reason}`,
+                  debugLog: isDebugItem ? imageResult.debugLog : undefined
+                });
+
+                if (isDebugItem) {
+                  console.log(`✗ Sent as text, reason: ${imageResult.reason}`);
+                }
+              }
             } else {
               // No image URL, send text only
               await sendTelegramMessage(`${fullCaption}\n\n<i>(No image available)</i>`);
               success = true;
               sentCount++;
+
+              if (isDebugItem) {
+                console.log(`✗ No imageUrl provided, sent as text`);
+              }
             }
 
             // Update progress every 5 items
@@ -207,18 +351,18 @@ Deno.serve(async (req) => {
               continue;
             }
 
-            // If image failed and it's last retry, try text fallback
+            // If failed and it's last retry, try text fallback
             if (retryCount === maxRetries) {
               try {
-                await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${error.message})</i>`);
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Send failed: ${error.message})</i>`);
                 success = true;
                 sentCount++;
-                // Log as a soft failure
+                
                 failedLog.push({
                   sku: item.sku,
                   product: item.product,
                   supplier: supplierName,
-                  reason: `Image failed, sent as text: ${error.message}`
+                  reason: `Send failed, sent as text: ${error.message}`
                 });
               } catch (fallbackError) {
                 console.error('Fallback message also failed:', fallbackError);
