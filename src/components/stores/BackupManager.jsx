@@ -34,6 +34,7 @@ export default function BackupManager({ tenantId }) {
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [jobPolling, setJobPolling] = useState(null);
 
   useEffect(() => {
@@ -312,16 +313,33 @@ export default function BackupManager({ tenantId }) {
       return;
     }
 
+    setUploadingFile(file.name);
+    setUploadProgress(10);
+
     const reader = new FileReader();
+    
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = (event.loaded / event.total) * 90;
+        setUploadProgress(10 + percentComplete);
+      }
+    };
+
     reader.onload = (event) => {
       try {
+        setUploadProgress(95);
         const backup = JSON.parse(event.target.result);
         if (!backup.data || !backup.timestamp) {
           throw new Error('Invalid backup file format');
         }
+        setUploadProgress(100);
         setSelectedBackup(backup);
+        setUploadingFile(null);
+        setUploadProgress(0);
         setShowRestoreDialog(true);
       } catch (error) {
+        setUploadingFile(null);
+        setUploadProgress(0);
         toast({ 
           title: 'Invalid file', 
           description: 'Please upload a valid backup JSON file', 
@@ -329,6 +347,17 @@ export default function BackupManager({ tenantId }) {
         });
       }
     };
+
+    reader.onerror = () => {
+      setUploadingFile(null);
+      setUploadProgress(0);
+      toast({ 
+        title: 'File read error', 
+        description: 'Failed to read the backup file', 
+        variant: 'destructive' 
+      });
+    };
+
     reader.readAsText(file);
   };
 
@@ -341,10 +370,19 @@ export default function BackupManager({ tenantId }) {
         </div>
         <div className="flex gap-2">
           <label htmlFor="upload-backup">
-            <Button variant="outline" className="cursor-pointer" asChild>
+            <Button variant="outline" className="cursor-pointer" asChild disabled={uploadingFile !== null}>
               <span>
-                <Upload className="w-4 h-4 mr-2" />
-                Upload Backup
+                {uploadingFile ? (
+                  <>
+                    <div className="w-4 h-4 mr-2 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+                    {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Backup
+                  </>
+                )}
               </span>
             </Button>
             <input
@@ -353,6 +391,7 @@ export default function BackupManager({ tenantId }) {
               accept=".json"
               onChange={handleFileUpload}
               className="hidden"
+              disabled={uploadingFile !== null}
             />
           </label>
           <Button 
