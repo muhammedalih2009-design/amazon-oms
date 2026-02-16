@@ -145,7 +145,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`[ROWS] Total settlement rows: ${rowsToRecompute.length}`);
+    console.log(`[ROWS] Total settlement rows scanned: ${rowsToRecompute.length}`);
+    
+    // Log sample of rows
+    const sampleRows = rowsToRecompute.slice(0, 3);
+    console.log(`[ROWS SAMPLE]:`, sampleRows.map(r => ({
+      order_id: r.order_id,
+      matched_order_id: r.matched_order_id,
+      match_status: r.match_status
+    })));
 
     // Filter for matched rows only
     const matchedRows = rowsToRecompute.filter(row => 
@@ -153,13 +161,16 @@ Deno.serve(async (req) => {
       (row.match_status === 'matched' || row.match_status === 'unmatched_sku')
     );
 
-    console.log(`[ROWS] Matched rows (eligible for COGS): ${matchedRows.length}`);
+    console.log(`[ROWS] Eligible rows (with matched_order_id): ${matchedRows.length}`);
 
     if (matchedRows.length === 0) {
+      const unmatchedCount = rowsToRecompute.filter(r => !r.matched_order_id).length;
+      console.log(`[ERROR] NO ELIGIBLE ROWS - Total: ${rowsToRecompute.length}, Unmatched: ${unmatchedCount}`);
       return Response.json({
         success: false,
         error_code: 'NO_ELIGIBLE_MATCHED_ROWS',
         total_rows_scanned: rowsToRecompute.length,
+        eligible_rows: 0,
         matched_order_rows_scanned: 0,
         rows_updated: 0,
         rows_with_cogs: 0,
