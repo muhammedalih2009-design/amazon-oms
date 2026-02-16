@@ -158,6 +158,14 @@ export default function Dashboard() {
       .filter(p => p.supplier_name === 'Warehouse')
       .reduce((sum, p) => sum + (p.total_cost || 0), 0);
 
+    // Integrity warning
+    if (filteredOrders.length > 0 && revenue === 0) {
+      console.warn('[Dashboard] KPIs: Zero revenue despite having orders', {
+        total_orders: filteredOrders.length,
+        date_range: dateRange
+      });
+    }
+
     return {
       totalOrders: filteredOrders.length,
       pending,
@@ -169,7 +177,7 @@ export default function Dashboard() {
       purchasedCostSuppliers,
       purchasedCostWarehouse
     };
-  }, [filteredOrders, filteredPurchases, currentStock, skus]);
+  }, [filteredOrders, filteredPurchases, currentStock, skus, dateRange]);
 
   const ordersChartData = useMemo(() => {
     const dateMap = {};
@@ -186,8 +194,10 @@ export default function Dashboard() {
 
   const revenueChartData = useMemo(() => {
     const monthMap = {};
+    
+    // Aggregate ALL orders in workspace, not filtered by date range
     orders.forEach(order => {
-      if (order.order_date) {
+      if (order.order_date && !order.is_deleted) {
         const month = format(parseISO(order.order_date), 'MMM yyyy');
         if (!monthMap[month]) {
           monthMap[month] = { revenue: 0, cost: 0, profit: 0 };
@@ -197,6 +207,16 @@ export default function Dashboard() {
         monthMap[month].profit += order.profit_loss || 0;
       }
     });
+    
+    // Log for debugging
+    const totalRevenue = Object.values(monthMap).reduce((sum, m) => sum + m.revenue, 0);
+    if (orders.length > 0 && totalRevenue === 0) {
+      console.warn('[Dashboard] Revenue chart: Zero revenue despite having orders', {
+        orders_count: orders.length,
+        months: Object.keys(monthMap).length
+      });
+    }
+    
     return Object.entries(monthMap)
       .map(([month, data]) => ({ month, ...data }))
       .slice(-6);

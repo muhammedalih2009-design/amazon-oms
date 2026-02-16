@@ -53,8 +53,9 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       .toString()
       .trim()
       .toUpperCase()
-      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
       .replace(/\s+/g, '')
+      .replace(/[\u2010-\u2015\u2212]/g, '-')
       .replace(/-/g, '');
   };
 
@@ -356,15 +357,29 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       align: 'center',
       render: (val, row) => {
         if (val) {
-          return <span title={`Matched via ${row.match_strategy || 'unknown'}`}>✅</span>;
+          return (
+            <div className="flex flex-col items-center gap-1">
+              <span title={`Strategy: ${row.match_strategy || 'unknown'}`}>✅</span>
+              {row.match_strategy && (
+                <span className="text-xs text-green-600">{row.match_strategy}</span>
+              )}
+            </div>
+          );
         } else {
           return (
-            <span 
-              title={row.not_found_reason || 'Not found'} 
-              className="cursor-help"
-            >
-              ❌
-            </span>
+            <div className="flex flex-col items-center gap-1">
+              <span 
+                title={row.not_found_reason || 'Not found'} 
+                className="cursor-help"
+              >
+                ❌
+              </span>
+              {row.not_found_reason && (
+                <span className="text-xs text-red-600 max-w-[150px] truncate" title={row.not_found_reason}>
+                  {row.not_found_reason}
+                </span>
+              )}
+            </div>
           );
         }
       }

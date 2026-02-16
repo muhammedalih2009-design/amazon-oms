@@ -141,7 +141,17 @@ Deno.serve(async (req) => {
     
     console.log(`[importSettlementProcessChunk] Chunk ${chunkIndex}: created=${rowsCreated}, skipped=${rowsSkipped}`);
 
-    // Match rows and update in smaller batches
+    // Canonical normalization function
+    const normalizeOrderId = (orderId) => {
+      if (!orderId) return '';
+      return orderId.toString().trim().toUpperCase()
+        .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+        .replace(/\s+/g, '')
+        .replace(/[\u2010-\u2015\u2212]/g, '-')
+        .replace(/-/g, '');
+    };
+
+    // Match rows and update in smaller batches - use canonical normalization
     const [orders, skus] = await Promise.all([
       base44.asServiceRole.entities.Order.filter({ tenant_id: importJob.tenant_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: importJob.tenant_id })
@@ -157,18 +167,38 @@ Deno.serve(async (req) => {
       let matchStatus = 'unmatched_order';
       let matchedOrderId = null;
       let matchedSkuId = null;
+      let matchStrategy = null;
+      let notFoundReason = null;
 
-      const matchedOrder = orders.find(o => o.amazon_order_id === row.order_id || o.id === row.order_id);
+      const normalizedRowOrderId = normalizeOrderId(row.order_id);
+      
+      // Try canonical matching
+      const matchedOrder = orders.find(o => 
+        normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId ||
+        normalizeOrderId(o.id) === normalizedRowOrderId
+      );
+
       if (matchedOrder) {
         matchedOrderId = matchedOrder.id;
-        const matchedSku = skus.find(s => s.sku_code === row.sku);
+        matchStrategy = normalizeOrderId(matchedOrder.amazon_order_id) === normalizedRowOrderId 
+          ? 'normalized_amazon_id' 
+          : 'internal_id';
+        
+        const matchedSku = skus.find(s => 
+          s.sku_code === row.sku ||
+          normalizeOrderId(s.sku_code) === normalizeOrderId(row.sku)
+        );
+        
         if (matchedSku) {
           matchedSkuId = matchedSku.id;
           matchStatus = 'matched';
           matchedInChunk++;
         } else {
           matchStatus = 'unmatched_sku';
+          notFoundReason = 'SKU not found';
         }
+      } else {
+        notFoundReason = 'Order not found after normalization';
       }
 
       if (insertedRow?.id) {
@@ -177,7 +207,11 @@ Deno.serve(async (req) => {
           data: {
             matched_order_id: matchedOrderId,
             matched_sku_id: matchedSkuId,
-            match_status: matchStatus
+            match_status: matchStatus,
+            match_strategy: matchStrategy,
+            raw_order_id: row.order_id,
+            normalized_order_id: normalizedRowOrderId,
+            not_found_reason: notFoundReason
           }
         });
       }

@@ -26,9 +26,17 @@ export default function SettlementUnmatchedTab({ rows, tenantId, onDataChange })
     queryFn: () => base44.entities.Store.filter({ tenant_id: tenantId })
   });
 
+  // Canonical normalization - matches rematch function
   const normalizeOrderId = (orderId) => {
     if (!orderId) return '';
-    return orderId.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+    return orderId
+      .toString()
+      .trim()
+      .toUpperCase()
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/[\u2010-\u2015\u2212]/g, '-')
+      .replace(/-/g, '');
   };
 
   const unmatchedOrders = useMemo(() => {
@@ -57,11 +65,25 @@ export default function SettlementUnmatchedTab({ rows, tenantId, onDataChange })
       }
     });
 
-    return Object.values(orderMap).map(order => ({
-      ...order,
-      skus_count: order.skus.size,
-      reason: 'Order not found in Orders table'
-    }));
+    return Object.values(orderMap).map(order => {
+      const normalized = normalizeOrderId(order.order_id);
+      
+      // Check if any order partially matches
+      const partialMatch = orders.some(o => {
+        const norm = normalizeOrderId(o.amazon_order_id);
+        return norm.length >= 8 && normalized.length >= 8 &&
+               (norm.includes(normalized.slice(0, 10)) || normalized.includes(norm.slice(0, 10)));
+      });
+      
+      return {
+        ...order,
+        skus_count: order.skus.size,
+        normalized_id: normalized,
+        reason: partialMatch 
+          ? 'Order exists but ID format mismatch' 
+          : 'Order not found after canonical normalization'
+      };
+    });
   }, [rows, orders]);
 
   const unmatchedSkus = useMemo(() => {
@@ -136,11 +158,28 @@ export default function SettlementUnmatchedTab({ rows, tenantId, onDataChange })
   };
 
   const ordersColumns = [
-    { key: 'order_id', header: 'Order ID' },
+    { 
+      key: 'order_id', 
+      header: 'Order ID',
+      render: (val, row) => (
+        <div className="space-y-1">
+          <div className="font-mono">{val}</div>
+          <div className="text-xs text-slate-500">Normalized: {row.normalized_id}</div>
+        </div>
+      )
+    },
     { key: 'rows_count', header: 'Settlement Rows', align: 'right' },
     { key: 'skus_count', header: 'Unique SKUs', align: 'right' },
     { key: 'total_value', header: 'Total Value', align: 'right', render: (val) => `$${val.toFixed(2)}` },
-    { key: 'reason', header: 'Reason' },
+    { 
+      key: 'reason', 
+      header: 'Reason',
+      render: (val) => (
+        <span className={val.includes('mismatch') ? 'text-amber-600' : 'text-red-600'}>
+          {val}
+        </span>
+      )
+    },
     ...(isAdmin ? [{
       key: 'actions',
       header: 'Actions',
