@@ -9,7 +9,8 @@ import SettlementOrdersTab from '@/components/settlement/SettlementOrdersTab';
 import SettlementSKUTab from '@/components/settlement/SettlementSKUTab';
 import SettlementUnmatchedTab from '@/components/settlement/SettlementUnmatchedTab';
 import SettlementImportsTab from '@/components/settlement/SettlementImportsTab';
-import { DollarSign, TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Loader2, Info } from 'lucide-react';
+import { useMemo } from 'react';
 
 export default function Settlement() {
   const { tenantId } = useTenant();
@@ -97,12 +98,52 @@ export default function Settlement() {
     ? imports.find(i => i.id === selectedImportId)
     : imports[0];
 
-  const totals = latestImport?.totals_cached_json || {
-    total_revenue: 0,
-    total_cogs: 0,
-    total_profit: 0,
-    margin: 0
-  };
+  // Calculate KPIs from active rows (real-time calculation as fallback)
+  const calculatedTotals = useMemo(() => {
+    const activeRows = rows.filter(r => !r.is_deleted);
+    
+    if (activeRows.length === 0) {
+      return {
+        total_revenue: 0,
+        total_cogs: 0,
+        total_profit: 0,
+        margin: 0,
+        source: 'empty'
+      };
+    }
+
+    const total_revenue = activeRows.reduce((sum, row) => sum + (row.total || 0), 0);
+    
+    // For COGS: We need to match with orders to get accurate COGS
+    // This is a simplified calculation - the full version requires order matching
+    const total_profit = total_revenue; // Placeholder - actual COGS matching happens in Orders tab
+    
+    return {
+      total_revenue,
+      total_cogs: 0, // Will be calculated from order matching
+      total_profit,
+      margin: total_revenue !== 0 ? total_profit / total_revenue : 0,
+      source: 'calculated',
+      rows_count: activeRows.length
+    };
+  }, [rows]);
+
+  // Use cached totals if available, otherwise use calculated
+  const totals = latestImport?.totals_cached_json && latestImport.totals_cached_json.total_revenue !== undefined
+    ? { ...latestImport.totals_cached_json, source: 'cached' }
+    : calculatedTotals;
+
+  // Log warning if KPIs are zero but rows exist
+  useEffect(() => {
+    if (rows.length > 0 && totals.total_revenue === 0) {
+      console.warn('[Settlement] WARNING: KPIs are zero but rows exist', {
+        rows_count: rows.length,
+        active_rows: rows.filter(r => !r.is_deleted).length,
+        totals,
+        import_id: selectedImportId
+      });
+    }
+  }, [rows, totals, selectedImportId]);
 
   return (
     <ErrorBoundary fallbackTitle="Settlement page failed to load">
@@ -144,16 +185,27 @@ export default function Settlement() {
 
         {/* Summary Cards */}
         {latestImport && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg border border-slate-200 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">Total Revenue</p>
-                  <p className="text-2xl font-bold text-slate-900">${totals.total_revenue?.toFixed(2) || '0.00'}</p>
-                </div>
-                <DollarSign className="w-8 h-8 text-blue-500" />
+          <div className="space-y-2">
+            {/* Data source indicator */}
+            {totals.source && (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Info className="w-3 h-3" />
+                <span>
+                  {totals.source === 'cached' ? 'Using cached totals' : `Calculated from ${totals.rows_count || 0} active rows`}
+                </span>
               </div>
-            </div>
+            )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg border border-slate-200 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Total Revenue</p>
+                    <p className="text-2xl font-bold text-slate-900">${totals.total_revenue?.toFixed(2) || '0.00'}</p>
+                  </div>
+                  <DollarSign className="w-8 h-8 text-blue-500" />
+                </div>
+              </div>
 
             <div className="bg-white rounded-lg border border-slate-200 p-4">
               <div className="flex items-center justify-between">
