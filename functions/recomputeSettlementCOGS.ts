@@ -77,7 +77,7 @@ function computeCanonicalCOGS(order, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_V = 'v4.1.0-' + Date.now();
+  const DEPLOYMENT_V = 'v4.2.0-' + Date.now();
   const START_TIME = Date.now();
   
   try {
@@ -93,6 +93,7 @@ Deno.serve(async (req) => {
 
     console.log(`[DEPLOYMENT] ${DEPLOYMENT_V}`);
     console.log(`[REQUEST] Payload:`, { import_id, user_id: user.id });
+    console.log(`[SOURCE-OF-TRUTH] AUTHORITATIVE: SettlementRow.matched_order_id | DEPRECATED: SettlementMatch table`);
 
     // Derive workspace_id from user's membership
     const memberships = await base44.asServiceRole.entities.Membership.filter({
@@ -107,6 +108,30 @@ Deno.serve(async (req) => {
     const workspace_id = userMembership.tenant_id;
 
     console.log(`[WORKSPACE] Derived workspace_id: ${workspace_id}`);
+
+    // CONSISTENCY CHECK: Verify source-of-truth integrity
+    const allRows = await base44.asServiceRole.entities.SettlementRow.filter({
+      tenant_id: workspace_id,
+      is_deleted: false
+    });
+    
+    const matchedRowsPerAuthority = allRows.filter(r => 
+      r.matched_order_id && (r.match_status === 'matched' || r.match_status === 'unmatched_sku')
+    ).length;
+
+    console.log(`[CONSISTENCY CHECK] Matched rows per authoritative source (SettlementRow): ${matchedRowsPerAuthority}`);
+
+    // Cross-check: Count SettlementMatch records (deprecated, for audit only)
+    const settlementMatches = await base44.asServiceRole.entities.SettlementMatch.filter({
+      tenant_id: workspace_id
+    });
+    console.log(`[CONSISTENCY CHECK] SettlementMatch table records: ${settlementMatches.length} (deprecated, non-authoritative)`);
+
+    // If SettlementRow shows matched records but SettlementMatch is empty, this is OK
+    // (SettlementMatch was never the source of truth)
+    if (matchedRowsPerAuthority > 0 && settlementMatches.length === 0) {
+      console.log(`[CONSISTENCY CHECK] OK: Matched rows found in SettlementRow, SettlementMatch table unused (expected)`);
+    }
 
     // Fetch order lines and SKUs FRESH from DB (bypass cache)
     const [orderLines, skus] = await Promise.all([
