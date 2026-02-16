@@ -1,9 +1,13 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 Deno.serve(async (req) => {
+  let jobId, tenantId;
   try {
+    const { jobId: jId, tenantId: tId } = await req.json();
+    jobId = jId;
+    tenantId = tId;
+    
     const base44 = createClientFromRequest(req);
-    const { jobId, tenantId } = await req.json();
 
     if (!jobId || !tenantId) {
       return Response.json({ error: 'Missing jobId or tenantId' }, { status: 400 });
@@ -153,7 +157,6 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Execute backup job error:', error);
 
-    const { jobId } = await req.json();
     if (jobId) {
       try {
         await base44.asServiceRole.entities.BackupJob.update(jobId, {
