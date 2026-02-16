@@ -329,15 +329,22 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
 
       console.log('🔧 RECOMPUTE COGS RESPONSE:', response.data);
       toast({
-        title: 'Recompute Complete',
-        description: 'Check browser console for full response'
+        title: 'Recompute COGS Complete',
+        description: `${response.data.rows_with_cogs} orders with COGS | ${response.data.rows_missing_cogs} missing cost`
       });
+
+      // Force full data refresh: clear filter, close debug, call callback
+      setFilterStatus('all');
+      setShowDeleted(false);
+      setSelectedOrders(new Set());
+      if (onDataChange) onDataChange();
+
       setIsRecomputingCOGS(false);
     } catch (error) {
       console.error('❌ RECOMPUTE COGS ERROR:', error);
       toast({
-        title: 'Error',
-        description: error.message || 'Failed',
+        title: 'Recompute Failed',
+        description: error.message || 'Failed to recompute COGS',
         variant: 'destructive'
       });
       setIsRecomputingCOGS(false);
