@@ -263,11 +263,25 @@ Deno.serve(async (req) => {
 
     console.log(`[PROCESSING] Processed: ${processedCount} | Updated: ${rowUpdates.length} | Skipped:`, skippedReasons);
 
-    console.log(`[UPDATES] Settlement rows to update: ${rowUpdates.length}`);
-    console.log(`[UPDATES] Orders to sync: ${orderUpdates.size}`);
+    console.log(`[UPDATES] Settlement rows to update: ${rowUpdates.length} | Orders to sync: ${orderUpdates.size}`);
+
+    // ERROR CHECK: If eligible rows but 0 updates, this is a problem
+    if (matchedRows.length > 0 && rowUpdates.length === 0) {
+      console.error(`[FATAL] Eligible rows: ${matchedRows.length} but rowUpdates: ${rowUpdates.length}`);
+      return Response.json({
+        success: false,
+        error_code: 'PROCESSING_FAILURE',
+        total_rows_scanned: rowsToRecompute.length,
+        eligible_rows: matchedRows.length,
+        rows_processed: processedCount,
+        rows_updated: 0,
+        message: `Fatal: Found ${matchedRows.length} eligible rows but processed ${processedCount}, updated 0`
+      }, { status: 500 });
+    }
 
     // Apply settlement row updates in batches
     const BATCH_SIZE = 50;
+    let settledRowsUpdated = 0;
     for (let i = 0; i < rowUpdates.length; i += BATCH_SIZE) {
       const batch = rowUpdates.slice(i, i + BATCH_SIZE);
       await Promise.all(
@@ -275,15 +289,16 @@ Deno.serve(async (req) => {
           base44.asServiceRole.entities.SettlementRow.update(item.id, item.data)
         )
       );
+      settledRowsUpdated += batch.length;
     }
+    console.log(`[PERSIST] SettlementRow updates applied: ${settledRowsUpdated}`);
 
     // Apply order updates
     for (const [orderId, updateData] of orderUpdates) {
       await base44.asServiceRole.entities.Order.update(orderId, updateData);
       results.orders_synced++;
     }
-
-    console.log(`[SYNC] Updated ${results.orders_synced} orders with computed COGS`);
+    console.log(`[PERSIST] Order updates applied: ${results.orders_synced}`);
 
     // Recompute import totals
     let importsUpdated = 0;
