@@ -166,23 +166,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Check for any active orders
-    const anyActiveOrders = await base44.asServiceRole.entities.Order.filter({ 
-      tenant_id: workspace_id, 
-      is_deleted: false,
-      limit: 1
-    });
-    
-    if (anyActiveOrders.length === 0) {
-      console.log(`[WARNING] No active orders found for workspace_id: ${workspace_id}. Cannot recompute COGS.`);
-      return Response.json({
-        success: false,
-        error_code: 'NO_ACTIVE_ORDERS',
-        message: 'No active orders found in workspace. Ensure orders are imported and not deleted.',
-        total_rows_scanned: 0,
-        eligible_rows: 0
-      }, { status: 400 });
-    }
+
 
     // Load settlement rows
     let rowsToRecompute = [];
