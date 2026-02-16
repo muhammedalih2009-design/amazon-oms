@@ -55,6 +55,7 @@ export default function BackupManager({ tenantId }) {
             id: currentJob.id,
             name: currentJob.backup_name,
             timestamp: currentJob.started_at,
+            data: currentJob.backup_data ? JSON.parse(currentJob.backup_data) : null,
             file_url: currentJob.file_url,
             file_size_bytes: currentJob.file_size_bytes,
             stats: currentJob.stats,
@@ -99,6 +100,7 @@ export default function BackupManager({ tenantId }) {
         id: job.id,
         name: job.backup_name,
         timestamp: job.started_at,
+        data: job.backup_data ? JSON.parse(job.backup_data) : null,
         file_url: job.file_url,
         file_size_bytes: job.file_size_bytes,
         stats: job.stats || {},
@@ -165,12 +167,16 @@ export default function BackupManager({ tenantId }) {
   };
 
   const downloadBackup = (backup) => {
-    // Server backup: download from file_url
-    if (backup.serverBackup && backup.file_url) {
+    // Server backup: download backup data
+    if (backup.serverBackup && backup.data) {
+      const json = JSON.stringify(backup.data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = backup.file_url;
-      a.download = `backup_${backup.name.replace(/\s+/g, '_')}_${format(new Date(backup.timestamp), 'yyyyMMdd')}.json.gz`;
+      a.href = url;
+      a.download = `backup_${backup.name.replace(/\s+/g, '_')}_${format(new Date(backup.timestamp), 'yyyyMMdd')}.json`;
       a.click();
+      URL.revokeObjectURL(url);
       return;
     }
 
@@ -189,42 +195,6 @@ export default function BackupManager({ tenantId }) {
     setRestoring(true);
     try {
       let backupData = backup.data;
-
-      // Server backup: download and decompress
-      if (backup.serverBackup && backup.file_url) {
-        const response = await fetch(backup.file_url);
-        if (!response.ok) throw new Error('Failed to download backup file');
-        
-        const buffer = await response.arrayBuffer();
-        // Try decompression (gzip)
-        const decompressedStream = new Blob([buffer], { type: 'application/gzip' }).stream()?.pipeThrough(new DecompressionStream('gzip'));
-        let jsonString;
-        
-        if (decompressedStream) {
-          const reader = decompressedStream.getReader();
-          const chunks = [];
-          let done = false;
-          while (!done) {
-            const { value, done: isDone } = await reader.read();
-            if (value) chunks.push(value);
-            done = isDone;
-          }
-          const decompressed = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            decompressed.set(chunk, offset);
-            offset += chunk.length;
-          }
-          const decoder = new TextDecoder();
-          jsonString = decoder.decode(decompressed);
-        } else {
-          // Fallback: assume uncompressed
-          const decoder = new TextDecoder();
-          jsonString = decoder.decode(new Uint8Array(buffer));
-        }
-
-        backupData = JSON.parse(jsonString).data;
-      }
 
       // Delete all existing workspace data
       const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
