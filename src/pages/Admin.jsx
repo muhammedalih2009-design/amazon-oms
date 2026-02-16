@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { Shield, Users, Building2, Plus, Edit, Trash2, Eye, Ban, CheckCircle, XCircle, Settings } from 'lucide-react';
+import { Shield, Users, Building2, Plus, Edit, Trash2, Eye, Ban, CheckCircle, XCircle, Settings, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +35,7 @@ import UserAutocomplete from '@/components/shared/UserAutocomplete';
 import TelegramSettings from '@/components/admin/TelegramSettings';
 import ExportSettings from '@/components/admin/ExportSettings';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
+import CloneWorkspaceModal from '@/components/admin/CloneWorkspaceModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -55,6 +56,8 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [addMemberRole, setAddMemberRole] = useState('member');
   const [repairingMemberships, setRepairingMemberships] = useState(false);
+  const [cloneWorkspaceOpen, setCloneWorkspaceOpen] = useState(false);
+  const [cloneSourceWorkspace, setCloneSourceWorkspace] = useState(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -569,6 +572,18 @@ export default function AdminPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
+                            setCloneSourceWorkspace(workspace);
+                            setCloneWorkspaceOpen(true);
+                          }}
+                          className="text-emerald-600 hover:text-emerald-700"
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          Clone
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
                             setShowMembersModal(workspace);
                             loadWorkspaceMembers(workspace.id);
                           }}
@@ -675,6 +690,17 @@ export default function AdminPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Clone Workspace Modal */}
+      <CloneWorkspaceModal
+        workspace={cloneSourceWorkspace}
+        open={cloneWorkspaceOpen}
+        onOpenChange={setCloneWorkspaceOpen}
+        onSuccess={() => {
+          setCloneWorkspaceOpen(false);
+          loadData(true);
+        }}
+      />
 
       {/* Members Management Modal */}
       <Dialog open={!!showMembersModal} onOpenChange={() => setShowMembersModal(null)}>
