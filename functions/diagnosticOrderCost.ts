@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id, import_id } = await req.json();
+    const { workspace_id, import_id, start_date, end_date, store_ids } = await req.json();
 
     // Get a matched settlement row
     const query = {
@@ -20,7 +20,26 @@ Deno.serve(async (req) => {
       query.settlement_import_id = import_id;
     }
 
-    const matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
+    let matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
+
+    // Apply date filters if provided
+    if (start_date || end_date) {
+      matchedRows = matchedRows.filter(row => {
+        if (!row.datetime) return true;
+        const rowDate = row.datetime.split('T')[0];
+        if (start_date && rowDate < start_date) return false;
+        if (end_date && rowDate > end_date) return false;
+        return true;
+      });
+    }
+
+    // Apply store filters if provided
+    if (store_ids && store_ids.length > 0) {
+      matchedRows = matchedRows.filter(row => {
+        // Try to match by marketplace or other store identifier
+        return store_ids.includes(row.marketplace);
+      });
+    }
 
     if (matchedRows.length === 0) {
       // Debug: check what's available
