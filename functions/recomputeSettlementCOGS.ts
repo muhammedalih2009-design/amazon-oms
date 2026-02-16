@@ -1,14 +1,8 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-/**
- * Recompute COGS for settlement orders using canonical source-of-truth
- * Priority: Order.total_cost > Sum(OrderLine) > Fallback
- */
-
 const COGS_SOURCE = {
   ORDER_TOTAL: 'ORDER_TOTAL',
   ORDER_LINES_SKU_COST: 'ORDER_LINES_SKU_COST',
-  FALLBACK: 'FALLBACK',
   MISSING: 'MISSING'
 };
 
@@ -21,7 +15,6 @@ const COGS_REASON = {
 };
 
 function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
-  // Priority A: Order.total_cost if > 0
   if (matchedOrder.total_cost && matchedOrder.total_cost > 0) {
     return {
       cogs: matchedOrder.total_cost,
@@ -30,7 +23,6 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
     };
   }
 
-  // Priority B: Sum(OrderLine.quantity * SKU.cost_price)
   const lines = orderLines.filter(l => l.order_id === matchedOrder.id);
   if (lines.length > 0) {
     let totalCost = 0;
@@ -60,7 +52,6 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
     };
   }
 
-  // Priority C/D: No order lines
   return {
     cogs: 0,
     source: COGS_SOURCE.MISSING,
@@ -69,8 +60,7 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_TIMESTAMP = '2026-02-16T21:30:00Z';
-  const VERSION_HASH = 'v1.0.0-redeployed';
+  const DEPLOYMENT_V = 'v2.0.0-' + Date.now();
   
   try {
     const base44 = createClientFromRequest(req);
@@ -86,13 +76,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
     }
 
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`RECOMPUTE COGS START - Deployment: ${DEPLOYMENT_TIMESTAMP} | Version: ${VERSION_HASH}`);
-    console.log(`${'='.repeat(80)}`);
-    console.log(`[1] Request workspace_id: ${workspace_id}`);
-    console.log(`[2] User: ${user.email}`);
-
-    // Verify membership
     const membership = await base44.asServiceRole.entities.Membership.filter({
       tenant_id: workspace_id,
       user_id: user.id
@@ -102,16 +85,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'No access to workspace' }, { status: 403 });
     }
 
-    // Load workspace data
     const [orders, orderLines, skus] = await Promise.all([
       base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, is_deleted: false }),
       base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
 
-    console.log(`Loaded: ${orders.length} orders, ${orderLines.length} lines, ${skus.length} SKUs`);
-
-    // Get settlement rows to recompute
     let rowsToRecompute = [];
     if (import_id) {
       rowsToRecompute = await base44.asServiceRole.entities.SettlementRow.filter({
@@ -126,8 +105,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Settlement rows to recompute: ${rowsToRecompute.length}`);
-
     const results = {
       total_rows: rowsToRecompute.length,
       rows_with_cogs: 0,
@@ -136,16 +113,12 @@ Deno.serve(async (req) => {
         ORDER_TOTAL: 0,
         ORDER_LINES_SKU_COST: 0,
         MISSING: 0
-      },
-      diagnostic_orders: [],
-      smoke_check: []
+      }
     };
 
     const updates = [];
-    const diagnosticOrderIds = ['406-9098319-4354700', '405-9237140-1177144', '407-7729567-8966740'];
 
     for (const row of rowsToRecompute) {
-      // Only recompute for matched orders
       if (!row.matched_order_id) continue;
 
       const matchedOrder = orders.find(o => o.id === row.matched_order_id);
@@ -153,20 +126,6 @@ Deno.serve(async (req) => {
 
       const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
 
-      // Smoke check: capture first matched order for verification
-      if (results.smoke_check.length === 0 && row.matched_order_id) {
-        results.smoke_check.push({
-          order_id: row.order_id,
-          old_cogs: 0, // Settlement doesn't store COGS, only Orders do
-          new_cogs: cogsResult.cogs,
-          cogs_source: cogsResult.source,
-          status: cogsResult.reason === COGS_REASON.SUCCESS ? '✅ RECOMPUTED' : '⚠️ ' + cogsResult.reason,
-          orders_total_cost: matchedOrder.total_cost || 0,
-          order_lines_count: orderLines.filter(l => l.order_id === matchedOrder.id).length
-        });
-      }
-
-      // Update row with computed COGS metadata
       updates.push({
         id: row.id,
         data: {
@@ -181,22 +140,8 @@ Deno.serve(async (req) => {
       }
 
       results.cogs_by_source[cogsResult.source]++;
-
-      // Track diagnostic orders
-      if (diagnosticOrderIds.includes(row.order_id)) {
-        results.diagnostic_orders.push({
-          order_id: row.order_id,
-          found: true,
-          orders_cost: matchedOrder.total_cost || 0,
-          settlement_cogs: cogsResult.cogs,
-          cogs_source: cogsResult.source,
-          reason: cogsResult.reason,
-          order_lines_count: orderLines.filter(l => l.order_id === matchedOrder.id).length
-        });
-      }
     }
 
-    // Apply updates in batches
     const BATCH_SIZE = 50;
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
       const batch = updates.slice(i, i + BATCH_SIZE);
@@ -207,7 +152,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Recompute import totals if import_id specified
     if (import_id) {
       const importRows = await base44.asServiceRole.entities.SettlementRow.filter({
         settlement_import_id: import_id,
@@ -222,7 +166,6 @@ Deno.serve(async (req) => {
           const matchedOrder = orders.find(o => o.id === row.matched_order_id);
           if (matchedOrder) {
             const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
-            // Proportional COGS for this row
             const orderRevenue = Math.abs(matchedOrder.net_revenue || 1);
             totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderRevenue);
           }
@@ -242,22 +185,13 @@ Deno.serve(async (req) => {
           skus_count: new Set(importRows.map(r => r.sku)).size
         }
       });
-
-      console.log(`Updated import ${import_id} totals: COGS=${totalCogs}`);
     }
-
-    console.log(`\n${'='.repeat(80)}`);
-    console.log('RECOMPUTE COGS COMPLETED');
-    console.log(`${'='.repeat(80)}`);
-    console.log('Results:', JSON.stringify(results, null, 2));
-    console.log(`${'='.repeat(80)}\n`);
 
     return Response.json({
       success: true,
       ...results,
       rows_updated: updates.length,
-      deployment: DEPLOYMENT_TIMESTAMP,
-      version: VERSION_HASH
+      deployment: DEPLOYMENT_V
     });
 
   } catch (error) {
