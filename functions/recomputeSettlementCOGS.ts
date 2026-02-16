@@ -302,6 +302,7 @@ Deno.serve(async (req) => {
 
     // Recompute import totals
     let importsUpdated = 0;
+    let cachedTotals = null;
     if (import_id) {
       const importRows = await base44.asServiceRole.entities.SettlementRow.filter({
         settlement_import_id: import_id,
@@ -332,31 +333,34 @@ Deno.serve(async (req) => {
       const totalProfit = totalRevenue - totalCogs;
       const margin = totalRevenue !== 0 ? (totalProfit / totalRevenue) : 0;
 
+      cachedTotals = {
+        total_revenue: totalRevenue,
+        total_cogs: totalCogs,
+        total_profit: totalProfit,
+        margin: margin,
+        orders_count: new Set(importRows.map(r => r.order_id)).size,
+        skus_count: new Set(importRows.map(r => r.sku)).size
+      };
+
       await base44.asServiceRole.entities.SettlementImport.update(import_id, {
-        totals_cached_json: {
-          total_revenue: totalRevenue,
-          total_cogs: totalCogs,
-          total_profit: totalProfit,
-          margin: margin,
-          orders_count: new Set(importRows.map(r => r.order_id)).size,
-          skus_count: new Set(importRows.map(r => r.sku)).size
-        }
+        totals_cached_json: cachedTotals
       });
 
       importsUpdated = 1;
-      console.log(`[IMPORT] Updated totals - COGS: $${totalCogs.toFixed(2)}, Profit: $${totalProfit.toFixed(2)}, Margin: ${(margin * 100).toFixed(1)}%`);
+      console.log(`[PERSIST] SettlementImport.totals_cached_json:`, cachedTotals);
     }
 
-    console.log(`${'='.repeat(80)}`);
-    console.log(`[COMPLETE] Rows updated: ${rowUpdates.length} | Orders synced: ${results.orders_synced}`);
-    console.log(`${'='.repeat(80)}\n`);
+    const elapsed = Date.now() - START_TIME;
+    console.log(`[COMPLETE] Total rows scanned: ${rowsToRecompute.length} | Eligible: ${matchedRows.length} | Updated: ${rowUpdates.length} | Orders synced: ${results.orders_synced} | Duration: ${elapsed}ms`);
 
     return Response.json({
       success: true,
       ...results,
       rows_updated: rowUpdates.length,
       imports_updated: importsUpdated,
-      deployment: DEPLOYMENT_V
+      cached_totals: cachedTotals,
+      deployment: DEPLOYMENT_V,
+      duration_ms: elapsed
     });
 
   } catch (error) {
