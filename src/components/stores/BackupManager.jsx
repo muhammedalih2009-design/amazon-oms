@@ -333,59 +333,21 @@ export default function BackupManager({ tenantId }) {
     }
   };
 
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = (e) => {
     const file = e.target.files[0];
-    const isJson = file?.type === 'application/json';
-    const isGzip = file?.name?.endsWith('.gz');
-    
-    if (!file || (!isJson && !isGzip)) {
+    if (!file || file.type !== 'application/json') {
       toast({ 
         title: 'Invalid file type', 
-        description: 'Please upload a .json or .json.gz backup file', 
+        description: 'Please upload a .json backup file', 
         variant: 'destructive' 
       });
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
-        let jsonString;
-        const buffer = event.target.result;
-
-        if (isGzip) {
-          // Decompress gzip
-          const decompressedStream = new Blob([buffer], { type: 'application/gzip' }).stream()?.pipeThrough(new DecompressionStream('gzip'));
-          
-          if (!decompressedStream) {
-            throw new Error('Gzip decompression not supported in your browser');
-          }
-
-          const reader = decompressedStream.getReader();
-          const chunks = [];
-          let done = false;
-          
-          while (!done) {
-            const { value, done: isDone } = await reader.read();
-            if (value) chunks.push(value);
-            done = isDone;
-          }
-
-          const decompressed = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            decompressed.set(chunk, offset);
-            offset += chunk.length;
-          }
-
-          const decoder = new TextDecoder();
-          jsonString = decoder.decode(decompressed);
-        } else {
-          // Plain JSON
-          jsonString = buffer;
-        }
-
-        const backup = JSON.parse(jsonString);
+        const backup = JSON.parse(event.target.result);
         if (!backup.data || !backup.timestamp) {
           throw new Error('Invalid backup file format');
         }
@@ -394,17 +356,12 @@ export default function BackupManager({ tenantId }) {
       } catch (error) {
         toast({ 
           title: 'Invalid file', 
-          description: error.message || 'Please upload a valid backup file', 
+          description: 'Please upload a valid backup JSON file', 
           variant: 'destructive' 
         });
       }
     };
-
-    if (isGzip) {
-      reader.readAsArrayBuffer(file);
-    } else {
-      reader.readAsText(file);
-    }
+    reader.readAsText(file);
   };
 
   return (
@@ -425,7 +382,7 @@ export default function BackupManager({ tenantId }) {
             <input
               id="upload-backup"
               type="file"
-              accept=".json,.gz"
+              accept=".json"
               onChange={handleFileUpload}
               className="hidden"
             />

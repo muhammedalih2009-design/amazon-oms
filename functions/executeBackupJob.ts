@@ -131,44 +131,15 @@ Deno.serve(async (req) => {
       throw new Error(`Backup validation failed: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
     }
 
-    // Convert to JSON and compress with gzip
-    const jsonString = JSON.stringify(backupData);
+    // Convert to JSON and upload
+    const jsonString = JSON.stringify(backupData, null, 2);
     const encoder = new TextEncoder();
     const jsonBytes = encoder.encode(jsonString);
 
-    // Use CompressionStream (Web API) for gzip compression
-    const compressedStream = jsonBytes.stream ? 
-      jsonBytes.stream().pipeThrough(new CompressionStream('gzip')) : 
-      null;
-
-    let compressedBytes;
-    if (compressedStream) {
-      const reader = compressedStream.getReader();
-      const chunks = [];
-      let done = false;
-      while (!done) {
-        const { value, done: isDone } = await reader.read();
-        if (value) chunks.push(value);
-        done = isDone;
-      }
-      compressedBytes = new Uint8Array(chunks.reduce((a, b) => a + b.length, 0));
-      let offset = 0;
-      for (const chunk of chunks) {
-        compressedBytes.set(chunk, offset);
-        offset += chunk.length;
-      }
-    } else {
-      // Fallback: use simple gzip via fetch-based compression
-      const blob = new Blob([jsonBytes], { type: 'application/json' });
-      const formData = new FormData();
-      formData.append('data', blob);
-      compressedBytes = jsonBytes;
-    }
-
-    // Upload compressed backup file
-    const fileName = `backup_${new Date().toISOString().split('T')[0]}_${jobId}.json.gz`;
+    // Upload backup file
+    const fileName = `backup_${new Date().toISOString().split('T')[0]}_${jobId}.json`;
     const uploadResponse = await base44.asServiceRole.integrations.Core.UploadFile({
-      file: new File([compressedBytes], fileName, { type: 'application/gzip' })
+      file: new File([jsonBytes], fileName, { type: 'application/json' })
     });
 
     if (!uploadResponse.file_url) {
@@ -179,7 +150,7 @@ Deno.serve(async (req) => {
     await base44.asServiceRole.entities.BackupJob.update(jobId, {
       status: 'completed',
       file_url: uploadResponse.file_url,
-      file_size_bytes: compressedBytes.length,
+      file_size_bytes: jsonBytes.length,
       stats: backupData.stats,
       completed_at: new Date().toISOString()
     });
@@ -188,7 +159,7 @@ Deno.serve(async (req) => {
       success: true,
       jobId,
       fileUrl: uploadResponse.file_url,
-      sizeBytes: compressedBytes.length
+      sizeBytes: jsonBytes.length
     });
   } catch (error) {
     console.error('Execute backup job error:', error);
