@@ -36,10 +36,21 @@ export default function BackupManager({ tenantId }) {
   const [uploadingFile, setUploadingFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [jobPolling, setJobPolling] = useState(null);
+  const [allJobs, setAllJobs] = useState([]);
 
   useEffect(() => {
     loadBackups();
+    loadJobHistory();
   }, [tenantId]);
+
+  const loadJobHistory = async () => {
+    try {
+      const jobs = await base44.entities.BackupJob.filter({ tenant_id: tenantId });
+      setAllJobs(jobs.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
+    } catch (error) {
+      console.error('Failed to load job history:', error);
+    }
+  };
 
   useEffect(() => {
     if (!jobPolling) return;
@@ -69,6 +80,7 @@ export default function BackupManager({ tenantId }) {
           setJobPolling(null);
           setShowCreateDialog(false);
           setBackupName('');
+          loadJobHistory();
         } else if (currentJob.status === 'failed') {
           toast({ 
             title: 'Backup failed', 
@@ -402,6 +414,47 @@ export default function BackupManager({ tenantId }) {
             Create Backup
           </Button>
         </div>
+      </div>
+
+      {/* Backup Job History */}
+      <div className="mt-8 pt-6 border-t">
+        <h3 className="font-semibold text-slate-900 mb-4">Backup History</h3>
+        {allJobs.length === 0 ? (
+          <p className="text-sm text-slate-500">No backup jobs yet</p>
+        ) : (
+          <div className="space-y-2">
+            {allJobs.map(job => (
+              <div key={job.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-slate-900">{job.backup_name}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                      job.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                      job.status === 'queued' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Started: {format(new Date(job.started_at), 'MMM d, yyyy h:mm a')}
+                    {job.completed_at && ` • Completed: ${format(new Date(job.completed_at), 'h:mm a')}`}
+                    {job.file_size_bytes && ` • Size: ${(job.file_size_bytes / 1024 / 1024).toFixed(2)} MB`}
+                  </p>
+                  {job.stats && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Orders: {job.stats.orders}, SKUs: {job.stats.skus}, Purchases: {job.stats.purchases}
+                    </p>
+                  )}
+                  {job.error_message && (
+                    <p className="text-xs text-red-600 mt-1">Error: {job.error_message}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Backups List */}
