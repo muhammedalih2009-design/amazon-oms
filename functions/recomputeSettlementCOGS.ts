@@ -108,11 +108,13 @@ Deno.serve(async (req) => {
 
     console.log(`[WORKSPACE] Derived workspace_id: ${workspace_id}`);
 
-    // Fetch order lines and SKUs once (used across multiple order COGS computations)
+    // Fetch order lines and SKUs FRESH from DB (bypass cache)
     const [orderLines, skus] = await Promise.all([
       base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
+    
+    // IMPORTANT: Do not reuse these arrays - refetch for each workspace context
 
     console.log(`[DATA] OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
 
