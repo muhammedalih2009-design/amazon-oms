@@ -45,10 +45,8 @@ export default function BackupManager({ tenantId }) {
 
     const interval = setInterval(async () => {
       try {
-        const job = await base44.entities.BackupJob.filter({ id: jobPolling.jobId });
-        if (!job || job.length === 0) return;
-
-        const currentJob = job[0];
+        const currentJob = await base44.entities.BackupJob.get(jobPolling.jobId);
+        if (!currentJob) return;
         
         if (currentJob.status === 'completed') {
           setBackups(prev => [{
