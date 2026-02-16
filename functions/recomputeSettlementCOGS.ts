@@ -196,16 +196,22 @@ Deno.serve(async (req) => {
 
     const rowUpdates = [];
     const orderUpdates = new Map();
+    const skippedReasons = {};
+    let processedCount = 0;
 
     for (const row of matchedRows) {
       const matchedOrder = orders.find(o => o.id === row.matched_order_id);
       if (!matchedOrder) {
-        console.warn(`[ROW ${row.order_id}] Matched order ID not found: ${row.matched_order_id}`);
+        skippedReasons['ORDER_NOT_FOUND'] = (skippedReasons['ORDER_NOT_FOUND'] || 0) + 1;
+        console.warn(`[SKIP] Row ${row.order_id}: Matched order ID not found: ${row.matched_order_id}`);
         continue;
       }
 
       const orderTotalCostBefore = matchedOrder.total_cost || 0;
+      const orderLinesForOrder = orderLines.filter(l => l.order_id === matchedOrder.id);
       const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
+
+      processedCount++;
 
       // DEBUG: Track specific orders
       const isDebugOrder = DEBUG_ORDER_IDS.includes(row.order_id);
@@ -215,11 +221,13 @@ Deno.serve(async (req) => {
           matched_order_id: row.matched_order_id,
           order_total_cost_before: orderTotalCostBefore,
           order_total_cost_after: cogsResult.should_sync_to_order ? cogsResult.cogs : orderTotalCostBefore,
-          row_cogs_before: 0, // Settlement rows don't store COGS directly
+          order_lines_count: orderLinesForOrder.length,
+          row_cogs_before: 0,
           row_cogs_after: cogsResult.cogs,
           cogs_source: cogsResult.source,
           cogs_reason: cogsResult.reason
         });
+        console.log(`[DEBUG] ${row.order_id}:`, results.debug_orders[results.debug_orders.length - 1]);
       }
 
       // Update settlement row with COGS metadata
@@ -252,6 +260,8 @@ Deno.serve(async (req) => {
 
       results.cogs_by_source[cogsResult.source]++;
     }
+
+    console.log(`[PROCESSING] Processed: ${processedCount} | Updated: ${rowUpdates.length} | Skipped:`, skippedReasons);
 
     console.log(`[UPDATES] Settlement rows to update: ${rowUpdates.length}`);
     console.log(`[UPDATES] Orders to sync: ${orderUpdates.size}`);
