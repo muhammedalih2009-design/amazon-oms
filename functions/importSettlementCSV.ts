@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { normalizeOrderId } from './helpers/normalizeOrderId.js';
 
 const EXPECTED_HEADERS_MAP = {
   'datetime': ['date/time', 'datetime', 'date', 'time', 'transaction date'],
@@ -85,22 +86,32 @@ Deno.serve(async (req) => {
       }, { status: 401 });
     }
 
-    // Verify user has access to workspace
+    console.log(`[Settlement] User authenticated: ${user.email}, UserID: ${user.id}, TenantID: ${tenantId}`);
+
+    // TASK 1 FIX: Use tenantId consistently (not undefined workspaceId)
     try {
       const memberships = await base44.asServiceRole.entities.Membership.filter({
         user_id: user.id,
-        tenant_id: workspaceId
+        tenant_id: tenantId
       });
 
       if (memberships.length === 0) {
+        console.error(`[Settlement] Access denied: user ${user.id} has no membership in tenant ${tenantId}`);
         return Response.json({
-          code: 'VALIDATION_ERROR',
+          code: 'FORBIDDEN',
           message: 'No access to this workspace',
           details: []
         }, { status: 403 });
       }
+      
+      console.log(`[Settlement] Workspace access verified for user ${user.id} in tenant ${tenantId}`);
     } catch (err) {
-      console.warn(`[Settlement] Workspace access check failed: ${err.message}`);
+      console.error(`[Settlement] Membership check failed:`, err);
+      return Response.json({
+        code: 'FORBIDDEN',
+        message: 'Failed to verify workspace access',
+        details: [err.message]
+      }, { status: 403 });
     }
 
     // Create import job
@@ -282,6 +293,7 @@ Deno.serve(async (req) => {
         const quantity = Math.abs(safeParseFloat(getFieldValue(fields, 'quantity')));
         const signedQty = quantity * sign;
 
+        // TASK 2 FIX: Store both raw and normalized order ID
         const settlementRow = {
           tenant_id: tenantId,
           settlement_import_id: importJob.id,
@@ -289,6 +301,8 @@ Deno.serve(async (req) => {
           settlement_id: getFieldValue(fields, 'settlement_id'),
           type: getFieldValue(fields, 'type'),
           order_id: orderId,
+          raw_order_id: orderId,
+          normalized_order_id: normalizeOrderId(orderId),
           sku: sku,
           description: getFieldValue(fields, 'description'),
           quantity: quantity,
@@ -331,12 +345,13 @@ Deno.serve(async (req) => {
     const insertedRows = await base44.asServiceRole.entities.SettlementRow.bulkCreate(settlementRows);
 
     // Fetch OMS data for matching
-    const [orders, skus] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ tenant_id: tenantId }),
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: tenantId })
+    const [orders, skus, orderLines] = await Promise.all([
+      base44.asServiceRole.entities.Order.filter({ tenant_id: tenantId, is_deleted: false }),
+      base44.asServiceRole.entities.SKU.filter({ tenant_id: tenantId }),
+      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: tenantId })
     ]);
 
-    // Match rows and collect updates
+    // TASK 3 FIX: Match using canonical normalization
     let matchedCount = 0;
     const updateBatch = [];
 
@@ -346,20 +361,43 @@ Deno.serve(async (req) => {
       let matchStatus = 'unmatched_order';
       let matchedOrderId = null;
       let matchedSkuId = null;
+      let matchStrategy = null;
+      let notFoundReason = 'Order not found after normalization';
 
-      // Try to find order
-      const matchedOrder = orders.find(o => o.amazon_order_id === row.order_id || o.id === row.order_id);
+      const normalizedRowOrderId = normalizeOrderId(row.order_id);
+
+      // TASK 3: Primary match against amazon_order_id using normalization
+      const matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId);
+      
       if (matchedOrder) {
         matchedOrderId = matchedOrder.id;
+        matchStrategy = 'normalized_amazon_id';
         
         // Try to find SKU
-        const matchedSku = skus.find(s => s.sku_code === row.sku);
+        const matchedSku = skus.find(s => 
+          s.sku_code === row.sku || 
+          normalizeOrderId(s.sku_code) === normalizeOrderId(row.sku)
+        );
+        
         if (matchedSku) {
           matchedSkuId = matchedSku.id;
           matchStatus = 'matched';
           matchedCount++;
+          notFoundReason = null;
+          
+          // Check COGS data
+          if (!matchedOrder.total_cost || matchedOrder.total_cost === 0) {
+            const lines = orderLines.filter(l => l.order_id === matchedOrder.id);
+            const computedCogs = lines.reduce((sum, l) => sum + ((l.unit_cost || 0) * (l.quantity || 0)), 0);
+            
+            if (computedCogs === 0) {
+              notFoundReason = 'Order matched but COGS missing';
+            }
+          }
         } else {
+          // TASK 6 FIX: Keep matched_order_id even if SKU missing
           matchStatus = 'unmatched_sku';
+          notFoundReason = 'Order matched, SKU not found';
         }
       }
 
@@ -370,13 +408,16 @@ Deno.serve(async (req) => {
           data: {
             matched_order_id: matchedOrderId,
             matched_sku_id: matchedSkuId,
-            match_status: matchStatus
+            match_status: matchStatus,
+            match_strategy: matchStrategy,
+            match_confidence: matchedOrderId ? 'high' : null,
+            not_found_reason: notFoundReason
           }
         });
       }
     }
 
-    // Batch updates with large batches and long delays
+    // Batch updates
     const BATCH_SIZE = 100;
     for (let i = 0; i < updateBatch.length; i += BATCH_SIZE) {
       const chunk = updateBatch.slice(i, i + BATCH_SIZE);
@@ -385,7 +426,6 @@ Deno.serve(async (req) => {
           base44.asServiceRole.entities.SettlementRow.update(item.id, item.data)
         )
       );
-      // Substantial delay between batches for large imports
       if (i + BATCH_SIZE < updateBatch.length) {
         await new Promise(resolve => setTimeout(resolve, 800));
       }
@@ -393,36 +433,58 @@ Deno.serve(async (req) => {
 
     const unmatchedCount = settlementRows.length - matchedCount;
 
-    // Compute aggregates
-    const totalRevenue = settlementRows.reduce((sum, r) => sum + r.total, 0);
-    const matchedRows = settlementRows.filter(r => r.match_status === 'matched');
+    // TASK 4 FIX: Re-read updated rows for accurate totals computation
+    const updatedRows = await base44.asServiceRole.entities.SettlementRow.filter({
+      settlement_import_id: importJob.id,
+      is_deleted: false
+    });
+
+    const totalRevenue = updatedRows.reduce((sum, r) => sum + r.total, 0);
+    const matchedRows = updatedRows.filter(r => r.match_status === 'matched');
     
     let totalCogs = 0;
     for (const row of matchedRows) {
-      const sku = skus.find(s => s.id === row.matched_sku_id);
-      if (sku && sku.cost_price) {
-        totalCogs += sku.cost_price * row.signed_qty;
+      if (row.matched_order_id) {
+        const order = orders.find(o => o.id === row.matched_order_id);
+        if (order && order.total_cost) {
+          // Use order's total_cost proportionally
+          totalCogs += order.total_cost * (row.signed_qty / (order.net_revenue || 1));
+        } else {
+          // Fallback to SKU cost
+          const sku = skus.find(s => s.id === row.matched_sku_id);
+          if (sku && sku.cost_price) {
+            totalCogs += sku.cost_price * row.signed_qty;
+          }
+        }
       }
+    }
+
+    const totalProfit = totalRevenue - totalCogs;
+    const margin = totalRevenue !== 0 ? ((totalRevenue - totalCogs) / totalRevenue) : 0;
+
+    // TASK 4: Integrity warning if matched but COGS is zero
+    if (matchedCount > 0 && totalCogs === 0) {
+      console.warn(`[Settlement] Import ${importJob.id}: ${matchedCount} matched rows but COGS = 0. Possible data integrity issue.`);
     }
 
     const monthKey = monthDates.length > 0 
       ? monthDates[0].toISOString().substring(0, 7)
       : new Date().toISOString().substring(0, 7);
 
-    // Update import job
+    // Update import job with correct counts
     await base44.asServiceRole.entities.SettlementImport.update(importJob.id, {
       status: 'completed',
       month_key: monthKey,
-      rows_count: settlementRows.length,
-      matched_rows_count: matchedCount,
-      unmatched_rows_count: unmatchedCount,
+      rows_count: updatedRows.length,
+      matched_rows_count: matchedRows.length,
+      unmatched_rows_count: updatedRows.length - matchedRows.length,
       totals_cached_json: {
         total_revenue: totalRevenue,
         total_cogs: totalCogs,
-        total_profit: totalRevenue - totalCogs,
-        margin: totalRevenue !== 0 ? ((totalRevenue - totalCogs) / totalRevenue) : 0,
-        orders_count: new Set(settlementRows.map(r => r.order_id)).size,
-        skus_count: new Set(settlementRows.map(r => r.sku)).size
+        total_profit: totalProfit,
+        margin: margin,
+        orders_count: new Set(updatedRows.map(r => r.order_id)).size,
+        skus_count: new Set(updatedRows.map(r => r.sku)).size
       },
       import_completed_at: new Date().toISOString()
     });
@@ -430,30 +492,32 @@ Deno.serve(async (req) => {
     return Response.json({
       success: true,
       importId: importJob.id,
-      rowsCount: settlementRows.length,
-      matchedCount,
-      unmatchedCount,
+      rowsCount: updatedRows.length,
+      matchedCount: matchedRows.length,
+      unmatchedCount: updatedRows.length - matchedRows.length,
       parseErrors: parseErrors.length > 0 ? parseErrors.slice(0, 50) : [],
       totalParseErrors: parseErrors.length,
       totals: {
         total_revenue: totalRevenue,
         total_cogs: totalCogs,
-        total_profit: totalRevenue - totalCogs,
-        margin: totalRevenue !== 0 ? ((totalRevenue - totalCogs) / totalRevenue) : 0
+        total_profit: totalProfit,
+        margin: margin
       }
     });
   } catch (error) {
     console.error('Settlement import error:', error);
     
     // Try to update import job with error
-    try {
-      await base44.asServiceRole.entities.SettlementImport.update(importJob.id, {
-        status: 'failed',
-        error_message: error.message,
-        import_completed_at: new Date().toISOString()
-      });
-    } catch (updateErr) {
-      console.error('Failed to update import job:', updateErr);
+    if (importJob?.id) {
+      try {
+        await base44.asServiceRole.entities.SettlementImport.update(importJob.id, {
+          status: 'failed',
+          error_message: error.message,
+          import_completed_at: new Date().toISOString()
+        });
+      } catch (updateErr) {
+        console.error('Failed to update import job:', updateErr);
+      }
     }
 
     return Response.json({
