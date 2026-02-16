@@ -231,7 +231,6 @@ Deno.serve(async (req) => {
       }
 
       const orderTotalCostBefore = matchedOrder.total_cost || 0;
-      const orderLinesForOrder = orderLines.filter(l => l.order_id === matchedOrder.id);
       const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
 
       processedCount++;
