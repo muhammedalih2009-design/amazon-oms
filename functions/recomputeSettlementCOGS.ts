@@ -241,30 +241,28 @@ Deno.serve(async (req) => {
       }
 
       // DEBUG: Track specific orders
-      const isDebugOrder = DEBUG_ORDER_IDS.includes(row.order_id);
-      if (isDebugOrder) {
-        results.debug_orders.push({
-          order_id: row.order_id,
-          matched_order_id: matchedOrder.id,
-          order_total_cost_before: orderTotalCostBefore,
-          order_total_cost_after: cogsResult.should_sync_to_order ? cogsResult.cogs : orderTotalCostBefore,
-          order_lines_count: orderLinesForOrder.length,
-          row_cogs_before: 0,
-          row_cogs_after: cogsResult.cogs,
-          cogs_source: cogsResult.source,
-          cogs_reason: cogsResult.reason
-        });
-        console.log(`[DEBUG] ${row.order_id}:`, results.debug_orders[results.debug_orders.length - 1]);
-      }
+      results.debug_orders.push({
+        order_id: row.order_id,
+        matched_order_id: matchedOrder.id,
+        order_total_cost_before: orderTotalCostBefore,
+        order_total_cost_after: cogsResult.cogs || orderTotalCostBefore,
+        row_cogs_before: 0,
+        row_cogs_after: cogsResult.cogs,
+        cogs_source: cogsResult.cogsSource,
+        cogs_reason: cogsResult.reason,
+        items_count: cogsResult.itemsCount,
+        items_cogs_sum: cogsResult.itemsCogsSum
+      });
+      console.log(`[COGS COMPUTE] ${row.order_id}:`, results.debug_orders[results.debug_orders.length - 1]);
 
-      // Update settlement row with strict COGS reason if missing
+      // Update settlement row with cost source and reason
       const updateData = {
-        not_found_reason: cogsResult.reason !== COGS_REASON.SUCCESS ? cogsResult.reason : null
+        not_found_reason: cogsResult.cogs ? null : cogsResult.reason
       };
       
       // Log explicit cost missing status
-      if (cogsResult.cogs === 0 && cogsResult.reason === COGS_REASON.ORDER_FOUND_COST_MISSING) {
-        console.log(`[COGS RULE] COST_MISSING: order_id=${row.order_id}, matched=${matchedOrder.id}, reason=${cogsResult.reason}`);
+      if (!cogsResult.cogs) {
+        console.log(`[COGS MISSING] order_id=${row.order_id}, matched=${matchedOrder.id}, reason=${cogsResult.reason}, source=${cogsResult.cogsSource}`);
       }
 
       rowUpdates.push({
