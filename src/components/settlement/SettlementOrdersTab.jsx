@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useToast } from '@/components/ui/use-toast';
 import DeleteOrdersModal from './DeleteOrdersModal';
-import { Trash2, RotateCcw, RefreshCw } from 'lucide-react';
+import { Trash2, RotateCcw, RefreshCw, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   const [ordersToDelete, setOrdersToDelete] = useState([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRematching, setIsRematching] = useState(false);
   const { isOwner, membership } = useTenant();
   const { toast } = useToast();
 
@@ -45,9 +46,16 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     cacheTime: 0
   });
 
+  // Canonical normalization for consistent matching
   const normalizeOrderId = (orderId) => {
     if (!orderId) return '';
-    return orderId.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+    return orderId
+      .toString()
+      .trim()
+      .toUpperCase()
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/-/g, '');
   };
 
   const orderProfit = useMemo(() => {
@@ -88,14 +96,46 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     // Match with Orders table and get COGS from Orders.total_cost
     return Object.values(orderMap).map(order => {
       const normalizedOrderId = normalizeOrderId(order.order_id);
-      const matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedOrderId);
+      
+      // Try multiple matching strategies
+      let matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedOrderId);
+      let matchStrategy = 'amazon_id';
+      
+      if (!matchedOrder) {
+        matchedOrder = orders.find(o => normalizeOrderId(o.id) === normalizedOrderId);
+        matchStrategy = 'internal_id';
+      }
+      
+      if (!matchedOrder) {
+        // Partial match as fallback
+        matchedOrder = orders.find(o => {
+          const norm = normalizeOrderId(o.amazon_order_id);
+          return norm.includes(normalizedOrderId) || normalizedOrderId.includes(norm);
+        });
+        matchStrategy = 'partial';
+      }
       
       let cogs = 0;
       let orderFound = false;
+      let notFoundReason = 'Order not found in workspace';
 
       if (matchedOrder) {
         cogs = matchedOrder.total_cost || 0;
         orderFound = true;
+        
+        if (cogs === 0) {
+          notFoundReason = 'Order matched but COGS missing';
+        }
+      } else {
+        // Check if order exists with different format
+        const hasPartialMatch = orders.some(o => {
+          const norm = normalizeOrderId(o.amazon_order_id);
+          return norm.includes(normalizedOrderId.slice(0, 8)) || normalizedOrderId.includes(norm.slice(0, 8));
+        });
+        
+        if (hasPartialMatch) {
+          notFoundReason = 'Order exists but ID format mismatch';
+        }
       }
 
       const profit = order.net_total - cogs;
@@ -107,6 +147,8 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
         profit,
         margin,
         order_found: orderFound,
+        match_strategy: matchStrategy,
+        not_found_reason: notFoundReason,
         status: !orderFound ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
       };
     }).filter(order => {
@@ -201,6 +243,35 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     }
   };
 
+  const handleRematch = async () => {
+    setIsRematching(true);
+    try {
+      const response = await base44.functions.invoke('rematchSettlementOrders', {
+        workspace_id: tenantId
+      });
+
+      const data = response.data;
+      
+      toast({
+        title: 'Rematch Complete',
+        description: `${data.newly_matched} newly matched, ${data.still_unmatched} still unmatched`,
+        duration: 5000
+      });
+
+      // Refresh data
+      await refetchOrders();
+      if (onDataChange) onDataChange();
+    } catch (error) {
+      toast({
+        title: 'Rematch Failed',
+        description: error.message || 'Failed to rematch orders',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsRematching(false);
+    }
+  };
+
   const confirmDelete = async () => {
     setIsDeleting(true);
     try {
@@ -283,7 +354,20 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
       key: 'order_found',
       header: 'Order Found',
       align: 'center',
-      render: (val) => val ? '✅' : '❌'
+      render: (val, row) => {
+        if (val) {
+          return <span title={`Matched via ${row.match_strategy || 'unknown'}`}>✅</span>;
+        } else {
+          return (
+            <span 
+              title={row.not_found_reason || 'Not found'} 
+              className="cursor-help"
+            >
+              ❌
+            </span>
+          );
+        }
+      }
     },
     { key: 'signed_units', header: 'Units', align: 'right' },
     {
@@ -430,10 +514,18 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => refetchOrders()}
+                onClick={handleRematch}
+                disabled={isRematching}
                 size="sm"
               >
-                🔄 Recompute
+                {isRematching ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Rematching...
+                  </>
+                ) : (
+                  '🔄 Rematch Orders'
+                )}
               </Button>
             </>
           )}

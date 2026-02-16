@@ -77,13 +77,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Match with orders and SKUs
+    // Match with orders and SKUs using canonical normalization
     const [orders, skus] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id }),
+      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, is_deleted: false }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
 
     console.log(`[rebuildSettlementRows] Matching against ${orders.length} orders and ${skus.length} SKUs`);
+
+    // Canonical normalization
+    const normalizeOrderId = (orderId) => {
+      if (!orderId) return '';
+      return orderId.toString().trim().toUpperCase()
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, '')
+        .replace(/-/g, '');
+    };
 
     // Re-fetch created rows to get their IDs
     const createdRows = await base44.asServiceRole.entities.SettlementRow.filter({
@@ -98,13 +107,23 @@ Deno.serve(async (req) => {
       let matchedOrderId = null;
       let matchedSkuId = null;
 
+      const normalizedRowOrderId = normalizeOrderId(row.order_id);
+      
+      // Try normalized matching
       const matchedOrder = orders.find(o => 
-        o.amazon_order_id === row.order_id || o.id === row.order_id
+        normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId ||
+        normalizeOrderId(o.id) === normalizedRowOrderId
       );
 
       if (matchedOrder) {
         matchedOrderId = matchedOrder.id;
-        const matchedSku = skus.find(s => s.sku_code === row.sku);
+        
+        // Try to match SKU
+        const matchedSku = skus.find(s => 
+          s.sku_code === row.sku ||
+          normalizeOrderId(s.sku_code) === normalizeOrderId(row.sku)
+        );
+        
         if (matchedSku) {
           matchedSkuId = matchedSku.id;
           matchStatus = 'matched';
