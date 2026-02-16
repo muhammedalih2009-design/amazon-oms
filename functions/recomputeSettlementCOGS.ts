@@ -92,7 +92,7 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_V = 'v4.0.0-' + Date.now();
+  const DEPLOYMENT_V = 'v4.1.0-' + Date.now();
   const START_TIME = Date.now();
   
   try {
@@ -104,33 +104,41 @@ Deno.serve(async (req) => {
     }
 
     const reqBody = await req.json();
-    const { workspace_id, import_id } = reqBody;
-    
+    const { import_id } = reqBody;
+
     console.log(`[DEPLOYMENT] ${DEPLOYMENT_V}`);
-    console.log(`[REQUEST] Payload:`, { workspace_id, import_id, user_id: user.id });
+    console.log(`[REQUEST] Payload:`, { import_id, user_id: user.id });
 
-    if (!workspace_id) {
-      return Response.json({ error: 'workspace_id required' }, { status: 400 });
-    }
-
-    const membership = await base44.asServiceRole.entities.Membership.filter({
-      tenant_id: workspace_id,
+    // Derive workspace_id from user's membership
+    const memberships = await base44.asServiceRole.entities.Membership.filter({
       user_id: user.id
     });
 
-    if (membership.length === 0) {
-      return Response.json({ error: 'No access to workspace' }, { status: 403 });
+    if (memberships.length === 0) {
+      return Response.json({ error: 'No workspace access found for user' }, { status: 403 });
     }
 
-    const [orders, orderLines, skus] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, is_deleted: false }),
+    const userMembership = memberships[0];
+    const workspace_id = userMembership.tenant_id;
+
+    console.log(`[WORKSPACE] Derived workspace_id: ${workspace_id}`);
+
+    // Fetch order lines and SKUs once (used across multiple order COGS computations)
+    const [orderLines, skus] = await Promise.all([
       base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
 
-    console.log(`[DATA] Orders: ${orders.length} | OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
+    console.log(`[DATA] OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
 
-    if (orders.length === 0) {
+    // Check for any active orders
+    const anyActiveOrders = await base44.asServiceRole.entities.Order.filter({ 
+      tenant_id: workspace_id, 
+      is_deleted: false,
+      limit: 1
+    });
+    
+    if (anyActiveOrders.length === 0) {
       console.log(`[WARNING] No active orders found for workspace_id: ${workspace_id}. Cannot recompute COGS.`);
       return Response.json({
         success: false,
@@ -195,6 +203,7 @@ Deno.serve(async (req) => {
       matched_order_rows_scanned: matchedRows.length,
       rows_with_cogs: 0,
       rows_missing_cogs: 0,
+      rows_skipped_deleted_order: 0,
       cogs_by_source: {
         ORDER_TOTAL: 0,
         ORDER_LINE_TOTAL: 0,
@@ -203,20 +212,34 @@ Deno.serve(async (req) => {
       },
       orders_synced: 0,
       debug_orders: [],
-      proof_table: [] // Strict COGS sourcing proof
+      proof_table: []
     };
 
     const rowUpdates = [];
     const orderUpdates = new Map();
     const skippedReasons = {};
     let processedCount = 0;
-    const processedOrders = new Map(); // Track which orders we've processed
+    const processedOrders = new Map();
 
     for (const row of matchedRows) {
-      const matchedOrder = orders.find(o => o.id === row.matched_order_id);
-      if (!matchedOrder) {
-        skippedReasons['ORDER_NOT_FOUND'] = (skippedReasons['ORDER_NOT_FOUND'] || 0) + 1;
-        console.warn(`[SKIP] Row ${row.order_id}: Matched order ID not found: ${row.matched_order_id}`);
+      // Use direct lookup to check for deleted orders
+      let matchedOrder;
+      try {
+        matchedOrder = await base44.asServiceRole.entities.Order.get(row.matched_order_id);
+      } catch (err) {
+        console.log(`[COGS LOOKUP] Failed to get Order ${row.matched_order_id}: ${err.message}`);
+        // matchedOrder remains undefined, handled by the next if block
+      }
+
+      if (!matchedOrder || matchedOrder.is_deleted) {
+        if (matchedOrder?.is_deleted) {
+          skippedReasons['ORDER_DELETED'] = (skippedReasons['ORDER_DELETED'] || 0) + 1;
+          results.rows_skipped_deleted_order++;
+          console.warn(`[SKIP] Row ${row.order_id}: Matched order ID ${row.matched_order_id} found but is deleted.`);
+        } else {
+          skippedReasons['ORDER_NOT_FOUND'] = (skippedReasons['ORDER_NOT_FOUND'] || 0) + 1;
+          console.warn(`[SKIP] Row ${row.order_id}: Matched order ID not found or accessible: ${row.matched_order_id}`);
+        }
         continue;
       }
 
@@ -226,7 +249,7 @@ Deno.serve(async (req) => {
 
       processedCount++;
 
-      // RULE: Store canonical COGS result per matched order (only once)
+      // Store canonical COGS result per matched order (only once)
       if (!processedOrders.has(matchedOrder.id)) {
         processedOrders.set(matchedOrder.id, cogsResult);
       }
@@ -248,12 +271,12 @@ Deno.serve(async (req) => {
         console.log(`[DEBUG] ${row.order_id}:`, results.debug_orders[results.debug_orders.length - 1]);
       }
 
-      // RULE: Update settlement row with strict COGS reason if missing
+      // Update settlement row with strict COGS reason if missing
       const updateData = {
         not_found_reason: cogsResult.reason !== COGS_REASON.SUCCESS ? cogsResult.reason : null
       };
       
-      // RULE: Log explicit cost missing status
+      // Log explicit cost missing status
       if (cogsResult.cogs === 0 && cogsResult.reason === COGS_REASON.ORDER_FOUND_COST_MISSING) {
         console.log(`[COGS RULE] COST_MISSING: order_id=${row.order_id}, matched=${matchedOrder.id}, reason=${cogsResult.reason}`);
       }
@@ -263,7 +286,7 @@ Deno.serve(async (req) => {
         data: updateData
       });
 
-      // RULE: Sync Order.total_cost if missing and we computed COGS from lines
+      // Sync Order.total_cost if missing and we computed COGS from lines
       if (cogsResult.should_sync_to_order && orderTotalCostBefore === 0 && cogsResult.cogs > 0) {
         if (!orderUpdates.has(matchedOrder.id)) {
           const newTotal = cogsResult.cogs;
@@ -288,10 +311,17 @@ Deno.serve(async (req) => {
       results.cogs_by_source[cogsResult.source]++;
     }
 
-    // RULE: Build proof table for processed orders
+    // Build proof table for processed orders
     console.log(`[COGS RULE] Building proof table for ${processedOrders.size} unique matched orders...`);
     for (const [orderId, cogsResult] of processedOrders.entries()) {
-      const orderData = orders.find(o => o.id === orderId);
+      let orderData;
+      try {
+        orderData = await base44.asServiceRole.entities.Order.get(orderId);
+      } catch (err) {
+        console.log(`[PROOF TABLE] Failed to get Order ${orderId} for proof table: ${err.message}`);
+        continue;
+      }
+
       if (orderData) {
         results.proof_table.push({
           order_id: orderData.amazon_order_id || 'N/A',
@@ -358,21 +388,25 @@ Deno.serve(async (req) => {
       const totalRevenue = importRows.reduce((sum, r) => sum + (r.total || 0), 0);
       let totalCogs = 0;
 
-      // Reload orders to get updated costs
-      const freshOrders = await base44.asServiceRole.entities.Order.filter({ 
-        tenant_id: workspace_id, 
-        is_deleted: false 
-      });
-
       for (const row of importRows) {
         if (row.matched_order_id) {
-          const matchedOrder = freshOrders.find(o => o.id === row.matched_order_id);
-          if (matchedOrder) {
-            const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
-            // Proportional COGS allocation based on quantity
-            const orderTotalQty = Math.abs(matchedOrder.net_revenue || 1);
-            totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderTotalQty);
+          let matchedOrder;
+          try {
+            matchedOrder = await base44.asServiceRole.entities.Order.get(row.matched_order_id);
+          } catch (err) {
+            console.log(`[COGS LOOKUP] Failed to get Order ${row.matched_order_id} for totals recompute: ${err.message}`);
+            continue;
           }
+          
+          if (!matchedOrder || matchedOrder.is_deleted) {
+            console.warn(`[COGS LOOKUP] Skipped deleted or unfound Order ${row.matched_order_id} for totals recompute.`);
+            continue;
+          }
+
+          const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
+          // Proportional COGS allocation based on quantity
+          const orderTotalQty = Math.abs(matchedOrder.net_revenue || 1);
+          totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderTotalQty);
         }
       }
 
@@ -399,7 +433,7 @@ Deno.serve(async (req) => {
     const elapsed = Date.now() - START_TIME;
     console.log(`[COMPLETE] Total rows scanned: ${rowsToRecompute.length} | Eligible: ${matchedRows.length} | Updated: ${rowUpdates.length} | Orders synced: ${results.orders_synced} | Duration: ${elapsed}ms`);
     
-    // RULE: Log proof table summary
+    // Log proof table summary
     const proofWithCOGS = results.proof_table.filter(p => p.cogs_after > 0).length;
     const proofMissingCOGS = results.proof_table.filter(p => p.cogs_after === 0).length;
     console.log(`[PROOF TABLE] Total orders: ${results.proof_table.length} | With COGS: ${proofWithCOGS} | Missing COGS: ${proofMissingCOGS}`);
