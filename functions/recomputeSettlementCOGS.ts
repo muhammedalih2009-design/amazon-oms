@@ -191,13 +191,15 @@ Deno.serve(async (req) => {
         MISSING: 0
       },
       orders_synced: 0,
-      debug_orders: []
+      debug_orders: [],
+      proof_table: [] // Strict COGS sourcing proof
     };
 
     const rowUpdates = [];
     const orderUpdates = new Map();
     const skippedReasons = {};
     let processedCount = 0;
+    const processedOrders = new Map(); // Track which orders we've processed
 
     for (const row of matchedRows) {
       const matchedOrder = orders.find(o => o.id === row.matched_order_id);
