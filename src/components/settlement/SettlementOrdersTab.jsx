@@ -36,8 +36,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   });
 
   const { data: orders = [], refetch: refetchOrders, isFetching: isOrdersFetching } = useQuery({
-    queryKey: ['orders', tenantId, Date.now()],
-    queryFn: () => base44.entities.Order.filter({ tenant_id: tenantId, is_deleted: false }),
+    queryKey: ['orders', tenantId],
+    queryFn: () => {
+      console.log('fetchOrders fired', Date.now());
+      return base44.entities.Order.filter({ tenant_id: tenantId, is_deleted: false });
+    },
     staleTime: 0,
     cacheTime: 0
   });
@@ -168,6 +171,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   };
 
   const handleRefresh = async () => {
+    console.log('Refresh button clicked');
     setIsRefreshing(true);
     try {
       // Reset filters
@@ -176,7 +180,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
       setSelectedOrders(new Set());
 
       // Force refetch
-      await refetchOrders();
+      const result = await refetchOrders();
+      
+      if (result.isError) {
+        throw new Error('Failed to refresh');
+      }
 
       toast({
         title: 'Refreshed Successfully',
