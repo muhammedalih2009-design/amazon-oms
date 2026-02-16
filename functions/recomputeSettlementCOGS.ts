@@ -2,6 +2,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 const COGS_SOURCE = {
   ORDER_TOTAL: 'ORDER_TOTAL',
+  ORDER_LINE_TOTAL: 'ORDER_LINE_TOTAL',
   ORDER_LINES_SKU_COST: 'ORDER_LINES_SKU_COST',
   MISSING: 'MISSING'
 };
@@ -14,7 +15,15 @@ const COGS_REASON = {
   ORDER_FOUND_COST_MISSING: 'Order matched but COGS missing'
 };
 
+const DEBUG_ORDER_IDS = [
+  '406-9098319-4354700',
+  '405-9237140-1177144',
+  '407-7729567-8966740',
+  '171-1927461-9022731'
+];
+
 function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
+  // Priority A: Order.total_cost if > 0
   if (matchedOrder.total_cost && matchedOrder.total_cost > 0) {
     return {
       cogs: matchedOrder.total_cost,
@@ -23,8 +32,29 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
     };
   }
 
+  // Priority B: Sum(OrderLine.line_total_cost) if available
   const lines = orderLines.filter(l => l.order_id === matchedOrder.id);
   if (lines.length > 0) {
+    let lineTotalCost = 0;
+    let hasLineTotalCost = false;
+
+    for (const line of lines) {
+      if (line.line_total_cost && line.line_total_cost > 0) {
+        lineTotalCost += line.line_total_cost;
+        hasLineTotalCost = true;
+      }
+    }
+
+    if (hasLineTotalCost && lineTotalCost > 0) {
+      return {
+        cogs: lineTotalCost,
+        source: COGS_SOURCE.ORDER_LINE_TOTAL,
+        reason: COGS_REASON.SUCCESS,
+        should_sync_to_order: true
+      };
+    }
+
+    // Priority C: Sum(OrderLine.quantity * SKU.cost_price)
     let totalCost = 0;
     let allSkusHaveCost = true;
 
@@ -41,7 +71,8 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
       return {
         cogs: totalCost,
         source: COGS_SOURCE.ORDER_LINES_SKU_COST,
-        reason: allSkusHaveCost ? COGS_REASON.SUCCESS : COGS_REASON.SKU_COST_MISSING
+        reason: allSkusHaveCost ? COGS_REASON.SUCCESS : COGS_REASON.SKU_COST_MISSING,
+        should_sync_to_order: true
       };
     }
 
@@ -52,6 +83,7 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
     };
   }
 
+  // Priority D: No order lines
   return {
     cogs: 0,
     source: COGS_SOURCE.MISSING,
@@ -60,7 +92,7 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_V = 'v2.0.0-' + Date.now();
+  const DEPLOYMENT_V = 'v3.0.0-' + Date.now();
   
   try {
     const base44 = createClientFromRequest(req);
@@ -75,6 +107,11 @@ Deno.serve(async (req) => {
     if (!workspace_id) {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
     }
+
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[RECOMPUTE COGS] v${DEPLOYMENT_V}`);
+    console.log(`Workspace: ${workspace_id} | Import: ${import_id || 'ALL'}`);
+    console.log(`${'='.repeat(80)}`);
 
     const membership = await base44.asServiceRole.entities.Membership.filter({
       tenant_id: workspace_id,
@@ -91,6 +128,9 @@ Deno.serve(async (req) => {
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
 
+    console.log(`[DATA] Loaded ${orders.length} orders, ${orderLines.length} lines, ${skus.length} SKUs`);
+
+    // Load settlement rows
     let rowsToRecompute = [];
     if (import_id) {
       rowsToRecompute = await base44.asServiceRole.entities.SettlementRow.filter({
@@ -105,33 +145,93 @@ Deno.serve(async (req) => {
       });
     }
 
+    console.log(`[ROWS] Total settlement rows: ${rowsToRecompute.length}`);
+
+    // Filter for matched rows only
+    const matchedRows = rowsToRecompute.filter(row => 
+      row.matched_order_id && 
+      (row.match_status === 'matched' || row.match_status === 'unmatched_sku')
+    );
+
+    console.log(`[ROWS] Matched rows (eligible for COGS): ${matchedRows.length}`);
+
+    if (matchedRows.length === 0) {
+      return Response.json({
+        success: false,
+        error_code: 'NO_ELIGIBLE_MATCHED_ROWS',
+        total_rows_scanned: rowsToRecompute.length,
+        matched_order_rows_scanned: 0,
+        rows_updated: 0,
+        rows_with_cogs: 0,
+        rows_missing_cogs: 0,
+        message: 'No matched settlement rows found for COGS recomputation'
+      });
+    }
+
     const results = {
-      total_rows: rowsToRecompute.length,
+      total_rows_scanned: rowsToRecompute.length,
+      matched_order_rows_scanned: matchedRows.length,
       rows_with_cogs: 0,
       rows_missing_cogs: 0,
       cogs_by_source: {
         ORDER_TOTAL: 0,
+        ORDER_LINE_TOTAL: 0,
         ORDER_LINES_SKU_COST: 0,
         MISSING: 0
-      }
+      },
+      orders_synced: 0,
+      debug_orders: []
     };
 
-    const updates = [];
+    const rowUpdates = [];
+    const orderUpdates = new Map();
 
-    for (const row of rowsToRecompute) {
-      if (!row.matched_order_id) continue;
-
+    for (const row of matchedRows) {
       const matchedOrder = orders.find(o => o.id === row.matched_order_id);
-      if (!matchedOrder) continue;
+      if (!matchedOrder) {
+        console.warn(`[ROW ${row.order_id}] Matched order ID not found: ${row.matched_order_id}`);
+        continue;
+      }
 
+      const orderTotalCostBefore = matchedOrder.total_cost || 0;
       const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
 
-      updates.push({
+      // DEBUG: Track specific orders
+      const isDebugOrder = DEBUG_ORDER_IDS.includes(row.order_id);
+      if (isDebugOrder) {
+        results.debug_orders.push({
+          order_id: row.order_id,
+          matched_order_id: row.matched_order_id,
+          order_total_cost_before: orderTotalCostBefore,
+          order_total_cost_after: cogsResult.should_sync_to_order ? cogsResult.cogs : orderTotalCostBefore,
+          row_cogs_before: 0, // Settlement rows don't store COGS directly
+          row_cogs_after: cogsResult.cogs,
+          cogs_source: cogsResult.source,
+          cogs_reason: cogsResult.reason
+        });
+      }
+
+      // Update settlement row with COGS metadata
+      rowUpdates.push({
         id: row.id,
         data: {
           not_found_reason: cogsResult.reason !== COGS_REASON.SUCCESS ? cogsResult.reason : null
         }
       });
+
+      // Sync Order.total_cost if missing and we computed COGS from lines
+      if (cogsResult.should_sync_to_order && orderTotalCostBefore === 0 && cogsResult.cogs > 0) {
+        if (!orderUpdates.has(matchedOrder.id)) {
+          orderUpdates.set(matchedOrder.id, {
+            id: matchedOrder.id,
+            total_cost: cogsResult.cogs,
+            profit_loss: (matchedOrder.net_revenue || 0) - cogsResult.cogs,
+            profit_margin_percent: matchedOrder.net_revenue 
+              ? ((matchedOrder.net_revenue - cogsResult.cogs) / matchedOrder.net_revenue) * 100 
+              : 0
+          });
+        }
+      }
 
       if (cogsResult.cogs > 0) {
         results.rows_with_cogs++;
@@ -142,9 +242,13 @@ Deno.serve(async (req) => {
       results.cogs_by_source[cogsResult.source]++;
     }
 
+    console.log(`[UPDATES] Settlement rows to update: ${rowUpdates.length}`);
+    console.log(`[UPDATES] Orders to sync: ${orderUpdates.size}`);
+
+    // Apply settlement row updates in batches
     const BATCH_SIZE = 50;
-    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
-      const batch = updates.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < rowUpdates.length; i += BATCH_SIZE) {
+      const batch = rowUpdates.slice(i, i + BATCH_SIZE);
       await Promise.all(
         batch.map(item => 
           base44.asServiceRole.entities.SettlementRow.update(item.id, item.data)
@@ -152,22 +256,39 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Apply order updates
+    for (const [orderId, updateData] of orderUpdates) {
+      await base44.asServiceRole.entities.Order.update(orderId, updateData);
+      results.orders_synced++;
+    }
+
+    console.log(`[SYNC] Updated ${results.orders_synced} orders with computed COGS`);
+
+    // Recompute import totals
+    let importsUpdated = 0;
     if (import_id) {
       const importRows = await base44.asServiceRole.entities.SettlementRow.filter({
         settlement_import_id: import_id,
         is_deleted: false
       });
 
-      const totalRevenue = importRows.reduce((sum, r) => sum + r.total, 0);
+      const totalRevenue = importRows.reduce((sum, r) => sum + (r.total || 0), 0);
       let totalCogs = 0;
+
+      // Reload orders to get updated costs
+      const freshOrders = await base44.asServiceRole.entities.Order.filter({ 
+        tenant_id: workspace_id, 
+        is_deleted: false 
+      });
 
       for (const row of importRows) {
         if (row.matched_order_id) {
-          const matchedOrder = orders.find(o => o.id === row.matched_order_id);
+          const matchedOrder = freshOrders.find(o => o.id === row.matched_order_id);
           if (matchedOrder) {
             const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
-            const orderRevenue = Math.abs(matchedOrder.net_revenue || 1);
-            totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderRevenue);
+            // Proportional COGS allocation based on quantity
+            const orderTotalQty = Math.abs(matchedOrder.net_revenue || 1);
+            totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderTotalQty);
           }
         }
       }
@@ -185,12 +306,20 @@ Deno.serve(async (req) => {
           skus_count: new Set(importRows.map(r => r.sku)).size
         }
       });
+
+      importsUpdated = 1;
+      console.log(`[IMPORT] Updated totals - COGS: $${totalCogs.toFixed(2)}, Profit: $${totalProfit.toFixed(2)}, Margin: ${(margin * 100).toFixed(1)}%`);
     }
+
+    console.log(`${'='.repeat(80)}`);
+    console.log(`[COMPLETE] Rows updated: ${rowUpdates.length} | Orders synced: ${results.orders_synced}`);
+    console.log(`${'='.repeat(80)}\n`);
 
     return Response.json({
       success: true,
       ...results,
-      rows_updated: updates.length,
+      rows_updated: rowUpdates.length,
+      imports_updated: importsUpdated,
       deployment: DEPLOYMENT_V
     });
 

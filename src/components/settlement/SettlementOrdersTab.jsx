@@ -255,16 +255,32 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
   const handleRecomputeCOGS = async () => {
     setIsRecomputingCOGS(true);
     try {
+      // Get current import_id from parent
+      const urlParams = new URLSearchParams(window.location.search);
+      const currentImportId = urlParams.get('import_id');
+      
       const response = await base44.functions.invoke('recomputeSettlementCOGS', {
-        workspace_id: tenantId
+        workspace_id: tenantId,
+        import_id: currentImportId || null
       });
 
       const data = response.data;
       
+      if (!data.success && data.error_code === 'NO_ELIGIBLE_MATCHED_ROWS') {
+        toast({
+          title: 'No Matched Orders',
+          description: `${data.total_rows_scanned} rows scanned, but none are matched to orders. Run "Rematch Orders" first.`,
+          variant: 'destructive',
+          duration: 7000
+        });
+        setIsRecomputingCOGS(false);
+        return;
+      }
+      
       toast({
         title: 'COGS Recomputed',
-        description: `${data.rows_with_cogs} rows with COGS, ${data.rows_missing_cogs} missing`,
-        duration: 5000
+        description: `${data.rows_with_cogs} rows with COGS, ${data.rows_missing_cogs} missing. ${data.orders_synced} orders updated.`,
+        duration: 7000
       });
 
       window.location.reload();
