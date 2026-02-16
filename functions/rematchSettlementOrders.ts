@@ -8,8 +8,9 @@ function normalizeOrderId(orderId) {
     .toString()
     .trim()
     .toUpperCase()
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove zero-width chars
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // Remove zero-width and non-breaking chars
     .replace(/\s+/g, '') // Remove all whitespace
+    .replace(/[\u2010-\u2015\u2212]/g, '-') // Normalize unicode dashes
     .replace(/-/g, ''); // Remove hyphens for comparison
 }
 
@@ -19,21 +20,30 @@ function findMatchingOrder(settlementOrderId, orders) {
   
   // Strategy 1: Direct normalized match
   let match = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedSettlement);
-  if (match) return { order: match, strategy: 'normalized_amazon_id' };
+  if (match) return { order: match, strategy: 'normalized_amazon_id', confidence: 'high' };
   
   // Strategy 2: Match with internal ID
   match = orders.find(o => normalizeOrderId(o.id) === normalizedSettlement);
-  if (match) return { order: match, strategy: 'internal_id' };
+  if (match) return { order: match, strategy: 'internal_id', confidence: 'high' };
   
-  // Strategy 3: Partial match (contains)
+  // Strategy 3: Partial match (contains) - only if both IDs are long enough
   match = orders.find(o => {
     const norm = normalizeOrderId(o.amazon_order_id);
-    return norm.includes(normalizedSettlement) || normalizedSettlement.includes(norm);
+    return norm.length >= 8 && normalizedSettlement.length >= 8 &&
+           (norm.includes(normalizedSettlement) || normalizedSettlement.includes(norm));
   });
-  if (match) return { order: match, strategy: 'partial_match' };
+  if (match) return { order: match, strategy: 'partial_match', confidence: 'medium' };
   
   return null;
 }
+
+const NOT_FOUND_REASONS = {
+  NO_MATCH_AFTER_NORMALIZATION: 'Order not found after normalization',
+  ORDER_FOUND_COST_MISSING: 'Order matched but COGS missing',
+  SKU_MISSING: 'Order matched, SKU not found',
+  PARTIAL_SKU_MATCH: 'Order matched, partial SKU match',
+  ORDER_DELETED: 'Order found but marked as deleted'
+};
 
 Deno.serve(async (req) => {
   try {
@@ -62,16 +72,18 @@ Deno.serve(async (req) => {
 
     console.log('[rematchSettlementOrders] Starting rematch for workspace:', workspace_id);
 
-    // Load orders and SKUs
-    const [orders, skus] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ 
-        tenant_id: workspace_id,
-        is_deleted: false
-      }),
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
+    // Load orders and SKUs - CRITICAL: Load ALL workspace orders, ignore date filters
+    const [allOrders, skus, orderLines] = await Promise.all([
+      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id }),
+      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id }),
+      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id })
     ]);
 
-    console.log(`[rematchSettlementOrders] Found ${orders.length} orders, ${skus.length} SKUs`);
+    // Separate active from deleted orders
+    const orders = allOrders.filter(o => !o.is_deleted);
+    const deletedOrders = allOrders.filter(o => o.is_deleted);
+
+    console.log(`[rematchSettlementOrders] Found ${orders.length} active orders, ${deletedOrders.length} deleted, ${skus.length} SKUs, ${orderLines.length} order lines`);
 
     // Determine scope: single row or import or all
     let rowsToMatch = [];
@@ -110,18 +122,33 @@ Deno.serve(async (req) => {
     for (const row of rowsToMatch) {
       const wasMatched = row.match_status === 'matched';
       
-      // Find matching order
-      const matchResult = findMatchingOrder(row.order_id, orders);
+      // Find matching order in active orders first
+      let matchResult = findMatchingOrder(row.order_id, orders);
+      let notFoundReason = null;
       
       let updateData = {
         matched_order_id: null,
         matched_sku_id: null,
-        match_status: 'unmatched_order'
+        match_status: 'unmatched_order',
+        match_strategy: null,
+        not_found_reason: null,
+        raw_order_id: row.order_id,
+        normalized_order_id: normalizeOrderId(row.order_id)
       };
 
+      // Check if order exists but is deleted
+      if (!matchResult && deletedOrders.length > 0) {
+        const deletedMatch = findMatchingOrder(row.order_id, deletedOrders);
+        if (deletedMatch) {
+          notFoundReason = NOT_FOUND_REASONS.ORDER_DELETED;
+        }
+      }
+
       if (matchResult) {
-        const { order, strategy } = matchResult;
+        const { order, strategy, confidence } = matchResult;
         updateData.matched_order_id = order.id;
+        updateData.match_strategy = strategy;
+        updateData.match_confidence = confidence;
         
         results.match_strategies[strategy] = (results.match_strategies[strategy] || 0) + 1;
 
@@ -135,10 +162,22 @@ Deno.serve(async (req) => {
           updateData.matched_sku_id = matchedSku.id;
           updateData.match_status = 'matched';
           
+          // Check if order has COGS data
+          if (!order.total_cost || order.total_cost === 0) {
+            // Try to compute COGS from order lines
+            const lines = orderLines.filter(l => l.order_id === order.id);
+            const computedCogs = lines.reduce((sum, l) => sum + ((l.unit_cost || 0) * (l.quantity || 0)), 0);
+            
+            if (computedCogs === 0) {
+              updateData.not_found_reason = NOT_FOUND_REASONS.ORDER_FOUND_COST_MISSING;
+            }
+          }
+          
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         } else {
           updateData.match_status = 'unmatched_sku';
+          updateData.not_found_reason = NOT_FOUND_REASONS.SKU_MISSING;
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         }
@@ -148,13 +187,16 @@ Deno.serve(async (req) => {
         }
       } else {
         results.still_unmatched++;
+        updateData.not_found_reason = notFoundReason || NOT_FOUND_REASONS.NO_MATCH_AFTER_NORMALIZATION;
       }
 
       // Only update if changed
       if (
         updateData.matched_order_id !== row.matched_order_id ||
         updateData.matched_sku_id !== row.matched_sku_id ||
-        updateData.match_status !== row.match_status
+        updateData.match_status !== row.match_status ||
+        updateData.match_strategy !== row.match_strategy ||
+        updateData.not_found_reason !== row.not_found_reason
       ) {
         updates.push({
           id: row.id,
