@@ -131,32 +131,15 @@ Deno.serve(async (req) => {
       throw new Error(`Backup validation failed: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
     }
 
-    // Convert to JSON string (as Base64 for transmission)
+    // Convert to JSON and store backup data directly in the entity
     const jsonString = JSON.stringify(backupData, null, 2);
     const encoder = new TextEncoder();
     const jsonBytes = encoder.encode(jsonString);
-    
-    // Convert to base64 data URL for UploadFile
-    let base64String = '';
-    for (let i = 0; i < jsonBytes.length; i++) {
-      base64String += String.fromCharCode(jsonBytes[i]);
-    }
-    const base64Data = btoa(base64String);
-    const dataUrl = `data:application/json;base64,${base64Data}`;
-    
-    // Upload backup file
-    const uploadResponse = await base44.asServiceRole.integrations.Core.UploadFile({
-      file: dataUrl
-    });
-
-    if (!uploadResponse.file_url) {
-      throw new Error('Failed to upload backup file');
-    }
 
     // Update job with success and stats
     await base44.asServiceRole.entities.BackupJob.update(jobId, {
       status: 'completed',
-      file_url: uploadResponse.file_url,
+      backup_data: jsonString,
       file_size_bytes: jsonBytes.length,
       stats: backupData.stats,
       completed_at: new Date().toISOString()
@@ -165,7 +148,6 @@ Deno.serve(async (req) => {
     return Response.json({
       success: true,
       jobId,
-      fileUrl: uploadResponse.file_url,
       sizeBytes: jsonBytes.length
     });
   } catch (error) {
