@@ -78,7 +78,6 @@ export function TenantProvider({ children }) {
             orders: { view: true, edit: true },
             purchases: { view: true, edit: true },
             returns: { view: true, edit: true },
-            settlement: { view: true, edit: true },
             suppliers: { view: true, edit: true }
           }
         });
