@@ -136,10 +136,12 @@ Deno.serve(async (req) => {
     const encoder = new TextEncoder();
     const jsonBytes = encoder.encode(jsonString);
 
+    // Create blob for upload
+    const blob = new Blob([jsonBytes], { type: 'application/json' });
+    
     // Upload backup file
-    const fileName = `backup_${new Date().toISOString().split('T')[0]}_${jobId}.json`;
     const uploadResponse = await base44.asServiceRole.integrations.Core.UploadFile({
-      file: new File([jsonBytes], fileName, { type: 'application/json' })
+      file: blob
     });
 
     if (!uploadResponse.file_url) {
