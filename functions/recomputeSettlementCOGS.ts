@@ -312,12 +312,12 @@ Deno.serve(async (req) => {
         results.proof_table.push({
           order_id: orderData.amazon_order_id || 'N/A',
           matched_order_id: orderId,
-          order_cost_source: cogsResult.source,
+          order_cost_source: cogsResult.cogsSource,
           cogs_before: 0,
           cogs_after: cogsResult.cogs,
           reason: cogsResult.reason,
           net_revenue: orderData.net_revenue || 0,
-          profit: (orderData.net_revenue || 0) - cogsResult.cogs
+          profit: (orderData.net_revenue || 0) - (cogsResult.cogs || 0)
         });
       }
     }
