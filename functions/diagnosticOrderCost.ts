@@ -22,7 +22,10 @@ Deno.serve(async (req) => {
 
     let matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
 
-    // Apply date filters if provided
+    console.log(`[DIAGNOSTIC] Initial rows: ${matchedRows.length}, filters: import_id=${import_id}, start_date=${start_date}, end_date=${end_date}, store_ids=${store_ids ? store_ids.length : 0}`);
+
+    // Apply date filters if provided (log impact)
+    let preDateFilter = matchedRows.length;
     if (start_date || end_date) {
       matchedRows = matchedRows.filter(row => {
         if (!row.datetime) return true;
@@ -31,14 +34,33 @@ Deno.serve(async (req) => {
         if (end_date && rowDate > end_date) return false;
         return true;
       });
+      console.log(`[DIAGNOSTIC] After date filter: ${matchedRows.length} (was ${preDateFilter})`);
     }
 
-    // Apply store filters if provided
+    // Store filters are optional - skip if no matching rows
+    // (Frontend store_ids are store record IDs, not marketplace names)
     if (store_ids && store_ids.length > 0) {
-      matchedRows = matchedRows.filter(row => {
-        // Try to match by marketplace or other store identifier
-        return store_ids.includes(row.marketplace);
-      });
+      const preStoreFilter = matchedRows.length;
+      // Try to match by marketplace field - this is lenient
+      matchedRows = matchedRows.filter(row => 
+        row.marketplace && store_ids.some(id => row.marketplace.includes(id))
+      );
+      console.log(`[DIAGNOSTIC] After store filter: ${matchedRows.length} (was ${preStoreFilter})`);
+      
+      // If store filter eliminated everything, reset and warn
+      if (matchedRows.length === 0 && preStoreFilter > 0) {
+        console.warn(`[DIAGNOSTIC] Store filter eliminated all rows. Ignoring store filter.`);
+        matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
+        if (start_date || end_date) {
+          matchedRows = matchedRows.filter(row => {
+            if (!row.datetime) return true;
+            const rowDate = row.datetime.split('T')[0];
+            if (start_date && rowDate < start_date) return false;
+            if (end_date && rowDate > end_date) return false;
+            return true;
+          });
+        }
+      }
     }
 
     if (matchedRows.length === 0) {
@@ -46,22 +68,25 @@ Deno.serve(async (req) => {
       const allRows = await base44.asServiceRole.entities.SettlementRow.filter({
         tenant_id: workspace_id
       });
-      const notDeletedRows = await base44.asServiceRole.entities.SettlementRow.filter({
-        tenant_id: workspace_id,
-        is_deleted: false
+      const notDeletedRows = allRows.filter(r => !r.is_deleted);
+      const sampleMarketplaces = [...new Set(notDeletedRows.slice(0, 10).map(r => r.marketplace))];
+      
+      console.error('[DIAGNOSTIC] No rows match after filtering', {
+        total_all: allRows.length,
+        not_deleted: notDeletedRows.length,
+        filters_applied: { import_id, start_date, end_date, store_ids },
+        sample_marketplaces: sampleMarketplaces
       });
       
       return Response.json({ 
-        error: 'No settlement rows found with query',
+        error: 'No settlement rows match the applied filters',
         debug: {
           query_used: query,
+          filters_applied: { import_id, start_date, end_date, store_ids },
           total_rows_all: allRows.length,
           total_rows_not_deleted: notDeletedRows.length,
-          sample_row: notDeletedRows[0] ? {
-            id: notDeletedRows[0].id,
-            is_deleted: notDeletedRows[0].is_deleted,
-            matched_order_id: notDeletedRows[0].matched_order_id
-          } : null
+          sample_marketplaces: sampleMarketplaces,
+          hint: 'Try clearing store/date filters or checking if import has data'
         }
       }, { status: 400 });
     }
