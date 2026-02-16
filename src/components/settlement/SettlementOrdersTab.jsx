@@ -171,6 +171,12 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   const confirmDelete = async () => {
     setIsDeleting(true);
     try {
+      // Log what we're sending
+      console.log('[SettlementOrdersTab] Deleting order_ids:', ordersToDelete);
+      console.log('[SettlementOrdersTab] Sample settlement rows for these orders:', 
+        rows.filter(r => ordersToDelete.includes(r.order_id)).slice(0, 2)
+      );
+
       const response = await base44.functions.invoke('deleteSettlementOrders', {
         workspace_id: tenantId,
         order_ids: ordersToDelete,
