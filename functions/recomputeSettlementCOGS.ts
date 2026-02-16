@@ -70,7 +70,8 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_TIMESTAMP = '2026-02-16T21:00:00Z';
+  const DEPLOYMENT_TIMESTAMP = '2026-02-16T21:30:00Z';
+  const VERSION_HASH = 'v1.0.0-redeployed';
   
   try {
     const base44 = createClientFromRequest(req);
@@ -87,7 +88,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(`\n${'='.repeat(80)}`);
-    console.log(`RECOMPUTE COGS START - Deployment: ${DEPLOYMENT_TIMESTAMP}`);
+    console.log(`RECOMPUTE COGS START - Deployment: ${DEPLOYMENT_TIMESTAMP} | Version: ${VERSION_HASH}`);
     console.log(`${'='.repeat(80)}`);
     console.log(`[1] Request workspace_id: ${workspace_id}`);
     console.log(`[2] User: ${user.email}`);
@@ -137,7 +138,8 @@ Deno.serve(async (req) => {
         ORDER_LINES_SKU_COST: 0,
         MISSING: 0
       },
-      diagnostic_orders: []
+      diagnostic_orders: [],
+      smoke_check: []
     };
 
     const updates = [];
@@ -151,6 +153,19 @@ Deno.serve(async (req) => {
       if (!matchedOrder) continue;
 
       const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
+
+      // Smoke check: capture first matched order for verification
+      if (results.smoke_check.length === 0 && row.matched_order_id) {
+        results.smoke_check.push({
+          order_id: row.order_id,
+          old_cogs: 0, // Settlement doesn't store COGS, only Orders do
+          new_cogs: cogsResult.cogs,
+          cogs_source: cogsResult.source,
+          status: cogsResult.reason === COGS_REASON.SUCCESS ? '✅ RECOMPUTED' : '⚠️ ' + cogsResult.reason,
+          orders_total_cost: matchedOrder.total_cost || 0,
+          order_lines_count: orderLines.filter(l => l.order_id === matchedOrder.id).length
+        });
+      }
 
       // Update row with computed COGS metadata
       updates.push({
@@ -242,7 +257,8 @@ Deno.serve(async (req) => {
       success: true,
       ...results,
       rows_updated: updates.length,
-      deployment: DEPLOYMENT_TIMESTAMP
+      deployment: DEPLOYMENT_TIMESTAMP,
+      version: VERSION_HASH
     });
 
   } catch (error) {
