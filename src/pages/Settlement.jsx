@@ -54,6 +54,7 @@ export default function Settlement() {
         tenant_id: tenantId,
         settlement_import_id: selectedImportId
       });
+      // Include all rows (deleted and non-deleted) for toggle functionality
       setRows(rowsData);
     } catch (error) {
       console.error('Load rows error:', error);
