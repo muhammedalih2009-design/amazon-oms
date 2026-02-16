@@ -1,18 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-
-// Canonical normalization for order ID matching
-function normalizeOrderId(orderId) {
-  if (!orderId) return '';
-  
-  return orderId
-    .toString()
-    .trim()
-    .toUpperCase()
-    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // Remove zero-width and non-breaking chars
-    .replace(/\s+/g, '') // Remove all whitespace
-    .replace(/[\u2010-\u2015\u2212]/g, '-') // Normalize unicode dashes
-    .replace(/[^a-zA-Z0-9]/g, ''); // Remove ALL non-alphanumeric characters for broader comparison
-}
+import { normalizeOrderId } from './helpers/normalizeOrderId.js';
 
 // Try multiple matching strategies
 function findMatchingOrder(settlementOrderId, orders) {
@@ -42,7 +29,7 @@ const NOT_FOUND_REASONS = {
 };
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_TIMESTAMP = '2026-02-16T18:00:00Z';
+  const DEPLOYMENT_TIMESTAMP = '2026-02-16T20:00:00Z';
   
   try {
     const base44 = createClientFromRequest(req);
@@ -59,7 +46,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(`\n${'='.repeat(80)}`);
-    console.log(`REMATCH DIAGNOSTIC START - Deployment: ${DEPLOYMENT_TIMESTAMP}`);
+    console.log(`REMATCH START - Deployment: ${DEPLOYMENT_TIMESTAMP}`);
     console.log(`${'='.repeat(80)}`);
     console.log(`[1] Request workspace_id: ${workspace_id}`);
     console.log(`[2] User: ${user.email}`);
@@ -76,7 +63,7 @@ Deno.serve(async (req) => {
 
     console.log(`[3] Membership verified`);
 
-    // Load all workspace data - CRITICAL: Load ALL workspace orders, ignore date filters
+    // Load all workspace data
     const [allOrders, skus, orderLines] = await Promise.all([
       base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id }),
@@ -120,7 +107,7 @@ Deno.serve(async (req) => {
 
     console.log(`\nSettlement Rows to Match: ${rowsToMatch.length}`);
 
-    // Diagnostic tracking for specific orders from screenshot
+    // TASK 8: Diagnostic tracking for specific orders
     const diagnosticOrderIds = ['406-9098319-4354700', '405-9237140-1177144', '407-7729567-8966740'];
     const diagnosticResults = [];
 
@@ -135,6 +122,19 @@ Deno.serve(async (req) => {
 
     const updates = [];
 
+    // Track before state for diagnostics
+    const beforeState = {};
+    rowsToMatch.forEach(row => {
+      if (diagnosticOrderIds.includes(row.order_id)) {
+        beforeState[row.order_id] = {
+          found: row.match_status === 'matched' || row.matched_order_id !== null,
+          cogs: 0,
+          revenue: row.total,
+          reason: row.not_found_reason || 'None'
+        };
+      }
+    });
+
     for (const row of rowsToMatch) {
       const wasMatched = row.match_status === 'matched';
       
@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       let matchResult = findMatchingOrder(row.order_id, orders);
       let notFoundReason = null;
       
-      // CRITICAL FIX: Initialize with current values, only update if match found
+      // Initialize with current values, only update if match found
       let updateData = {
         matched_order_id: row.matched_order_id || null,
         matched_sku_id: row.matched_sku_id || null,
@@ -158,15 +158,14 @@ Deno.serve(async (req) => {
         const deletedMatch = findMatchingOrder(row.order_id, deletedOrders);
         if (deletedMatch) {
           notFoundReason = NOT_FOUND_REASONS.ORDER_DELETED;
-          updateData.match_status = 'unmatched_order'; // Keep as unmatched but with specific reason
-          console.log(`  -> Found in deleted orders: ${row.order_id}`);
+          updateData.match_status = 'unmatched_order';
         }
       }
 
       if (matchResult) {
         const { order, strategy, confidence } = matchResult;
         
-        // CRITICAL FIX: Always persist matched_order_id when order is found
+        // Always persist matched_order_id when order is found
         updateData.matched_order_id = order.id;
         updateData.match_strategy = strategy;
         updateData.match_confidence = confidence;
@@ -186,7 +185,6 @@ Deno.serve(async (req) => {
           
           // Check if order has COGS data
           if (!order.total_cost || order.total_cost === 0) {
-            // Try to compute COGS from order lines
             const lines = orderLines.filter(l => l.order_id === order.id);
             const computedCogs = lines.reduce((sum, l) => sum + ((l.unit_cost || 0) * (l.quantity || 0)), 0);
             
@@ -198,10 +196,9 @@ Deno.serve(async (req) => {
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         } else {
-          // CRITICAL FIX: Order found but SKU missing - keep matched_order_id
+          // Order found but SKU missing - keep matched_order_id
           updateData.match_status = 'unmatched_sku';
           updateData.not_found_reason = NOT_FOUND_REASONS.SKU_MISSING;
-          // matched_order_id already set above - DO NOT null it
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         }
@@ -209,8 +206,6 @@ Deno.serve(async (req) => {
         if (order.total_cost !== undefined && order.total_cost > 0) {
           results.updated_cogs++;
         }
-        
-        console.log(`  ✓ MATCHED: ${row.order_id} -> Order ID: ${order.id}, Strategy: ${strategy}, COGS: ${order.total_cost || 0}`);
       } else {
         // No order match - reset matched_order_id
         updateData.matched_order_id = null;
@@ -218,27 +213,31 @@ Deno.serve(async (req) => {
         updateData.match_strategy = null;
         results.still_unmatched++;
         updateData.not_found_reason = notFoundReason || NOT_FOUND_REASONS.NO_MATCH_AFTER_NORMALIZATION;
-        
-        console.log(`  ✗ NO MATCH: Settlement Row ${row.id}, Original: ${row.order_id}, Normalized: ${normalizeOrderId(row.order_id)}`);
-        // Log sample normalized order IDs from the database to compare
-        if (orders.length > 0) {
-          const sampleNormalizedOrders = orders.slice(0, 5).map(o => `${normalizeOrderId(o.amazon_order_id)}`).join(', ');
-          console.log(`    Sample normalized active order IDs: ${sampleNormalizedOrders}`);
-        }
       }
 
-      // Collect diagnostic data for specific order IDs
+      // TASK 8: Collect diagnostic data for specific order IDs
       if (diagnosticOrderIds.includes(row.order_id)) {
         const diagOrder = matchResult ? matchResult.order : null;
+        const afterState = {
+          found: updateData.matched_order_id !== null,
+          cogs: diagOrder?.total_cost || 0,
+          revenue: row.total,
+          reason: updateData.not_found_reason || 'Success'
+        };
+        
         diagnosticResults.push({
           order_id: row.order_id,
-          settlement_tenant: row.tenant_id,
-          orders_tenant: diagOrder ? diagOrder.tenant_id : 'N/A',
-          raw_match: diagOrder ? diagOrder.amazon_order_id : 'Not Found',
-          normalized_match: matchResult ? matchResult.strategy : 'No Match',
+          found_before: beforeState[row.order_id]?.found || false,
+          found_after: afterState.found,
+          cogs_before: beforeState[row.order_id]?.cogs || 0,
+          cogs_after: afterState.cogs,
+          revenue_before: beforeState[row.order_id]?.revenue || 0,
+          revenue_after: afterState.revenue,
+          reason_before: beforeState[row.order_id]?.reason || 'None',
+          reason_after: afterState.reason,
+          normalized: normalizeOrderId(row.order_id),
           matched_order_id: updateData.matched_order_id,
-          final_match_status: updateData.match_status,
-          reason: updateData.not_found_reason || 'Success'
+          match_strategy: updateData.match_strategy
         });
       }
 
@@ -273,12 +272,12 @@ Deno.serve(async (req) => {
     }
 
     console.log(`\n${'='.repeat(80)}`);
-    console.log('DIAGNOSTIC RESULTS FOR SPECIFIC ORDERS');
+    console.log('DIAGNOSTIC RESULTS - BEFORE/AFTER COMPARISON');
     console.log(`${'='.repeat(80)}`);
-    console.log('order_id | settlement_tenant | orders_tenant | raw_match | normalized_match | matched_order_id | final_match_status | reason');
-    console.log('-'.repeat(80));
+    console.log('order_id | found_before | found_after | cogs_before | cogs_after | revenue_before | revenue_after | reason_before | reason_after');
+    console.log('-'.repeat(150));
     diagnosticResults.forEach(d => {
-      console.log(`${d.order_id} | ${d.settlement_tenant} | ${d.orders_tenant} | ${d.raw_match} | ${d.normalized_match} | ${d.matched_order_id} | ${d.final_match_status} | ${d.reason}`);
+      console.log(`${d.order_id} | ${d.found_before} | ${d.found_after} | ${d.cogs_before} | ${d.cogs_after} | ${d.revenue_before} | ${d.revenue_after} | ${d.reason_before} | ${d.reason_after}`);
     });
 
     console.log(`\n${'='.repeat(80)}`);

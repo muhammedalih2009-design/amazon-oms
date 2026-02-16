@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { normalizeOrderId } from './helpers/normalizeOrderId.js';
 
 Deno.serve(async (req) => {
   try {
@@ -34,9 +35,10 @@ Deno.serve(async (req) => {
     let rematched = 0;
     
     // Get orders and SKUs for rematching
-    const [orders, skus] = await Promise.all([
+    const [orders, skus, orderLines] = await Promise.all([
       base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, is_deleted: false }),
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
+      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id }),
+      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id })
     ]);
     
     for (const orderId of order_ids) {
@@ -49,21 +51,44 @@ Deno.serve(async (req) => {
       console.log(`[restoreSettlementOrders] Order ${orderId}: found ${rows.length} deleted rows`);
 
       for (const row of rows) {
-        // Rematch with orders and SKUs
+        // Rematch with canonical normalization
         let matchStatus = 'unmatched_order';
         let matchedOrderId = null;
         let matchedSkuId = null;
+        let matchStrategy = null;
+        let notFoundReason = 'Order not found after normalization';
 
-        const matchedOrder = orders.find(o => o.amazon_order_id === row.order_id);
+        const normalizedRowOrderId = normalizeOrderId(row.order_id);
+        const matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId);
+        
         if (matchedOrder) {
           matchedOrderId = matchedOrder.id;
-          const matchedSku = skus.find(s => s.sku_code === row.sku);
+          matchStrategy = 'normalized_amazon_id';
+          
+          const matchedSku = skus.find(s => 
+            s.sku_code === row.sku ||
+            normalizeOrderId(s.sku_code) === normalizeOrderId(row.sku)
+          );
+          
           if (matchedSku) {
             matchedSkuId = matchedSku.id;
             matchStatus = 'matched';
             rematched++;
+            notFoundReason = null;
+            
+            // Check COGS
+            if (!matchedOrder.total_cost || matchedOrder.total_cost === 0) {
+              const lines = orderLines.filter(l => l.order_id === matchedOrder.id);
+              const computedCogs = lines.reduce((sum, l) => sum + ((l.unit_cost || 0) * (l.quantity || 0)), 0);
+              
+              if (computedCogs === 0) {
+                notFoundReason = 'Order matched but COGS missing';
+              }
+            }
           } else {
+            // Keep matched_order_id even if SKU missing
             matchStatus = 'unmatched_sku';
+            notFoundReason = 'Order matched, SKU not found';
           }
         }
 
@@ -72,7 +97,10 @@ Deno.serve(async (req) => {
           deleted_at: null,
           matched_order_id: matchedOrderId,
           matched_sku_id: matchedSkuId,
-          match_status: matchStatus
+          match_status: matchStatus,
+          match_strategy: matchStrategy,
+          match_confidence: matchedOrderId ? 'high' : null,
+          not_found_reason: notFoundReason
         });
         totalRestored++;
       }

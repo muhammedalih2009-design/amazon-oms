@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { normalizeOrderId } from './helpers/normalizeOrderId.js';
 
 Deno.serve(async (req) => {
   try {
@@ -98,7 +99,9 @@ Deno.serve(async (req) => {
     const chunkRowsWithMeta = chunkRows.map((row, idx) => ({
       ...row,
       settlement_import_id: importId,
-      row_index: start + idx
+      row_index: start + idx,
+      raw_order_id: row.order_id,
+      normalized_order_id: normalizeOrderId(row.order_id)
     }));
 
     let insertedRows = [];
@@ -141,20 +144,11 @@ Deno.serve(async (req) => {
     
     console.log(`[importSettlementProcessChunk] Chunk ${chunkIndex}: created=${rowsCreated}, skipped=${rowsSkipped}`);
 
-    // Canonical normalization function
-    const normalizeOrderId = (orderId) => {
-      if (!orderId) return '';
-      return orderId.toString().trim().toUpperCase()
-        .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
-        .replace(/\s+/g, '')
-        .replace(/[\u2010-\u2015\u2212]/g, '-')
-        .replace(/-/g, '');
-    };
-
-    // Match rows and update in smaller batches - use canonical normalization
-    const [orders, skus] = await Promise.all([
-      base44.asServiceRole.entities.Order.filter({ tenant_id: importJob.tenant_id }),
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: importJob.tenant_id })
+    // Match rows and update - use canonical normalization
+    const [orders, skus, orderLines] = await Promise.all([
+      base44.asServiceRole.entities.Order.filter({ tenant_id: importJob.tenant_id, is_deleted: false }),
+      base44.asServiceRole.entities.SKU.filter({ tenant_id: importJob.tenant_id }),
+      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: importJob.tenant_id })
     ]);
 
     let matchedInChunk = 0;
@@ -168,21 +162,16 @@ Deno.serve(async (req) => {
       let matchedOrderId = null;
       let matchedSkuId = null;
       let matchStrategy = null;
-      let notFoundReason = null;
+      let notFoundReason = 'Order not found after normalization';
 
       const normalizedRowOrderId = normalizeOrderId(row.order_id);
       
-      // Try canonical matching
-      const matchedOrder = orders.find(o => 
-        normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId ||
-        normalizeOrderId(o.id) === normalizedRowOrderId
-      );
+      // Primary match against amazon_order_id using canonical normalization
+      const matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedRowOrderId);
 
       if (matchedOrder) {
         matchedOrderId = matchedOrder.id;
-        matchStrategy = normalizeOrderId(matchedOrder.amazon_order_id) === normalizedRowOrderId 
-          ? 'normalized_amazon_id' 
-          : 'internal_id';
+        matchStrategy = 'normalized_amazon_id';
         
         const matchedSku = skus.find(s => 
           s.sku_code === row.sku ||
@@ -193,12 +182,22 @@ Deno.serve(async (req) => {
           matchedSkuId = matchedSku.id;
           matchStatus = 'matched';
           matchedInChunk++;
+          notFoundReason = null;
+          
+          // Check COGS
+          if (!matchedOrder.total_cost || matchedOrder.total_cost === 0) {
+            const lines = orderLines.filter(l => l.order_id === matchedOrder.id);
+            const computedCogs = lines.reduce((sum, l) => sum + ((l.unit_cost || 0) * (l.quantity || 0)), 0);
+            
+            if (computedCogs === 0) {
+              notFoundReason = 'Order matched but COGS missing';
+            }
+          }
         } else {
+          // Keep matched_order_id even if SKU missing
           matchStatus = 'unmatched_sku';
-          notFoundReason = 'SKU not found';
+          notFoundReason = 'Order matched, SKU not found';
         }
-      } else {
-        notFoundReason = 'Order not found after normalization';
       }
 
       if (insertedRow?.id) {
@@ -209,8 +208,7 @@ Deno.serve(async (req) => {
             matched_sku_id: matchedSkuId,
             match_status: matchStatus,
             match_strategy: matchStrategy,
-            raw_order_id: row.order_id,
-            normalized_order_id: normalizedRowOrderId,
+            match_confidence: matchedOrderId ? 'high' : null,
             not_found_reason: notFoundReason
           }
         });
