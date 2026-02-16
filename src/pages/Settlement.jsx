@@ -238,7 +238,7 @@ export default function Settlement() {
                 <TrendingUp className="w-8 h-8 text-purple-500" />
               </div>
             </div>
-            </div>
+          </div>
           </div>
         )}
 
