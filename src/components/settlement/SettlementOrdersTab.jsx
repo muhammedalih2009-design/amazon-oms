@@ -136,6 +136,10 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
             cogsMissing = true;
             cogsSource = 'missing';
           }
+        } else {
+          // Order not found in loaded orders list - mark as missing so UI alerts user
+          cogsMissing = true;
+          cogsSource = 'order_not_loaded';
         }
       }
 
