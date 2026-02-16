@@ -421,13 +421,13 @@ Deno.serve(async (req) => {
     
     // Log proof table summary
     const proofWithCOGS = results.proof_table.filter(p => p.cogs_after > 0).length;
-    const proofMissingCOGS = results.proof_table.filter(p => p.cogs_after === 0).length;
+    const proofMissingCOGS = results.proof_table.filter(p => !p.cogs_after).length;
     console.log(`[PROOF TABLE] Total orders: ${results.proof_table.length} | With COGS: ${proofWithCOGS} | Missing COGS: ${proofMissingCOGS}`);
     
     if (proofMissingCOGS > 0) {
-      console.warn(`[PROOF TABLE WARNING] ${proofMissingCOGS} matched orders still have COGS=0:`);
-      results.proof_table.filter(p => p.cogs_after === 0).slice(0, 5).forEach(p => {
-        console.warn(`  - ${p.order_id} (${p.matched_order_id}): reason=${p.reason}`);
+      console.warn(`[PROOF TABLE WARNING] ${proofMissingCOGS} matched orders have no COGS:`);
+      results.proof_table.filter(p => !p.cogs_after).slice(0, 5).forEach(p => {
+        console.warn(`  - ${p.order_id} (${p.matched_order_id}): reason=${p.reason}, source=${p.order_cost_source}`);
       });
     }
 
