@@ -255,7 +255,8 @@ export default function Settlement() {
   const runOrderCostDiagnostic = async () => {
     try {
       const response = await base44.functions.invoke('diagnosticOrderCost', {
-        workspace_id: tenantId
+        workspace_id: tenantId,
+        import_id: selectedImportId
       });
       console.log('[DIAGNOSTIC] Order Cost Analysis:', response.data);
       alert('Check browser console for diagnostic results');
