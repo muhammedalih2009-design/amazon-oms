@@ -113,11 +113,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
     }
 
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`[RECOMPUTE COGS] v${DEPLOYMENT_V}`);
-    console.log(`Workspace: ${workspace_id} | Import: ${import_id || 'ALL'}`);
-    console.log(`${'='.repeat(80)}`);
-
     const membership = await base44.asServiceRole.entities.Membership.filter({
       tenant_id: workspace_id,
       user_id: user.id
@@ -133,7 +128,7 @@ Deno.serve(async (req) => {
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
     ]);
 
-    console.log(`[DATA] Loaded ${orders.length} orders, ${orderLines.length} lines, ${skus.length} SKUs`);
+    console.log(`[DATA] Orders: ${orders.length} | OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
 
     // Load settlement rows
     let rowsToRecompute = [];
