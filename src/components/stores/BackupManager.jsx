@@ -37,6 +37,8 @@ export default function BackupManager({ tenantId }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [jobPolling, setJobPolling] = useState(null);
   const [allJobs, setAllJobs] = useState([]);
+  const [jobToDelete, setJobToDelete] = useState(null);
+  const [restoreFromPrevious, setRestoreFromPrevious] = useState(false);
 
   useEffect(() => {
     loadBackups();
@@ -289,6 +291,36 @@ export default function BackupManager({ tenantId }) {
     toast({ title: 'Backup removed from list' });
   };
 
+  const deleteBackupJob = async (jobId) => {
+    try {
+      await base44.asServiceRole.entities.BackupJob.delete(jobId);
+      setAllJobs(prev => prev.filter(j => j.id !== jobId));
+      
+      // If restoring from previous, find and restore
+      if (restoreFromPrevious && allJobs.length > 1) {
+        const deletedIndex = allJobs.findIndex(j => j.id === jobId);
+        if (deletedIndex > 0) {
+          const previousBackup = allJobs[deletedIndex + 1];
+          if (previousBackup && previousBackup.backup_data) {
+            const backupData = JSON.parse(previousBackup.backup_data);
+            await restoreBackup({ data: backupData, timestamp: previousBackup.started_at });
+            return;
+          }
+        }
+      }
+      
+      setJobToDelete(null);
+      setRestoreFromPrevious(false);
+      toast({ title: 'Backup deleted' });
+    } catch (error) {
+      toast({ 
+        title: 'Failed to delete backup', 
+        description: error.message, 
+        variant: 'destructive' 
+      });
+    }
+  };
+
   const cleanupLegacyBackups = async () => {
     const backupsKey = `backups_${tenantId}`;
     const stored = localStorage.getItem(backupsKey);
@@ -423,7 +455,7 @@ export default function BackupManager({ tenantId }) {
           <p className="text-sm text-slate-500">No backup jobs yet</p>
         ) : (
           <div className="space-y-2">
-            {allJobs.map(job => (
+            {allJobs.map((job, idx) => (
               <div key={job.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
@@ -451,6 +483,16 @@ export default function BackupManager({ tenantId }) {
                     <p className="text-xs text-red-600 mt-1">Error: {job.error_message}</p>
                   )}
                 </div>
+                {job.status === 'completed' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setJobToDelete(job)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -552,6 +594,47 @@ export default function BackupManager({ tenantId }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Backup Dialog */}
+      <AlertDialog open={!!jobToDelete} onOpenChange={() => setJobToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Backup?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-slate-600 mb-2">
+                    You are about to delete backup: <strong>{jobToDelete?.backup_name}</strong>
+                  </p>
+                  {allJobs.length > 1 && (
+                    <div className="flex items-center gap-2 mt-4">
+                      <input
+                        type="checkbox"
+                        id="restore-prev"
+                        checked={restoreFromPrevious}
+                        onChange={(e) => setRestoreFromPrevious(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      <label htmlFor="restore-prev" className="text-sm cursor-pointer">
+                        Restore workspace from previous backup version
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteBackupJob(jobToDelete?.id)}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete{restoreFromPrevious ? ' & Restore' : ''}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Restore Confirmation Dialog */}
       <AlertDialog open={showRestoreDialog} onOpenChange={setShowRestoreDialog}>
