@@ -252,6 +252,19 @@ export default function Settlement() {
     }
   }, [selectedImportId, isRefreshing]);
 
+  const runOrderCostDiagnostic = async () => {
+    try {
+      const response = await base44.functions.invoke('diagnosticOrderCost', {
+        workspace_id: tenantId
+      });
+      console.log('[DIAGNOSTIC] Order Cost Analysis:', response.data);
+      alert('Check browser console for diagnostic results');
+    } catch (error) {
+      console.error('[DIAGNOSTIC] Error:', error);
+      alert('Diagnostic failed: ' + error.message);
+    }
+  };
+
   return (
     <ErrorBoundary fallbackTitle="Settlement page failed to load">
       <div className="space-y-6">
@@ -268,6 +281,14 @@ export default function Settlement() {
                 Last refreshed: {format(lastRefreshAt, 'HH:mm:ss')}
               </span>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={runOrderCostDiagnostic}
+              className="text-xs text-slate-500 hover:text-slate-700"
+            >
+              🔧 Diagnose Cost
+            </Button>
             <Button
               variant="outline"
               size="sm"
