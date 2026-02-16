@@ -54,6 +54,8 @@ export default function Dashboard() {
     return unsubscribe;
   }, [tenantId]);
 
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
   const loadData = async (isRefresh = false) => {
     try {
       if (isRefresh) {
@@ -61,13 +63,22 @@ export default function Dashboard() {
       } else {
         setLoading(true);
       }
-      const [ordersData, linesData, stockData, skusData, purchasesData] = await Promise.all([
-        base44.entities.Order.filter({ tenant_id: tenantId }),
-        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-        base44.entities.SKU.filter({ tenant_id: tenantId }),
-        base44.entities.Purchase.filter({ tenant_id: tenantId })
-      ]);
+      
+      // Load data sequentially with small delays to avoid rate limits
+      const ordersData = await base44.entities.Order.filter({ tenant_id: tenantId });
+      await delay(100);
+      
+      const linesData = await base44.entities.OrderLine.filter({ tenant_id: tenantId });
+      await delay(100);
+      
+      const stockData = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+      await delay(100);
+      
+      const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
+      await delay(100);
+      
+      const purchasesData = await base44.entities.Purchase.filter({ tenant_id: tenantId });
+      
       setOrders(ordersData);
       setOrderLines(linesData);
       setCurrentStock(stockData);
@@ -75,6 +86,31 @@ export default function Dashboard() {
       setPurchases(purchasesData);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      
+      // Retry once after delay if rate limited
+      if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
+        console.log('Rate limit hit, retrying after delay...');
+        await delay(2000);
+        try {
+          const ordersData = await base44.entities.Order.filter({ tenant_id: tenantId });
+          await delay(200);
+          const linesData = await base44.entities.OrderLine.filter({ tenant_id: tenantId });
+          await delay(200);
+          const stockData = await base44.entities.CurrentStock.filter({ tenant_id: tenantId });
+          await delay(200);
+          const skusData = await base44.entities.SKU.filter({ tenant_id: tenantId });
+          await delay(200);
+          const purchasesData = await base44.entities.Purchase.filter({ tenant_id: tenantId });
+          
+          setOrders(ordersData);
+          setOrderLines(linesData);
+          setCurrentStock(stockData);
+          setSkus(skusData);
+          setPurchases(purchasesData);
+        } catch (retryError) {
+          console.error('Retry failed:', retryError);
+        }
+      }
     } finally {
       if (isRefresh) {
         setRefreshing(false);
