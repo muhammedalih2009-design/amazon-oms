@@ -215,12 +215,17 @@ Deno.serve(async (req) => {
 
       processedCount++;
 
+      // RULE: Store canonical COGS result per matched order (only once)
+      if (!processedOrders.has(matchedOrder.id)) {
+        processedOrders.set(matchedOrder.id, cogsResult);
+      }
+
       // DEBUG: Track specific orders
       const isDebugOrder = DEBUG_ORDER_IDS.includes(row.order_id);
       if (isDebugOrder) {
         results.debug_orders.push({
           order_id: row.order_id,
-          matched_order_id: row.matched_order_id,
+          matched_order_id: matchedOrder.id,
           order_total_cost_before: orderTotalCostBefore,
           order_total_cost_after: cogsResult.should_sync_to_order ? cogsResult.cogs : orderTotalCostBefore,
           order_lines_count: orderLinesForOrder.length,
@@ -232,25 +237,34 @@ Deno.serve(async (req) => {
         console.log(`[DEBUG] ${row.order_id}:`, results.debug_orders[results.debug_orders.length - 1]);
       }
 
-      // Update settlement row with COGS metadata
+      // RULE: Update settlement row with strict COGS reason if missing
+      const updateData = {
+        not_found_reason: cogsResult.reason !== COGS_REASON.SUCCESS ? cogsResult.reason : null
+      };
+      
+      // RULE: Log explicit cost missing status
+      if (cogsResult.cogs === 0 && cogsResult.reason === COGS_REASON.ORDER_FOUND_COST_MISSING) {
+        console.log(`[COGS RULE] COST_MISSING: order_id=${row.order_id}, matched=${matchedOrder.id}, reason=${cogsResult.reason}`);
+      }
+
       rowUpdates.push({
         id: row.id,
-        data: {
-          not_found_reason: cogsResult.reason !== COGS_REASON.SUCCESS ? cogsResult.reason : null
-        }
+        data: updateData
       });
 
-      // Sync Order.total_cost if missing and we computed COGS from lines
+      // RULE: Sync Order.total_cost if missing and we computed COGS from lines
       if (cogsResult.should_sync_to_order && orderTotalCostBefore === 0 && cogsResult.cogs > 0) {
         if (!orderUpdates.has(matchedOrder.id)) {
+          const newTotal = cogsResult.cogs;
           orderUpdates.set(matchedOrder.id, {
             id: matchedOrder.id,
-            total_cost: cogsResult.cogs,
-            profit_loss: (matchedOrder.net_revenue || 0) - cogsResult.cogs,
+            total_cost: newTotal,
+            profit_loss: (matchedOrder.net_revenue || 0) - newTotal,
             profit_margin_percent: matchedOrder.net_revenue 
-              ? ((matchedOrder.net_revenue - cogsResult.cogs) / matchedOrder.net_revenue) * 100 
+              ? ((matchedOrder.net_revenue - newTotal) / matchedOrder.net_revenue) * 100 
               : 0
           });
+          console.log(`[COGS RULE] SYNC_TO_ORDER: ${matchedOrder.id}, source=${cogsResult.source}, cogs=${newTotal}`);
         }
       }
 
@@ -262,6 +276,25 @@ Deno.serve(async (req) => {
 
       results.cogs_by_source[cogsResult.source]++;
     }
+
+    // RULE: Build proof table for processed orders
+    console.log(`[COGS RULE] Building proof table for ${processedOrders.size} unique matched orders...`);
+    for (const [orderId, cogsResult] of processedOrders.entries()) {
+      const orderData = orders.find(o => o.id === orderId);
+      if (orderData) {
+        results.proof_table.push({
+          order_id: orderData.amazon_order_id || 'N/A',
+          matched_order_id: orderId,
+          order_cost_source: cogsResult.source,
+          cogs_before: 0,
+          cogs_after: cogsResult.cogs,
+          reason: cogsResult.reason,
+          net_revenue: orderData.net_revenue || 0,
+          profit: (orderData.net_revenue || 0) - cogsResult.cogs
+        });
+      }
+    }
+    console.log(`[COGS RULE] Proof table rows: ${results.proof_table.length}`);
 
     console.log(`[PROCESSING] Processed: ${processedCount} | Updated: ${rowUpdates.length} | Skipped:`, skippedReasons);
 
