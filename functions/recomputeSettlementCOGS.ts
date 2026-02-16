@@ -192,9 +192,8 @@ Deno.serve(async (req) => {
       rows_missing_cogs: 0,
       rows_skipped_deleted_order: 0,
       cogs_by_source: {
-        ORDER_TOTAL: 0,
-        ORDER_LINE_TOTAL: 0,
-        ORDER_LINES_SKU_COST: 0,
+        ORDER_FIELD: 0,
+        ITEMS_SUM: 0,
         MISSING: 0
       },
       orders_synced: 0,
