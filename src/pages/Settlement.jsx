@@ -139,7 +139,14 @@ export default function Settlement() {
           </TabsList>
 
           <TabsContent value="orders" className="space-y-4">
-            <SettlementOrdersTab rows={rows} tenantId={tenantId} />
+            <SettlementOrdersTab 
+              rows={rows} 
+              tenantId={tenantId}
+              onDataChange={() => {
+                loadRows();
+                loadImports();
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="skus" className="space-y-4">
