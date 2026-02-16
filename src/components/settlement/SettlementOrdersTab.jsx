@@ -49,6 +49,39 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     cacheTime: 0
   });
 
+  // Canonical COGS computation (mirrors backend logic)
+  const computeOrderCogs = (enrichedOrder) => {
+    if (!enrichedOrder) {
+      return { cogs: null, cogsSource: 'missing', reason: 'Order not found', itemsCount: 0, itemsCogsSum: 0 };
+    }
+
+    // PRIORITY 1: Order-level cost fields (in order of preference)
+    const costFields = ['cost', 'total_cost', 'cogs', 'order_cost'];
+    for (const field of costFields) {
+      if (enrichedOrder[field] && enrichedOrder[field] > 0) {
+        return {
+          cogs: enrichedOrder[field],
+          cogsSource: `order_field:${field}`,
+          reason: 'Success',
+          itemsCount: 0,
+          itemsCogsSum: 0,
+          rawFields: { cost: enrichedOrder.cost, total_cost: enrichedOrder.total_cost, cogs: enrichedOrder.cogs, order_cost: enrichedOrder.order_cost }
+        };
+      }
+    }
+
+    // For frontend, we can't fetch OrderLines in useMemo, so mark as missing
+    // The recompute function handles OrderLine computation
+    return {
+      cogs: null,
+      cogsSource: 'missing',
+      reason: 'Order found but no order-level cost (run Recompute COGS to check items)',
+      itemsCount: 0,
+      itemsCogsSum: 0,
+      rawFields: { cost: enrichedOrder.cost, total_cost: enrichedOrder.total_cost, cogs: enrichedOrder.cogs, order_cost: enrichedOrder.order_cost }
+    };
+  };
+
   // TASK 5: Trust backend match state (not frontend re-match)
   const orderProfit = useMemo(() => {
     const orderMap = {};
@@ -107,40 +140,36 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       }
     });
 
-    // Enrich with Orders data for COGS (display only, not boolean truth)
+    // Enrich with Orders data and compute COGS
     const enrichedOrders = Object.values(orderMap).map(order => {
-      let cogs = 0;
-      let cogsSource = 'missing';
       let cogsMissing = false;
+      let cogsSource = 'missing';
       let itemsCount = 0;
       let itemsCogsSum = 0;
-      let orderCostFields = { cost: null, total_cost: null, cogs: null, order_cost: null };
+      let cogs = 0;
       
       // Find Order entity for display enrichment (COGS)
       const firstMatchedRow = order.rows.find(r => r.matched_order_id);
       if (firstMatchedRow?.matched_order_id) {
         const enrichedOrder = orders.find(o => o.id === firstMatchedRow.matched_order_id);
+        
         if (enrichedOrder) {
-          // Check order-level fields in priority order
-          const orderFields = ['cost', 'total_cost', 'cogs', 'order_cost'];
-          for (const field of orderFields) {
-            orderCostFields[field] = enrichedOrder[field] || null;
-            if (!cogs && enrichedOrder[field] && enrichedOrder[field] > 0) {
-              cogs = enrichedOrder[field];
-              cogsSource = `order_field:${field}`;
-            }
-          }
-
-          // If no order-level cost, would need to compute from items (would happen in recompute)
-          if (!cogs) {
-            cogsMissing = true;
-            cogsSource = 'missing';
-          }
+          // Use canonical COGS computation
+          const cogsResult = computeOrderCogs(enrichedOrder);
+          cogs = cogsResult.cogs || 0;
+          cogsSource = cogsResult.cogsSource;
+          cogsMissing = !cogsResult.cogs; // True if null/undefined
+          itemsCount = cogsResult.itemsCount;
+          itemsCogsSum = cogsResult.itemsCogsSum;
         } else {
-          // Order not found in loaded orders list - mark as missing so UI alerts user
+          // Order record not loaded
           cogsMissing = true;
           cogsSource = 'order_not_loaded';
         }
+      } else {
+        // No matched order
+        cogsMissing = true;
+        cogsSource = 'no_match';
       }
 
       const profit = order.net_total - cogs;
@@ -155,7 +184,6 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         margin,
         items_count: itemsCount,
         items_cogs_sum: itemsCogsSum,
-        order_cost_fields: orderCostFields,
         status: !order.order_found ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
       };
     });
