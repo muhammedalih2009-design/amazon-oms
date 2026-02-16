@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useToast } from '@/components/ui/use-toast';
 import DeleteOrdersModal from './DeleteOrdersModal';
-import { Trash2, RotateCcw } from 'lucide-react';
+import { Trash2, RotateCcw, RefreshCw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +24,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [ordersToDelete, setOrdersToDelete] = useState([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { isOwner, membership } = useTenant();
   const { toast } = useToast();
 
@@ -34,9 +35,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     queryFn: () => base44.entities.SKU.filter({ tenant_id: tenantId })
   });
 
-  const { data: orders = [], refetch: refetchOrders } = useQuery({
-    queryKey: ['orders', tenantId],
-    queryFn: () => base44.entities.Order.filter({ tenant_id: tenantId, is_deleted: false })
+  const { data: orders = [], refetch: refetchOrders, isFetching: isOrdersFetching } = useQuery({
+    queryKey: ['orders', tenantId, Date.now()],
+    queryFn: () => base44.entities.Order.filter({ tenant_id: tenantId, is_deleted: false }),
+    staleTime: 0,
+    cacheTime: 0
   });
 
   const normalizeOrderId = (orderId) => {
@@ -161,6 +164,32 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
         description: error.message || 'Failed to restore order',
         variant: 'destructive'
       });
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Reset filters
+      setFilterStatus('all');
+      setShowDeleted(false);
+      setSelectedOrders(new Set());
+
+      // Force refetch
+      await refetchOrders();
+
+      toast({
+        title: 'Refreshed Successfully',
+        description: 'Orders data has been refreshed'
+      });
+    } catch (error) {
+      toast({
+        title: 'Refresh Failed',
+        description: error.message || 'Failed to refresh orders',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -372,6 +401,24 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
                 size="sm"
               >
                 Show Deleted
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleRefresh}
+                disabled={isRefreshing || isOrdersFetching}
+                size="sm"
+              >
+                {isRefreshing || isOrdersFetching ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh
+                  </>
+                )}
               </Button>
               <Button
                 variant="outline"
