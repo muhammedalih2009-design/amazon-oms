@@ -131,17 +131,22 @@ Deno.serve(async (req) => {
       throw new Error(`Backup validation failed: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
     }
 
-    // Convert to JSON and upload
+    // Convert to JSON string (as Base64 for transmission)
     const jsonString = JSON.stringify(backupData, null, 2);
     const encoder = new TextEncoder();
     const jsonBytes = encoder.encode(jsonString);
-
-    // Create blob for upload
-    const blob = new Blob([jsonBytes], { type: 'application/json' });
+    
+    // Convert to base64 data URL for UploadFile
+    let base64String = '';
+    for (let i = 0; i < jsonBytes.length; i++) {
+      base64String += String.fromCharCode(jsonBytes[i]);
+    }
+    const base64Data = btoa(base64String);
+    const dataUrl = `data:application/json;base64,${base64Data}`;
     
     // Upload backup file
     const uploadResponse = await base44.asServiceRole.integrations.Core.UploadFile({
-      file: blob
+      file: dataUrl
     });
 
     if (!uploadResponse.file_url) {
