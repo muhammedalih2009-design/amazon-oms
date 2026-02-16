@@ -270,8 +270,8 @@ Deno.serve(async (req) => {
         data: updateData
       });
 
-      // Sync Order.total_cost if missing and we computed COGS from lines
-      if (cogsResult.should_sync_to_order && orderTotalCostBefore === 0 && cogsResult.cogs > 0) {
+      // Sync Order.total_cost if computed from items and currently empty
+      if (cogsResult.cogsSource === 'items_sum' && orderTotalCostBefore === 0 && cogsResult.cogs > 0) {
         if (!orderUpdates.has(matchedOrder.id)) {
           const newTotal = cogsResult.cogs;
           orderUpdates.set(matchedOrder.id, {
@@ -282,17 +282,20 @@ Deno.serve(async (req) => {
               ? ((matchedOrder.net_revenue - newTotal) / matchedOrder.net_revenue) * 100 
               : 0
           });
-          console.log(`[COGS RULE] SYNC_TO_ORDER: ${matchedOrder.id}, source=${cogsResult.source}, cogs=${newTotal}`);
+          console.log(`[COGS SYNC] Synced to Order ${matchedOrder.id}, source=${cogsResult.cogsSource}, cogs=${newTotal}`);
         }
       }
 
-      if (cogsResult.cogs > 0) {
+      if (cogsResult.cogs && cogsResult.cogs > 0) {
         results.rows_with_cogs++;
       } else {
         results.rows_missing_cogs++;
       }
 
-      results.cogs_by_source[cogsResult.source]++;
+      // Track COGS source
+      const sourceKey = cogsResult.cogsSource.split(':')[0].toUpperCase();
+      const trackingKey = sourceKey === 'ORDER_FIELD' ? 'ORDER_FIELD' : (sourceKey === 'ITEMS' ? 'ITEMS_SUM' : 'MISSING');
+      results.cogs_by_source[trackingKey] = (results.cogs_by_source[trackingKey] || 0) + 1;
     }
 
     // Build proof table for processed orders
