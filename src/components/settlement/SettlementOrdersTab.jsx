@@ -28,6 +28,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRematching, setIsRematching] = useState(false);
   const [isRecomputingCOGS, setIsRecomputingCOGS] = useState(false);
+  const [showDebugColumns, setShowDebugColumns] = useState(false);
   const { isOwner, membership } = useTenant();
   const { toast } = useToast();
 
@@ -65,13 +66,19 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
           net_total: 0,
           signed_units: 0,
           cogs: 0,
+          cogs_source: 'missing',
+          cogs_missing: false,
           matched_rows: 0,
           unmatched_rows: 0,
           rows: [],
           is_deleted: row.is_deleted || false,
           order_found: false,
           not_found_reason: null,
-          match_strategy: null
+          match_strategy: null,
+          matched_order_record_id: null,
+          items_count: 0,
+          items_cogs_sum: 0,
+          order_cost_fields: {}
         };
       }
 
@@ -91,6 +98,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       if (row.matched_order_id) {
         orderMap[orderId].order_found = true;
         orderMap[orderId].match_strategy = row.match_strategy;
+        orderMap[orderId].matched_order_record_id = row.matched_order_id;
       }
       
       // Capture not_found_reason from backend
@@ -102,14 +110,32 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     // Enrich with Orders data for COGS (display only, not boolean truth)
     const enrichedOrders = Object.values(orderMap).map(order => {
       let cogs = 0;
-      let enrichedOrder = null;
+      let cogsSource = 'missing';
+      let cogsMissing = false;
+      let itemsCount = 0;
+      let itemsCogsSum = 0;
+      let orderCostFields = { cost: null, total_cost: null, cogs: null, order_cost: null };
       
       // Find Order entity for display enrichment (COGS)
       const firstMatchedRow = order.rows.find(r => r.matched_order_id);
       if (firstMatchedRow?.matched_order_id) {
-        enrichedOrder = orders.find(o => o.id === firstMatchedRow.matched_order_id);
+        const enrichedOrder = orders.find(o => o.id === firstMatchedRow.matched_order_id);
         if (enrichedOrder) {
-          cogs = enrichedOrder.total_cost || 0;
+          // Check order-level fields in priority order
+          const orderFields = ['cost', 'total_cost', 'cogs', 'order_cost'];
+          for (const field of orderFields) {
+            orderCostFields[field] = enrichedOrder[field] || null;
+            if (!cogs && enrichedOrder[field] && enrichedOrder[field] > 0) {
+              cogs = enrichedOrder[field];
+              cogsSource = `order_field:${field}`;
+            }
+          }
+
+          // If no order-level cost, would need to compute from items (would happen in recompute)
+          if (!cogs) {
+            cogsMissing = true;
+            cogsSource = 'missing';
+          }
         }
       }
 
@@ -119,19 +145,24 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       return {
         ...order,
         cogs,
+        cogs_source: cogsSource,
+        cogs_missing: cogsMissing,
         profit,
         margin,
+        items_count: itemsCount,
+        items_cogs_sum: itemsCogsSum,
+        order_cost_fields: orderCostFields,
         status: !order.order_found ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
       };
     });
 
     // TASK 6: Check for cost data integrity issues
     const matchedWithZeroCOGS = enrichedOrders.filter(o => 
-      o.order_found && o.cogs === 0 && o.matched_rows > 0
+      o.order_found && o.cogs === 0 && o.cogs_missing && o.matched_rows > 0
     );
 
     if (matchedWithZeroCOGS.length > 0) {
-      console.warn(`[SettlementOrdersTab] ${matchedWithZeroCOGS.length} matched orders have COGS=0`);
+      console.warn(`[SettlementOrdersTab] ${matchedWithZeroCOGS.length} matched orders have missing cost data`);
     }
 
     return enrichedOrders.filter(order => {
@@ -140,7 +171,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       if (filterStatus === 'partial') return order.unmatched_rows > 0;
       if (filterStatus === 'found') return order.order_found;
       if (filterStatus === 'not_found') return !order.order_found;
-      if (filterStatus === 'zero_cogs') return order.order_found && order.cogs === 0;
+      if (filterStatus === 'zero_cogs') return order.order_found && order.cogs_missing && order.matched_rows > 0;
       return true;
     });
   }, [rows, orders, filterStatus, showDeleted]);
@@ -332,10 +363,29 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
 
   // TASK 6: Detect cost data integrity issues
   const matchedOrdersWithZeroCOGS = orderProfit.filter(o => 
-    o.order_found && o.cogs === 0 && o.matched_rows > 0
+    o.order_found && o.cogs_missing && o.matched_rows > 0
   );
 
   const columns = [
+    ...(showDebugColumns ? [{
+      key: 'matched_order_record_id',
+      header: 'Record ID',
+      render: (val) => val ? <span className="font-mono text-xs">{val.slice(0, 8)}...</span> : '—'
+    }] : []),
+    ...(showDebugColumns ? [{
+      key: 'cogs_source',
+      header: 'Cost Source',
+      render: (val) => <span className="text-xs text-slate-600">{val}</span>
+    }] : []),
+    ...(showDebugColumns ? [{
+      key: 'order_cost_fields',
+      header: 'Cost Fields',
+      render: (val) => (
+        <span className="text-xs text-slate-600">
+          {val.cost ? `cost: ${val.cost}` : '—'}
+        </span>
+      )
+    }] : []),
     ...(isAdmin && !showDeleted ? [{
       key: 'select',
       header: (
@@ -408,16 +458,17 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       header: 'Order Cost',
       align: 'right',
       render: (val, row) => (
-        <div className="flex items-center justify-end gap-1">
-          <span className={row.order_found && val === 0 ? 'text-amber-600 font-semibold' : ''}>
-            ${val.toFixed(2)}
-          </span>
-          {row.order_found && val === 0 && (
-            <AlertTriangle 
-              className="w-3 h-3 text-amber-600" 
-              title="Cost data missing for matched order"
-            />
-          )}
+        <div className="flex items-center justify-end gap-2">
+          <div>
+            <div className={row.cogs_missing ? 'text-amber-600 font-semibold' : ''}>
+              ${val.toFixed(2)}
+            </div>
+            {row.cogs_missing && (
+              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 mt-1">
+                Missing Cost
+              </Badge>
+            )}
+          </div>
         </div>
       )
     },
@@ -511,7 +562,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       )}
 
       <div className="flex justify-between items-center">
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
           <Button
             variant={filterStatus === 'all' ? 'default' : 'outline'}
             onClick={() => setFilterStatus('all')}
@@ -564,6 +615,13 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
           
           {isAdmin && (
             <>
+              <Button
+                variant={showDebugColumns ? 'default' : 'outline'}
+                onClick={() => setShowDebugColumns(!showDebugColumns)}
+                size="sm"
+              >
+                🔍 Debug
+              </Button>
               <Button
                 variant={showDeleted ? 'default' : 'outline'}
                 onClick={() => {
