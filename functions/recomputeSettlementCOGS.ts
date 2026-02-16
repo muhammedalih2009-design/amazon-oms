@@ -209,7 +209,8 @@ Deno.serve(async (req) => {
           if (matchedOrder) {
             const cogsResult = computeCanonicalCOGS(matchedOrder, orderLines, skus);
             // Proportional COGS for this row
-            totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / Math.abs(matchedOrder.net_revenue || 1));
+            const orderRevenue = Math.abs(matchedOrder.net_revenue || 1);
+            totalCogs += cogsResult.cogs * (Math.abs(row.signed_qty) / orderRevenue);
           }
         }
       }
