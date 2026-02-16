@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { MoreVertical } from 'lucide-react';
 
-export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
+export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hideRefreshButton }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState(new Set());
@@ -494,24 +494,26 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
               >
                 Show Deleted
               </Button>
-              <Button
-                variant="secondary"
-                onClick={handleRefresh}
-                disabled={isRefreshing || isOrdersFetching}
-                size="sm"
-              >
-                {isRefreshing || isOrdersFetching ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    Refreshing...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Refresh
-                  </>
-                )}
-              </Button>
+              {!hideRefreshButton && (
+                <Button
+                  variant="secondary"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing || isOrdersFetching}
+                  size="sm"
+                >
+                  {isRefreshing || isOrdersFetching ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </>
+                  )}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={handleRematch}

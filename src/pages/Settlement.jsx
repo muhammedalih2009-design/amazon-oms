@@ -10,8 +10,10 @@ import SettlementSKUTab from '@/components/settlement/SettlementSKUTab';
 import SettlementUnmatchedTab from '@/components/settlement/SettlementUnmatchedTab';
 import SettlementImportsTab from '@/components/settlement/SettlementImportsTab';
 import SettlementFilters from '@/components/settlement/SettlementFilters';
-import { DollarSign, TrendingUp, AlertCircle, Loader2, Info } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Loader2, Info, RefreshCw } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { useCallback } from 'react';
 
 export default function Settlement() {
   const { tenantId } = useTenant();
@@ -22,6 +24,9 @@ export default function Settlement() {
   const [selectedImportId, setSelectedImportId] = useState(null);
   const [integrityStatus, setIntegrityStatus] = useState(null);
   const [autoHealing, setAutoHealing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // URL-persisted filters
   const [dateRange, setDateRange] = useState(() => {
@@ -214,6 +219,39 @@ export default function Settlement() {
     setSelectedStoreIds([]);
   };
 
+  // Master refresh function - refreshes ALL settlement data
+  const refreshAll = useCallback(async () => {
+    if (isRefreshing) return;
+    
+    console.log('[Settlement] Master refresh started');
+    setIsRefreshing(true);
+    
+    try {
+      // Step 1: Refresh imports
+      console.log('[Settlement] fetchImports fired');
+      await loadImports();
+      
+      // Step 2: Refresh settlement rows
+      console.log('[Settlement] fetchSettlementRows fired');
+      if (selectedImportId) {
+        await loadRows(true);
+      }
+      
+      // Step 3: Trigger refetch in child components by incrementing key
+      console.log('[Settlement] fetchOrdersTable fired');
+      console.log('[Settlement] fetchSkuProfitability fired');
+      console.log('[Settlement] fetchUnmatched fired');
+      setRefreshKey(prev => prev + 1);
+      
+      setLastRefreshAt(new Date());
+      console.log('[Settlement] Master refresh completed');
+    } catch (error) {
+      console.error('[Settlement] Master refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [selectedImportId, isRefreshing]);
+
   return (
     <ErrorBoundary fallbackTitle="Settlement page failed to load">
       <div className="space-y-6">
@@ -222,6 +260,24 @@ export default function Settlement() {
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Settlement & Profitability</h1>
             <p className="text-slate-500">Track Amazon settlement transactions and order profitability</p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {lastRefreshAt && (
+              <span className="text-xs text-slate-500">
+                Last refreshed: {format(lastRefreshAt, 'HH:mm:ss')}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshAll}
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
         </div>
 
@@ -332,21 +388,28 @@ export default function Settlement() {
 
           <TabsContent value="orders" className="space-y-4">
             <SettlementOrdersTab 
+              key={`orders-${refreshKey}`}
               rows={filteredRows} 
               tenantId={tenantId}
               onDataChange={() => {
                 loadRows();
                 loadImports();
               }}
+              hideRefreshButton={true}
             />
           </TabsContent>
 
           <TabsContent value="skus" className="space-y-4">
-            <SettlementSKUTab rows={filteredRows} tenantId={tenantId} />
+            <SettlementSKUTab 
+              key={`skus-${refreshKey}`}
+              rows={filteredRows} 
+              tenantId={tenantId} 
+            />
           </TabsContent>
 
           <TabsContent value="unmatched" className="space-y-4">
             <SettlementUnmatchedTab 
+              key={`unmatched-${refreshKey}`}
               rows={filteredRows} 
               tenantId={tenantId}
               onDataChange={() => {
