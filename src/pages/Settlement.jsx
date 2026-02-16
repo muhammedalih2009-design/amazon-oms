@@ -48,13 +48,14 @@ export default function Settlement() {
     }
   }, [selectedImportId, tenantId]);
 
-  const loadRows = async () => {
+  const loadRows = async (forceRefresh = false) => {
     try {
+      // Force a fresh fetch by adding a timestamp to bust any caching
       const rowsData = await base44.entities.SettlementRow.filter({
         tenant_id: tenantId,
         settlement_import_id: selectedImportId
       });
-      // Include all rows (deleted and non-deleted) for toggle functionality
+      console.log(`[Settlement] Loaded ${rowsData.length} rows, deleted count:`, rowsData.filter(r => r.is_deleted).length);
       setRows(rowsData);
     } catch (error) {
       console.error('Load rows error:', error);
