@@ -34,9 +34,7 @@ import RefreshButton from '@/components/shared/RefreshButton';
 import UserAutocomplete from '@/components/shared/UserAutocomplete';
 import TelegramSettings from '@/components/admin/TelegramSettings';
 import ExportSettings from '@/components/admin/ExportSettings';
-import SettlementIntegrityPanel from '@/components/admin/SettlementIntegrityPanel';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
-import SettlementAuditPanel from '@/components/admin/SettlementAuditPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -136,7 +134,6 @@ export default function AdminPage() {
             orders: { view: true, edit: true },
             purchases: { view: true, edit: true },
             returns: { view: true, edit: true },
-            settlement: { view: true, edit: true },
             suppliers: { view: true, edit: true }
           }
         });
@@ -601,11 +598,7 @@ export default function AdminPage() {
         <TabsContent value="integrations" className="space-y-6">
           <TelegramSettings />
           <ExportSettings />
-          
-          {/* Settlement Testing */}
-          <SettlementAuditPanel />
           <DeleteLinkVerification />
-          <SettlementIntegrityPanel />
         </TabsContent>
       </Tabs>
 
