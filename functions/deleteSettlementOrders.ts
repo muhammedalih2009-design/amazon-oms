@@ -32,12 +32,18 @@ Deno.serve(async (req) => {
 
     let totalDeleted = 0;
     
+    console.log('[deleteSettlementOrders] Processing order_ids:', order_ids);
+    
     for (const orderId of order_ids) {
+      console.log(`[deleteSettlementOrders] Looking for rows with order_id="${orderId}"`);
+      
       const rows = await base44.asServiceRole.entities.SettlementRow.filter({
         tenant_id: workspace_id,
         order_id: orderId,
         is_deleted: false
       });
+
+      console.log(`[deleteSettlementOrders] Found ${rows.length} rows for order_id="${orderId}"`);
 
       for (const row of rows) {
         await base44.asServiceRole.entities.SettlementRow.update(row.id, {
@@ -47,6 +53,8 @@ Deno.serve(async (req) => {
         totalDeleted++;
       }
     }
+    
+    console.log(`[deleteSettlementOrders] Total deleted: ${totalDeleted}`);
 
     return Response.json({
       success: true,
