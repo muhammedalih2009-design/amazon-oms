@@ -256,7 +256,10 @@ export default function Settlement() {
     try {
       const response = await base44.functions.invoke('diagnosticOrderCost', {
         workspace_id: tenantId,
-        import_id: selectedImportId
+        import_id: selectedImportId,
+        start_date: dateRange?.from ? dateRange.from.toISOString().split('T')[0] : null,
+        end_date: dateRange?.to ? dateRange.to.toISOString().split('T')[0] : null,
+        store_ids: selectedStores.length > 0 ? Array.from(selectedStores) : null
       });
       console.log('[DIAGNOSTIC] Order Cost Analysis:', response.data);
       alert('Check browser console for diagnostic results');
