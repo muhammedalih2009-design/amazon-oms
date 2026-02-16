@@ -60,6 +60,10 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
     }
 
+    console.log('=== REMATCH DIAGNOSTIC START ===');
+    console.log('[rematchSettlementOrders] Request workspace_id:', workspace_id);
+    console.log('[rematchSettlementOrders] User:', user.email);
+
     // Verify membership
     const membership = await base44.asServiceRole.entities.Membership.filter({
       tenant_id: workspace_id,
@@ -70,20 +74,70 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'No access to workspace' }, { status: 403 });
     }
 
-    console.log('[rematchSettlementOrders] Starting rematch for workspace:', workspace_id);
+    console.log('[rematchSettlementOrders] Membership verified');
 
-    // Load orders and SKUs - CRITICAL: Load ALL workspace orders, ignore date filters
+    // DIAGNOSTIC QUERIES - Test 3 different query patterns
+    console.log('\n--- DIAGNOSTIC: Testing Order Query Patterns ---');
+    
+    // Query 1: Filter by tenant_id only
+    const ordersByTenant = await base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id });
+    console.log(`Query 1 (tenant_id only): ${ordersByTenant.length} orders`);
+    if (ordersByTenant.length > 0) {
+      console.log('First 5 orders (tenant_id query):');
+      ordersByTenant.slice(0, 5).forEach(o => {
+        console.log(`  - Order ID: ${o.id}, amazon_order_id: ${o.amazon_order_id}, tenant_id: ${o.tenant_id}, is_deleted: ${o.is_deleted}`);
+      });
+    }
+    
+    // Query 2: Filter by amazon_order_id only (specific test ID)
+    const testOrderId = '406-9098319-4354700';
+    const ordersByAmazonId = await base44.asServiceRole.entities.Order.filter({ amazon_order_id: testOrderId });
+    console.log(`Query 2 (amazon_order_id='${testOrderId}'): ${ordersByAmazonId.length} orders`);
+    if (ordersByAmazonId.length > 0) {
+      ordersByAmazonId.forEach(o => {
+        console.log(`  - Order ID: ${o.id}, amazon_order_id: ${o.amazon_order_id}, tenant_id: ${o.tenant_id}, is_deleted: ${o.is_deleted}`);
+      });
+    }
+    
+    // Query 3: Filter by tenant_id + amazon_order_id
+    const ordersByBoth = await base44.asServiceRole.entities.Order.filter({ 
+      tenant_id: workspace_id, 
+      amazon_order_id: testOrderId 
+    });
+    console.log(`Query 3 (tenant_id + amazon_order_id='${testOrderId}'): ${ordersByBoth.length} orders`);
+    if (ordersByBoth.length > 0) {
+      ordersByBoth.forEach(o => {
+        console.log(`  - Order ID: ${o.id}, amazon_order_id: ${o.amazon_order_id}, tenant_id: ${o.tenant_id}, is_deleted: ${o.is_deleted}`);
+      });
+    }
+
+    // Check field name usage
+    console.log('\n--- DIAGNOSTIC: Field Name Confirmation ---');
+    if (ordersByTenant.length > 0) {
+      const sampleOrder = ordersByTenant[0];
+      console.log('Sample Order fields:', Object.keys(sampleOrder));
+      console.log('Has amazon_order_id?', 'amazon_order_id' in sampleOrder);
+      console.log('Has order_id?', 'order_id' in sampleOrder);
+    }
+
+    // Load all workspace data - CRITICAL: Load ALL workspace orders, ignore date filters
     const [allOrders, skus, orderLines] = await Promise.all([
       base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id })
     ]);
 
+    console.log('\n--- DATA LOADED ---');
+    console.log(`Total Orders: ${allOrders.length}`);
+    console.log(`Total SKUs: ${skus.length}`);
+    console.log(`Total OrderLines: ${orderLines.length}`);
+
     // Separate active from deleted orders
     const orders = allOrders.filter(o => !o.is_deleted);
     const deletedOrders = allOrders.filter(o => o.is_deleted);
 
-    console.log(`[rematchSettlementOrders] Found ${orders.length} active orders, ${deletedOrders.length} deleted, ${skus.length} SKUs, ${orderLines.length} order lines`);
+    console.log(`Active Orders: ${orders.length}`);
+    console.log(`Deleted Orders: ${deletedOrders.length}`);
 
     // Determine scope: single row or import or all
     let rowsToMatch = [];
@@ -106,7 +160,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`[rematchSettlementOrders] Rematching ${rowsToMatch.length} rows`);
+    console.log(`\nSettlement Rows to Match: ${rowsToMatch.length}`);
+    if (rowsToMatch.length > 0) {
+      console.log('Sample SettlementRow fields:', Object.keys(rowsToMatch[0]));
+      console.log('Has order_id?', 'order_id' in rowsToMatch[0]);
+    }
+
+    // Diagnostic tracking for specific orders
+    const diagnosticOrderIds = ['406-9098319-4354700', '405-9237140-1177144', '407-7729567-8966740'];
+    const diagnosticResults = [];
 
     const results = {
       total_rows: rowsToMatch.length,
@@ -126,12 +188,13 @@ Deno.serve(async (req) => {
       let matchResult = findMatchingOrder(row.order_id, orders);
       let notFoundReason = null;
       
+      // CRITICAL FIX: Initialize with current values, only update if match found
       let updateData = {
-        matched_order_id: null,
-        matched_sku_id: null,
-        match_status: 'unmatched_order',
-        match_strategy: null,
-        not_found_reason: null,
+        matched_order_id: row.matched_order_id || null,
+        matched_sku_id: row.matched_sku_id || null,
+        match_status: row.match_status || 'unmatched_order',
+        match_strategy: row.match_strategy || null,
+        not_found_reason: row.not_found_reason || null,
         raw_order_id: row.order_id,
         normalized_order_id: normalizeOrderId(row.order_id)
       };
@@ -146,6 +209,8 @@ Deno.serve(async (req) => {
 
       if (matchResult) {
         const { order, strategy, confidence } = matchResult;
+        
+        // CRITICAL FIX: Always persist matched_order_id when order is found
         updateData.matched_order_id = order.id;
         updateData.match_strategy = strategy;
         updateData.match_confidence = confidence;
@@ -161,6 +226,7 @@ Deno.serve(async (req) => {
         if (matchedSku) {
           updateData.matched_sku_id = matchedSku.id;
           updateData.match_status = 'matched';
+          updateData.not_found_reason = null;
           
           // Check if order has COGS data
           if (!order.total_cost || order.total_cost === 0) {
@@ -176,8 +242,10 @@ Deno.serve(async (req) => {
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         } else {
+          // CRITICAL FIX: Order found but SKU missing - keep matched_order_id
           updateData.match_status = 'unmatched_sku';
           updateData.not_found_reason = NOT_FOUND_REASONS.SKU_MISSING;
+          // matched_order_id already set above - DO NOT null it
           if (!wasMatched) results.newly_matched++;
           else results.already_matched++;
         }
@@ -186,8 +254,27 @@ Deno.serve(async (req) => {
           results.updated_cogs++;
         }
       } else {
+        // No order match - reset matched_order_id
+        updateData.matched_order_id = null;
+        updateData.match_status = 'unmatched_order';
+        updateData.match_strategy = null;
         results.still_unmatched++;
         updateData.not_found_reason = notFoundReason || NOT_FOUND_REASONS.NO_MATCH_AFTER_NORMALIZATION;
+      }
+
+      // Collect diagnostic data for specific order IDs
+      if (diagnosticOrderIds.includes(row.order_id)) {
+        const diagOrder = matchResult ? matchResult.order : null;
+        diagnosticResults.push({
+          order_id: row.order_id,
+          settlement_tenant: row.tenant_id,
+          orders_tenant: diagOrder ? diagOrder.tenant_id : 'N/A',
+          raw_match: diagOrder ? diagOrder.amazon_order_id : 'Not Found',
+          normalized_match: matchResult ? matchResult.strategy : 'No Match',
+          matched_order_id: updateData.matched_order_id,
+          final_match_status: updateData.match_status,
+          reason: updateData.not_found_reason || 'Success'
+        });
       }
 
       // Only update if changed
@@ -220,12 +307,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log('[rematchSettlementOrders] Completed:', results);
+    console.log('\n=== DIAGNOSTIC RESULTS FOR SPECIFIC ORDERS ===');
+    console.log('order_id | settlement_tenant | orders_tenant | raw_match | normalized_match | matched_order_id | final_match_status | reason');
+    diagnosticResults.forEach(d => {
+      console.log(`${d.order_id} | ${d.settlement_tenant} | ${d.orders_tenant} | ${d.raw_match} | ${d.normalized_match} | ${d.matched_order_id} | ${d.final_match_status} | ${d.reason}`);
+    });
+
+    console.log('\n[rematchSettlementOrders] Completed:', results);
+    console.log('=== REMATCH DIAGNOSTIC END ===\n');
 
     return Response.json({
       success: true,
       ...results,
-      rows_updated: updates.length
+      rows_updated: updates.length,
+      diagnostic: diagnosticResults
     });
 
   } catch (error) {
