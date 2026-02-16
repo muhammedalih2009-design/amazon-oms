@@ -35,6 +35,7 @@ import UserAutocomplete from '@/components/shared/UserAutocomplete';
 import TelegramSettings from '@/components/admin/TelegramSettings';
 import ExportSettings from '@/components/admin/ExportSettings';
 import SettlementIntegrityPanel from '@/components/admin/SettlementIntegrityPanel';
+import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -600,7 +601,8 @@ export default function AdminPage() {
           <TelegramSettings />
           <ExportSettings />
           
-          {/* Settlement Integrity Verification */}
+          {/* Settlement Testing */}
+          <DeleteLinkVerification />
           <SettlementIntegrityPanel />
         </TabsContent>
       </Tabs>
