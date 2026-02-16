@@ -52,40 +52,46 @@ Deno.serve(async (req) => {
       }, { status: 403 });
     }
 
-    // Fetch settlement rows for these order_ids
-    const allSettlementRows = await base44.asServiceRole.entities.SettlementRow.filter({
-      tenant_id: workspace_id
-    });
-
-    const rowsToDelete = allSettlementRows.filter(row => 
-      order_ids.includes(row.order_id) && !row.is_deleted
-    );
-
-    console.log(`[DeleteOrders] Deleting ${order_ids.length} orders, affecting ${rowsToDelete.length} settlement rows`);
-
-    // Soft delete settlement rows in batches
-    const BATCH_SIZE = 50;
+    // Process each order ID and soft delete its settlement rows
     let deletedRowsCount = 0;
+    
+    for (const orderId of order_ids) {
+      // Fetch only rows for this specific order
+      const orderRows = await base44.asServiceRole.entities.SettlementRow.filter({
+        tenant_id: workspace_id,
+        order_id: orderId,
+        is_deleted: false
+      });
 
-    for (let i = 0; i < rowsToDelete.length; i += BATCH_SIZE) {
-      const batch = rowsToDelete.slice(i, i + BATCH_SIZE);
-      await Promise.all(
-        batch.map(row =>
-          base44.asServiceRole.entities.SettlementRow.update(row.id, {
-            is_deleted: true,
-            deleted_at: new Date().toISOString()
-          })
-        )
-      );
-      deletedRowsCount += batch.length;
-      
-      // Rate limiting
-      if (i + BATCH_SIZE < rowsToDelete.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      console.log(`[DeleteOrders] Order ${orderId}: Found ${orderRows.length} rows to delete`);
+
+      // Update in batches
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < orderRows.length; i += BATCH_SIZE) {
+        const batch = orderRows.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(row =>
+            base44.asServiceRole.entities.SettlementRow.update(row.id, {
+              is_deleted: true,
+              deleted_at: new Date().toISOString()
+            })
+          )
+        );
+        deletedRowsCount += batch.length;
+        
+        // Rate limiting between batches
+        if (i + BATCH_SIZE < orderRows.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      // Small delay between orders
+      if (order_ids.indexOf(orderId) < order_ids.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
 
-    console.log(`[DeleteOrders] Soft deleted ${deletedRowsCount} settlement rows`);
+    console.log(`[DeleteOrders] Successfully soft deleted ${deletedRowsCount} settlement rows across ${order_ids.length} orders`);
 
     return Response.json({
       success: true,
