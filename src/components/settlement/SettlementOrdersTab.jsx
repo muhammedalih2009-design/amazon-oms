@@ -410,13 +410,14 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       render: (val) => <span className="text-xs text-slate-600">{val}</span>
     }] : []),
     ...(showDebugColumns ? [{
-      key: 'order_cost_fields',
-      header: 'Cost Fields',
-      render: (val) => (
-        <span className="text-xs text-slate-600">
-          {val.cost ? `cost: ${val.cost}` : '—'}
-        </span>
-      )
+      key: 'items_count',
+      header: 'Items Count',
+      render: (val) => <span className="text-xs text-slate-600">{val || 0}</span>
+    }] : []),
+    ...(showDebugColumns ? [{
+      key: 'items_cogs_sum',
+      header: 'Items COGS Sum',
+      render: (val) => <span className="text-xs text-slate-600">${(val || 0).toFixed(2)}</span>
     }] : []),
     ...(isAdmin && !showDeleted ? [{
       key: 'select',
