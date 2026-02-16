@@ -143,6 +143,29 @@ Deno.serve(async (req) => {
 
     console.log(`[DATA] OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
 
+    // EXPLICIT FAIL ON SOURCE MISMATCH:
+    // If we found matched rows in authority but order-level data is completely missing,
+    // this indicates a data integrity issue worth reporting loudly
+    if (matchedRowsPerAuthority > 0) {
+      const anyActiveOrders = await base44.asServiceRole.entities.Order.filter({ 
+        tenant_id: workspace_id, 
+        is_deleted: false,
+        limit: 1
+      });
+      
+      if (anyActiveOrders.length === 0) {
+        console.error(`[FATAL] Source mismatch: ${matchedRowsPerAuthority} matched settlement rows but NO Order records exist`);
+        return Response.json({
+          success: false,
+          error_code: 'MATCH_SOURCE_INCONSISTENT',
+          message: `${matchedRowsPerAuthority} matched settlement rows found but no Order records exist in workspace. Orders data must be imported.`,
+          matched_rows_in_settlementrow: matchedRowsPerAuthority,
+          orders_in_workspace: 0,
+          recommendation: 'Import Order data or verify import completed'
+        }, { status: 400 });
+      }
+    }
+
     // Check for any active orders
     const anyActiveOrders = await base44.asServiceRole.entities.Order.filter({ 
       tenant_id: workspace_id, 
