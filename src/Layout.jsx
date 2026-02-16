@@ -15,7 +15,6 @@ import {
   ClipboardList,
   Truck,
   RotateCcw,
-  DollarSign,
   Users,
   Menu,
   X,
@@ -47,7 +46,6 @@ const navItems = [
   { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
   { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases' },
   { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns' },
-  { name: 'Settlement', icon: DollarSign, page: 'Settlement', pageKey: 'settlement' },
   { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers' },
   { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks' },
 ];

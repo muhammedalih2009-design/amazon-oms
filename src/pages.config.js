@@ -56,7 +56,6 @@ import PurchaseRequestsPrint from './pages/PurchaseRequestsPrint';
 import Purchases from './pages/Purchases';
 import Returns from './pages/Returns';
 import SKUs from './pages/SKUs';
-import Settlement from './pages/Settlement';
 import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
@@ -74,7 +73,6 @@ export const PAGES = {
     "Purchases": Purchases,
     "Returns": Returns,
     "SKUs": SKUs,
-    "Settlement": Settlement,
     "Stores": Stores,
     "Suppliers": Suppliers,
     "Tasks": Tasks,
