@@ -18,7 +18,8 @@ Deno.serve(async (req) => {
     }
 
     // Fetch source workspace + subscription
-    const sourceWs = await base44.asServiceRole.entities.Tenant.read(source_workspace_id);
+    const workspaces = await base44.asServiceRole.entities.Tenant.filter({ id: source_workspace_id });
+    const sourceWs = workspaces[0];
     if (!sourceWs) {
       return Response.json({ error: 'Source workspace not found' }, { status: 404 });
     }
@@ -164,26 +165,28 @@ Deno.serve(async (req) => {
           await updateJobProgress(base44, cloneJob.id, 'orders', orders.length, idMap);
         }
 
-        // PHASE 5: PURCHASE REQUESTS
+        // PHASE 5: PURCHASE REQUESTS (if entity exists)
         if (options.copy_operational_data) {
-          await updateJobStep(base44, cloneJob.id, 'purchase_requests');
-          // Note: PurchaseRequest entity structure depends on actual schema
-          // This is a placeholder - adjust based on real schema
-          const prqs = await base44.asServiceRole.entities.PurchaseRequest?.filter?.({ tenant_id: source_workspace_id }) || [];
-          for (const prq of prqs) {
-            await base44.asServiceRole.entities.PurchaseRequest.create({
-              tenant_id: newWs.id,
-              ...Object.keys(prq).reduce((acc, k) => {
-                if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by') return acc;
-                if (k === 'tenant_id') return acc;
-                // Remap foreign keys
-                if (k === 'sku_id') acc[k] = idMap.skus?.[prq[k]] || prq[k];
-                else acc[k] = prq[k];
-                return acc;
-              }, {})
-            });
+          try {
+            await updateJobStep(base44, cloneJob.id, 'purchase_requests');
+            const prqs = await base44.asServiceRole.entities.PurchaseRequest.filter({ tenant_id: source_workspace_id });
+            for (const prq of prqs) {
+              await base44.asServiceRole.entities.PurchaseRequest.create({
+                tenant_id: newWs.id,
+                ...Object.keys(prq).reduce((acc, k) => {
+                  if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by') return acc;
+                  if (k === 'tenant_id') return acc;
+                  // Remap foreign keys
+                  if (k === 'sku_id') acc[k] = idMap.skus?.[prq[k]] || prq[k];
+                  else acc[k] = prq[k];
+                  return acc;
+                }, {})
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'purchase_requests', prqs.length, idMap);
+          } catch (e) {
+            // PurchaseRequest entity may not exist, skip silently
           }
-          await updateJobProgress(base44, cloneJob.id, 'purchase_requests', prqs.length, idMap);
         }
 
         // PHASE 6: PURCHASES + PURCHASE ITEMS
@@ -210,23 +213,27 @@ Deno.serve(async (req) => {
           await updateJobProgress(base44, cloneJob.id, 'purchases', purchases.length, idMap);
         }
 
-        // PHASE 7: RETURNS
+        // PHASE 7: RETURNS (if entity exists)
         if (options.copy_operational_data) {
-          await updateJobStep(base44, cloneJob.id, 'returns');
-          const returns = await base44.asServiceRole.entities.Return?.filter?.({ tenant_id: source_workspace_id }) || [];
-          for (const ret of returns) {
-            await base44.asServiceRole.entities.Return.create({
-              tenant_id: newWs.id,
-              ...Object.keys(ret).reduce((acc, k) => {
-                if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by' || k === 'tenant_id') return acc;
-                if (k === 'order_id') acc[k] = idMap.orders?.[ret[k]] || ret[k];
-                else if (k === 'sku_id') acc[k] = idMap.skus?.[ret[k]] || ret[k];
-                else acc[k] = ret[k];
-                return acc;
-              }, {})
-            });
+          try {
+            await updateJobStep(base44, cloneJob.id, 'returns');
+            const returns = await base44.asServiceRole.entities.Return.filter({ tenant_id: source_workspace_id });
+            for (const ret of returns) {
+              await base44.asServiceRole.entities.Return.create({
+                tenant_id: newWs.id,
+                ...Object.keys(ret).reduce((acc, k) => {
+                  if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by' || k === 'tenant_id') return acc;
+                  if (k === 'order_id') acc[k] = idMap.orders?.[ret[k]] || ret[k];
+                  else if (k === 'sku_id') acc[k] = idMap.skus?.[ret[k]] || ret[k];
+                  else acc[k] = ret[k];
+                  return acc;
+                }, {})
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'returns', returns.length, idMap);
+          } catch (e) {
+            // Returns entity may not exist, skip silently
           }
-          await updateJobProgress(base44, cloneJob.id, 'returns', returns.length, idMap);
         }
 
         // PHASE 8: MEMBERSHIPS (if enabled)
@@ -292,8 +299,11 @@ async function updateJobStep(base44, jobId, step) {
 }
 
 async function updateJobProgress(base44, jobId, entity, count, idMap) {
-  const job = await base44.asServiceRole.entities.CloneJob.read(jobId);
-  const progress = job.progress || {};
-  progress[entity] = count;
-  await base44.asServiceRole.entities.CloneJob.update(jobId, { progress, id_map: idMap });
+  const jobs = await base44.asServiceRole.entities.CloneJob.filter({ id: jobId });
+  const job = jobs[0];
+  if (job) {
+    const progress = job.progress || {};
+    progress[entity] = count;
+    await base44.asServiceRole.entities.CloneJob.update(jobId, { progress, id_map: idMap });
+  }
 }
