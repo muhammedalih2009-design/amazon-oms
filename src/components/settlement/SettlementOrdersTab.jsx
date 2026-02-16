@@ -269,9 +269,19 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
 
       window.location.reload();
     } catch (error) {
+      let errorMsg = error.message || 'Failed to recompute COGS';
+      
+      if (error.response?.status === 404) {
+        errorMsg = 'Recompute service not deployed. Please wait 60 seconds and try again.';
+      } else if (error.response?.status === 400) {
+        errorMsg = error.response?.data?.error || 'Invalid request';
+      } else if (error.response?.status === 500) {
+        errorMsg = 'Temporary server error. Please try again.';
+      }
+      
       toast({
         title: 'Recompute Failed',
-        description: error.message || 'Failed to recompute COGS',
+        description: errorMsg,
         variant: 'destructive'
       });
       setIsRecomputingCOGS(false);
@@ -402,7 +412,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     },
     {
       key: 'cogs',
-      header: 'COGS',
+      header: 'Order Cost',
       align: 'right',
       render: (val, row) => (
         <div className="flex items-center justify-end gap-1">
