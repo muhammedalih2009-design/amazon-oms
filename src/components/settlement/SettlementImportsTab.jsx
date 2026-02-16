@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { format } from 'date-fns';
 import SettlementUpload from './SettlementUpload';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, RefreshCw, Loader2 } from 'lucide-react';
+import { base44 } from '@/api/base44Client';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function SettlementImportsTab({
   imports,
@@ -11,6 +13,33 @@ export default function SettlementImportsTab({
   onImportSuccess,
   tenantId
 }) {
+  const { toast } = useToast();
+  const [rebuilding, setRebuilding] = useState(null);
+
+  const handleRebuildRows = async (importId) => {
+    setRebuilding(importId);
+    try {
+      const response = await base44.functions.invoke('rebuildSettlementRows', {
+        workspace_id: tenantId,
+        import_id: importId
+      });
+
+      toast({
+        title: 'Rows Rebuilt',
+        description: `Created ${response.data.rows_created} rows, ${response.data.rows_matched} matched`
+      });
+
+      if (onImportSuccess) onImportSuccess();
+    } catch (error) {
+      toast({
+        title: 'Rebuild Failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setRebuilding(null);
+    }
+  };
   const getStatusIcon = (status) => {
     if (status === 'completed') return <CheckCircle2 className="w-5 h-5 text-emerald-600" />;
     if (status === 'completed_with_errors') return <AlertCircle className="w-5 h-5 text-amber-600" />;
@@ -58,16 +87,34 @@ export default function SettlementImportsTab({
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">{imp.rows_count} rows</p>
-                    <p className="text-xs text-slate-500">
-                      {imp.matched_rows_count} matched, {imp.unmatched_rows_count} unmatched
-                    </p>
-                    <p className={`text-xs font-medium mt-1 ${
-                      imp.total_parse_errors > 0 ? 'text-amber-600' : 'text-emerald-600'
-                    }`}>
-                      {getStatusBadge(imp.status, imp.total_parse_errors)}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-sm font-medium">{imp.rows_count} rows</p>
+                      <p className="text-xs text-slate-500">
+                        {imp.matched_rows_count} matched, {imp.unmatched_rows_count} unmatched
+                      </p>
+                      <p className={`text-xs font-medium mt-1 ${
+                        imp.total_parse_errors > 0 ? 'text-amber-600' : 'text-emerald-600'
+                      }`}>
+                        {getStatusBadge(imp.status, imp.total_parse_errors)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRebuildRows(imp.id);
+                      }}
+                      disabled={rebuilding === imp.id}
+                      title="Rebuild settlement rows in database"
+                    >
+                      {rebuilding === imp.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                    </Button>
                   </div>
                 </div>
               </div>
