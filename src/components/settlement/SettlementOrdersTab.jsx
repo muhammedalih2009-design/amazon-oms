@@ -154,7 +154,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
       });
 
       setSelectedOrders(new Set());
-      if (onDataChange) onDataChange();
+      
+      // Wait a moment for DB to update, then reload
+      setTimeout(() => {
+        if (onDataChange) onDataChange();
+      }, 500);
     } catch (error) {
       toast({
         title: 'Restore Failed',
@@ -180,7 +184,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
 
       setDeleteModalOpen(false);
       setSelectedOrders(new Set());
-      if (onDataChange) onDataChange();
+      
+      // Wait a moment for DB to update, then reload
+      setTimeout(() => {
+        if (onDataChange) onDataChange();
+      }, 500);
     } catch (error) {
       toast({
         title: 'Delete Failed',
