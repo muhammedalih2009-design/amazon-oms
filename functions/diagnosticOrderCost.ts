@@ -23,7 +23,28 @@ Deno.serve(async (req) => {
     const matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
 
     if (matchedRows.length === 0) {
-      return Response.json({ error: 'No settlement rows found' }, { status: 400 });
+      // Debug: check what's available
+      const allRows = await base44.asServiceRole.entities.SettlementRow.filter({
+        tenant_id: workspace_id
+      });
+      const notDeletedRows = await base44.asServiceRole.entities.SettlementRow.filter({
+        tenant_id: workspace_id,
+        is_deleted: false
+      });
+      
+      return Response.json({ 
+        error: 'No settlement rows found with query',
+        debug: {
+          query_used: query,
+          total_rows_all: allRows.length,
+          total_rows_not_deleted: notDeletedRows.length,
+          sample_row: notDeletedRows[0] ? {
+            id: notDeletedRows[0].id,
+            is_deleted: notDeletedRows[0].is_deleted,
+            matched_order_id: notDeletedRows[0].matched_order_id
+          } : null
+        }
+      }, { status: 400 });
     }
 
     const row = matchedRows[0];
