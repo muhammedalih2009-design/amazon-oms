@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useToast } from '@/components/ui/use-toast';
 import DeleteOrdersModal from './DeleteOrdersModal';
-import { Trash2, RotateCcw, RefreshCw, Loader2 } from 'lucide-react';
+import { Trash2, RotateCcw, RefreshCw, Loader2, Calculator, AlertTriangle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreVertical } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hideRefreshButton }) {
   const [filterStatus, setFilterStatus] = useState('all');
@@ -26,6 +27,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRematching, setIsRematching] = useState(false);
+  const [isRecomputingCOGS, setIsRecomputingCOGS] = useState(false);
   const { isOwner, membership } = useTenant();
   const { toast } = useToast();
 
@@ -46,7 +48,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     cacheTime: 0
   });
 
-  // TASK 5 FIX: Trust backend match state (not frontend re-match)
+  // TASK 5: Trust backend match state (not frontend re-match)
   const orderProfit = useMemo(() => {
     const orderMap = {};
 
@@ -77,15 +79,15 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       orderMap[orderId].signed_units += row.signed_qty;
       orderMap[orderId].rows.push(row);
 
-      // TASK 5: Use backend match_status as source of truth
-      if (row.match_status === 'matched') {
+      // Use backend match_status as source of truth
+      if (row.match_status === 'matched' || row.match_status === 'unmatched_sku') {
         orderMap[orderId].matched_rows++;
         orderMap[orderId].order_found = true;
       } else {
         orderMap[orderId].unmatched_rows++;
       }
       
-      // Track if ANY row has matched_order_id
+      // Track if ANY row has matched_order_id (authoritative)
       if (row.matched_order_id) {
         orderMap[orderId].order_found = true;
         orderMap[orderId].match_strategy = row.match_strategy;
@@ -98,7 +100,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     });
 
     // Enrich with Orders data for COGS (display only, not boolean truth)
-    return Object.values(orderMap).map(order => {
+    const enrichedOrders = Object.values(orderMap).map(order => {
       let cogs = 0;
       let enrichedOrder = null;
       
@@ -121,12 +123,24 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         margin,
         status: !order.order_found ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
       };
-    }).filter(order => {
+    });
+
+    // TASK 6: Check for cost data integrity issues
+    const matchedWithZeroCOGS = enrichedOrders.filter(o => 
+      o.order_found && o.cogs === 0 && o.matched_rows > 0
+    );
+
+    if (matchedWithZeroCOGS.length > 0) {
+      console.warn(`[SettlementOrdersTab] ${matchedWithZeroCOGS.length} matched orders have COGS=0`);
+    }
+
+    return enrichedOrders.filter(order => {
       if (filterStatus === 'profitable') return order.profit > 0;
       if (filterStatus === 'loss') return order.profit < 0;
       if (filterStatus === 'partial') return order.unmatched_rows > 0;
       if (filterStatus === 'found') return order.order_found;
       if (filterStatus === 'not_found') return !order.order_found;
+      if (filterStatus === 'zero_cogs') return order.order_found && order.cogs === 0;
       return true;
     });
   }, [rows, orders, filterStatus, showDeleted]);
@@ -186,12 +200,10 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     console.log('Refresh button clicked');
     setIsRefreshing(true);
     try {
-      // Reset filters
       setFilterStatus('all');
       setShowDeleted(false);
       setSelectedOrders(new Set());
 
-      // Force refetch
       const result = await refetchOrders();
       
       if (result.isError) {
@@ -236,15 +248,39 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         description: error.message || 'Failed to rematch orders',
         variant: 'destructive'
       });
-    } finally {
       setIsRematching(false);
+    }
+  };
+
+  const handleRecomputeCOGS = async () => {
+    setIsRecomputingCOGS(true);
+    try {
+      const response = await base44.functions.invoke('recomputeSettlementCOGS', {
+        workspace_id: tenantId
+      });
+
+      const data = response.data;
+      
+      toast({
+        title: 'COGS Recomputed',
+        description: `${data.rows_with_cogs} rows with COGS, ${data.rows_missing_cogs} missing`,
+        duration: 5000
+      });
+
+      window.location.reload();
+    } catch (error) {
+      toast({
+        title: 'Recompute Failed',
+        description: error.message || 'Failed to recompute COGS',
+        variant: 'destructive'
+      });
+      setIsRecomputingCOGS(false);
     }
   };
 
   const confirmDelete = async () => {
     setIsDeleting(true);
     try {
-      // Find the actual order_ids from the rows
       const actualOrderIds = [];
       ordersToDelete.forEach(displayOrderId => {
         const matchingRows = rows.filter(r => r.order_id === displayOrderId && !r.is_deleted);
@@ -290,6 +326,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       setIsDeleting(false);
     }
   };
+
+  // TASK 6: Detect cost data integrity issues
+  const matchedOrdersWithZeroCOGS = orderProfit.filter(o => 
+    o.order_found && o.cogs === 0 && o.matched_rows > 0
+  );
 
   const columns = [
     ...(isAdmin && !showDeleted ? [{
@@ -363,7 +404,19 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       key: 'cogs',
       header: 'COGS',
       align: 'right',
-      render: (val) => `$${val.toFixed(2)}`
+      render: (val, row) => (
+        <div className="flex items-center justify-end gap-1">
+          <span className={row.order_found && val === 0 ? 'text-amber-600 font-semibold' : ''}>
+            ${val.toFixed(2)}
+          </span>
+          {row.order_found && val === 0 && (
+            <AlertTriangle 
+              className="w-3 h-3 text-amber-600" 
+              title="Cost data missing for matched order"
+            />
+          )}
+        </div>
+      )
     },
     {
       key: 'profit',
@@ -420,6 +473,40 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
 
   return (
     <div className="space-y-4">
+      {/* TASK 6: Cost data integrity warning */}
+      {matchedOrdersWithZeroCOGS.length > 0 && (
+        <Alert className="bg-amber-50 border-amber-200">
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <div>
+              <span className="font-semibold text-amber-900">Cost data missing for {matchedOrdersWithZeroCOGS.length} matched orders</span>
+              <p className="text-xs text-amber-700 mt-1">
+                These orders are matched but have COGS=0. Click "Recompute COGS" to recalculate cost data from Orders.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRecomputeCOGS}
+              disabled={isRecomputingCOGS}
+              className="ml-4 border-amber-300 text-amber-900 hover:bg-amber-100"
+            >
+              {isRecomputingCOGS ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Computing...
+                </>
+              ) : (
+                <>
+                  <Calculator className="w-4 h-4 mr-2" />
+                  Recompute COGS
+                </>
+              )}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex justify-between items-center">
         <div className="flex gap-2 flex-wrap">
           <Button
@@ -442,6 +529,13 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
             size="sm"
           >
             Not Found
+          </Button>
+          <Button
+            variant={filterStatus === 'zero_cogs' ? 'default' : 'outline'}
+            onClick={() => setFilterStatus('zero_cogs')}
+            size="sm"
+          >
+            Zero COGS
           </Button>
           <Button
             variant={filterStatus === 'profitable' ? 'default' : 'outline'}
