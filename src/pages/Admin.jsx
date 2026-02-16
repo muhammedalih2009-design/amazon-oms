@@ -36,6 +36,7 @@ import TelegramSettings from '@/components/admin/TelegramSettings';
 import ExportSettings from '@/components/admin/ExportSettings';
 import SettlementIntegrityPanel from '@/components/admin/SettlementIntegrityPanel';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
+import SettlementAuditPanel from '@/components/admin/SettlementAuditPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -602,6 +603,7 @@ export default function AdminPage() {
           <ExportSettings />
           
           {/* Settlement Testing */}
+          <SettlementAuditPanel />
           <DeleteLinkVerification />
           <SettlementIntegrityPanel />
         </TabsContent>
