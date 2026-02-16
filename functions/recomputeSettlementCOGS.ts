@@ -130,6 +130,17 @@ Deno.serve(async (req) => {
 
     console.log(`[DATA] Orders: ${orders.length} | OrderLines: ${orderLines.length} | SKUs: ${skus.length}`);
 
+    if (orders.length === 0) {
+      console.log(`[WARNING] No active orders found for workspace_id: ${workspace_id}. Cannot recompute COGS.`);
+      return Response.json({
+        success: false,
+        error_code: 'NO_ACTIVE_ORDERS',
+        message: 'No active orders found in workspace. Ensure orders are imported and not deleted.',
+        total_rows_scanned: 0,
+        eligible_rows: 0
+      }, { status: 400 });
+    }
+
     // Load settlement rows
     let rowsToRecompute = [];
     if (import_id) {
