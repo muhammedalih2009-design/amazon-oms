@@ -46,19 +46,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
     cacheTime: 0
   });
 
-  // Canonical normalization for consistent matching
-  const normalizeOrderId = (orderId) => {
-    if (!orderId) return '';
-    return orderId
-      .toString()
-      .trim()
-      .toUpperCase()
-      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
-      .replace(/\s+/g, '')
-      .replace(/[\u2010-\u2015\u2212]/g, '-')
-      .replace(/-/g, '');
-  };
-
+  // TASK 5 FIX: Trust backend match state (not frontend re-match)
   const orderProfit = useMemo(() => {
     const orderMap = {};
 
@@ -79,7 +67,9 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
           unmatched_rows: 0,
           rows: [],
           is_deleted: row.is_deleted || false,
-          order_found: false
+          order_found: false,
+          not_found_reason: null,
+          match_strategy: null
         };
       }
 
@@ -87,55 +77,37 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
       orderMap[orderId].signed_units += row.signed_qty;
       orderMap[orderId].rows.push(row);
 
+      // TASK 5: Use backend match_status as source of truth
       if (row.match_status === 'matched') {
         orderMap[orderId].matched_rows++;
+        orderMap[orderId].order_found = true;
       } else {
         orderMap[orderId].unmatched_rows++;
       }
+      
+      // Track if ANY row has matched_order_id
+      if (row.matched_order_id) {
+        orderMap[orderId].order_found = true;
+        orderMap[orderId].match_strategy = row.match_strategy;
+      }
+      
+      // Capture not_found_reason from backend
+      if (row.not_found_reason) {
+        orderMap[orderId].not_found_reason = row.not_found_reason;
+      }
     });
 
-    // Match with Orders table and get COGS from Orders.total_cost
+    // Enrich with Orders data for COGS (display only, not boolean truth)
     return Object.values(orderMap).map(order => {
-      const normalizedOrderId = normalizeOrderId(order.order_id);
-      
-      // Try multiple matching strategies
-      let matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedOrderId);
-      let matchStrategy = 'amazon_id';
-      
-      if (!matchedOrder) {
-        matchedOrder = orders.find(o => normalizeOrderId(o.id) === normalizedOrderId);
-        matchStrategy = 'internal_id';
-      }
-      
-      if (!matchedOrder) {
-        // Partial match as fallback
-        matchedOrder = orders.find(o => {
-          const norm = normalizeOrderId(o.amazon_order_id);
-          return norm.includes(normalizedOrderId) || normalizedOrderId.includes(norm);
-        });
-        matchStrategy = 'partial';
-      }
-      
       let cogs = 0;
-      let orderFound = false;
-      let notFoundReason = 'Order not found in workspace';
-
-      if (matchedOrder) {
-        cogs = matchedOrder.total_cost || 0;
-        orderFound = true;
-        
-        if (cogs === 0) {
-          notFoundReason = 'Order matched but COGS missing';
-        }
-      } else {
-        // Check if order exists with different format
-        const hasPartialMatch = orders.some(o => {
-          const norm = normalizeOrderId(o.amazon_order_id);
-          return norm.includes(normalizedOrderId.slice(0, 8)) || normalizedOrderId.includes(norm.slice(0, 8));
-        });
-        
-        if (hasPartialMatch) {
-          notFoundReason = 'Order exists but ID format mismatch';
+      let enrichedOrder = null;
+      
+      // Find Order entity for display enrichment (COGS)
+      const firstMatchedRow = order.rows.find(r => r.matched_order_id);
+      if (firstMatchedRow?.matched_order_id) {
+        enrichedOrder = orders.find(o => o.id === firstMatchedRow.matched_order_id);
+        if (enrichedOrder) {
+          cogs = enrichedOrder.total_cost || 0;
         }
       }
 
@@ -147,10 +119,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         cogs,
         profit,
         margin,
-        order_found: orderFound,
-        match_strategy: matchStrategy,
-        not_found_reason: notFoundReason,
-        status: !orderFound ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
+        status: !order.order_found ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
       };
     }).filter(order => {
       if (filterStatus === 'profitable') return order.profit > 0;
@@ -259,9 +228,8 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         duration: 5000
       });
 
-      // Refresh data
-      await refetchOrders();
-      if (onDataChange) onDataChange();
+      // Full page reload to ensure all tabs reflect updated data
+      window.location.reload();
     } catch (error) {
       toast({
         title: 'Rematch Failed',
