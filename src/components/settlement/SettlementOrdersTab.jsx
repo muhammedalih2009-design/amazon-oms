@@ -264,40 +264,17 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange, hide
         import_id: currentImportId || null
       });
 
-      const data = response.data;
-      
-      if (!data.success && data.error_code === 'NO_ELIGIBLE_MATCHED_ROWS') {
-        toast({
-          title: 'No Matched Orders',
-          description: `${data.total_rows_scanned} rows scanned, but none are matched to orders. Run "Rematch Orders" first.`,
-          variant: 'destructive',
-          duration: 7000
-        });
-        setIsRecomputingCOGS(false);
-        return;
-      }
-      
+      console.log('🔧 RECOMPUTE COGS RESPONSE:', response.data);
       toast({
-        title: 'COGS Recomputed',
-        description: `${data.rows_with_cogs} rows with COGS, ${data.rows_missing_cogs} missing. ${data.orders_synced} orders updated.`,
-        duration: 7000
+        title: 'Recompute Complete',
+        description: 'Check browser console for full response'
       });
-
-      window.location.reload();
+      setIsRecomputingCOGS(false);
     } catch (error) {
-      let errorMsg = error.message || 'Failed to recompute COGS';
-      
-      if (error.response?.status === 404) {
-        errorMsg = 'Recompute service not deployed. Please wait 60 seconds and try again.';
-      } else if (error.response?.status === 400) {
-        errorMsg = error.response?.data?.error || 'Invalid request';
-      } else if (error.response?.status === 500) {
-        errorMsg = 'Temporary server error. Please try again.';
-      }
-      
+      console.error('❌ RECOMPUTE COGS ERROR:', error);
       toast({
-        title: 'Recompute Failed',
-        description: errorMsg,
+        title: 'Error',
+        description: error.message || 'Failed',
         variant: 'destructive'
       });
       setIsRecomputingCOGS(false);
