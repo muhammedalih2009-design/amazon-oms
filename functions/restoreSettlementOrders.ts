@@ -31,6 +31,13 @@ Deno.serve(async (req) => {
     }
 
     let totalRestored = 0;
+    let rematched = 0;
+    
+    // Get orders and SKUs for rematching
+    const [orders, skus] = await Promise.all([
+      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, is_deleted: false }),
+      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id })
+    ]);
     
     for (const orderId of order_ids) {
       const rows = await base44.asServiceRole.entities.SettlementRow.filter({
@@ -39,19 +46,46 @@ Deno.serve(async (req) => {
         is_deleted: true
       });
 
+      console.log(`[restoreSettlementOrders] Order ${orderId}: found ${rows.length} deleted rows`);
+
       for (const row of rows) {
+        // Rematch with orders and SKUs
+        let matchStatus = 'unmatched_order';
+        let matchedOrderId = null;
+        let matchedSkuId = null;
+
+        const matchedOrder = orders.find(o => o.amazon_order_id === row.order_id);
+        if (matchedOrder) {
+          matchedOrderId = matchedOrder.id;
+          const matchedSku = skus.find(s => s.sku_code === row.sku);
+          if (matchedSku) {
+            matchedSkuId = matchedSku.id;
+            matchStatus = 'matched';
+            rematched++;
+          } else {
+            matchStatus = 'unmatched_sku';
+          }
+        }
+
         await base44.asServiceRole.entities.SettlementRow.update(row.id, {
           is_deleted: false,
-          deleted_at: null
+          deleted_at: null,
+          matched_order_id: matchedOrderId,
+          matched_sku_id: matchedSkuId,
+          match_status: matchStatus
         });
         totalRestored++;
       }
     }
+    
+    console.log('[restoreSettlementOrders] Result:', { totalRestored, rematched });
 
     return Response.json({
       success: true,
       restored_count: order_ids.length,
-      affected_settlement_rows: totalRestored
+      affected_settlement_rows: totalRestored,
+      rematched_count: rematched,
+      message: `Restored ${totalRestored} settlement row${totalRestored > 1 ? 's' : ''}, ${rematched} rematched with orders`
     });
   } catch (error) {
     console.error('Restore error:', error);

@@ -150,15 +150,11 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
 
       toast({
         title: 'Order Restored',
-        description: `Order ${orderId} has been restored successfully.`
+        description: data.message || `Restored ${data.affected_settlement_rows} settlement rows`
       });
 
       setSelectedOrders(new Set());
-      
-      // Wait a moment for DB to update, then reload
-      setTimeout(() => {
-        if (onDataChange) onDataChange();
-      }, 500);
+      if (onDataChange) onDataChange();
     } catch (error) {
       toast({
         title: 'Restore Failed',
@@ -171,25 +167,27 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   const confirmDelete = async () => {
     setIsDeleting(true);
     try {
-      // Find the actual order_ids from the rows (not the display/normalized ones)
+      // Find the actual order_ids from the rows
       const actualOrderIds = [];
       ordersToDelete.forEach(displayOrderId => {
-        const matchingRows = rows.filter(r => r.order_id === displayOrderId);
+        const matchingRows = rows.filter(r => r.order_id === displayOrderId && !r.is_deleted);
         if (matchingRows.length > 0) {
           actualOrderIds.push(matchingRows[0].order_id);
         }
       });
 
-      console.log('[SettlementOrdersTab] Display order_ids:', ordersToDelete);
-      console.log('[SettlementOrdersTab] Actual order_ids from rows:', actualOrderIds);
+      console.log('[SettlementOrdersTab] Deleting:', { displayOrderIds: ordersToDelete, actualOrderIds });
+
+      if (actualOrderIds.length === 0) {
+        throw new Error('No active settlement rows found for selected orders');
+      }
 
       const response = await base44.functions.invoke('deleteSettlementOrders', {
         workspace_id: tenantId,
-        order_ids: actualOrderIds,
-        reason: 'User deleted from Settlement Orders tab'
+        order_ids: actualOrderIds
       });
 
-      console.log('[SettlementOrdersTab] Delete response:', response);
+      console.log('[SettlementOrdersTab] Delete response:', response.data);
 
       if (!response.data || response.data.code === 'FORBIDDEN' || response.data.code === 'ERROR') {
         throw new Error(response.data?.message || 'Delete failed');
@@ -197,13 +195,12 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
 
       toast({
         title: 'Orders Deleted',
-        description: `Successfully deleted ${response.data.deleted_count} order${response.data.deleted_count > 1 ? 's' : ''}, affected ${response.data.affected_settlement_rows} rows`
+        description: response.data.message || `Successfully deleted ${response.data.deleted_count} orders`
       });
 
       setDeleteModalOpen(false);
       setSelectedOrders(new Set());
       
-      // Immediate reload - no delay needed
       if (onDataChange) onDataChange();
     } catch (error) {
       console.error('[SettlementOrdersTab] Delete error:', error);
