@@ -92,7 +92,8 @@ function computeCanonicalCOGS(matchedOrder, orderLines, skus) {
 }
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_V = 'v3.0.0-' + Date.now();
+  const DEPLOYMENT_V = 'v4.0.0-' + Date.now();
+  const START_TIME = Date.now();
   
   try {
     const base44 = createClientFromRequest(req);
@@ -102,7 +103,11 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id, import_id } = await req.json();
+    const reqBody = await req.json();
+    const { workspace_id, import_id } = reqBody;
+    
+    console.log(`[DEPLOYMENT] ${DEPLOYMENT_V}`);
+    console.log(`[REQUEST] Payload:`, { workspace_id, import_id, user_id: user.id });
 
     if (!workspace_id) {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
