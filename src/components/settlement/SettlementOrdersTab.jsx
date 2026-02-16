@@ -171,15 +171,21 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   const confirmDelete = async () => {
     setIsDeleting(true);
     try {
-      // Log what we're sending
-      console.log('[SettlementOrdersTab] Deleting order_ids:', ordersToDelete);
-      console.log('[SettlementOrdersTab] Sample settlement rows for these orders:', 
-        rows.filter(r => ordersToDelete.includes(r.order_id)).slice(0, 2)
-      );
+      // Find the actual order_ids from the rows (not the display/normalized ones)
+      const actualOrderIds = [];
+      ordersToDelete.forEach(displayOrderId => {
+        const matchingRows = rows.filter(r => r.order_id === displayOrderId);
+        if (matchingRows.length > 0) {
+          actualOrderIds.push(matchingRows[0].order_id);
+        }
+      });
+
+      console.log('[SettlementOrdersTab] Display order_ids:', ordersToDelete);
+      console.log('[SettlementOrdersTab] Actual order_ids from rows:', actualOrderIds);
 
       const response = await base44.functions.invoke('deleteSettlementOrders', {
         workspace_id: tenantId,
-        order_ids: ordersToDelete,
+        order_ids: actualOrderIds,
         reason: 'User deleted from Settlement Orders tab'
       });
 
