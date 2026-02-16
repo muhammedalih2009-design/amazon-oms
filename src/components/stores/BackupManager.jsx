@@ -221,8 +221,8 @@ export default function BackupManager({ tenantId }) {
       for (const item of importBatches) await base44.entities.ImportBatch.delete(item.id);
       for (const item of tasks) await base44.entities.Task.delete(item.id);
 
-      // Restore from backup (in correct order, removing built-in fields)
-      const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, ...rest }) => rest);
+      // Restore from backup (in correct order, removing built-in fields and tenant_id to use current workspace)
+      const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
 
       if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
       if (backupData.stores?.length) await base44.entities.Store.bulkCreate(stripBuiltins(backupData.stores));
