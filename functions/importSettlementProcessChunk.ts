@@ -95,27 +95,51 @@ Deno.serve(async (req) => {
 
     // Extract and insert chunk rows
     const chunkRows = parsedRows.slice(start, end);
-    const chunkRowsWithMeta = chunkRows.map(row => ({
+    const chunkRowsWithMeta = chunkRows.map((row, idx) => ({
       ...row,
-      settlement_import_id: importId
+      settlement_import_id: importId,
+      row_index: start + idx
     }));
 
     let insertedRows = [];
-    try {
-      insertedRows = await base44.asServiceRole.entities.SettlementRow.bulkCreate(chunkRowsWithMeta);
-    } catch (err) {
-      await base44.asServiceRole.entities.SettlementImportChunk.update(chunk.id, {
-        status: 'failed',
-        error: err.message,
-        attempts: 1
-      });
+    let rowsCreated = 0;
+    let rowsSkipped = 0;
+    
+    // Insert rows individually for idempotency checking
+    for (const row of chunkRowsWithMeta) {
+      try {
+        // Check if row already exists (idempotency)
+        const existing = await base44.asServiceRole.entities.SettlementRow.filter({
+          settlement_import_id: importId,
+          row_index: row.row_index
+        });
 
-      return Response.json({
-        code: 'INSERT_ERROR',
-        message: 'Failed to insert chunk rows',
-        details: [err.message]
-      }, { status: 500 });
+        if (existing.length > 0) {
+          insertedRows.push(existing[0]);
+          rowsSkipped++;
+          continue;
+        }
+
+        const created = await base44.asServiceRole.entities.SettlementRow.create(row);
+        insertedRows.push(created);
+        rowsCreated++;
+      } catch (err) {
+        console.error(`[importSettlementProcessChunk] Failed to insert row ${row.row_index}:`, err);
+        await base44.asServiceRole.entities.SettlementImportChunk.update(chunk.id, {
+          status: 'failed',
+          error: `Row ${row.row_index}: ${err.message}`,
+          attempts: 1
+        });
+
+        return Response.json({
+          code: 'INSERT_ERROR',
+          message: `Failed to insert row ${row.row_index}`,
+          details: [err.message]
+        }, { status: 500 });
+      }
     }
+    
+    console.log(`[importSettlementProcessChunk] Chunk ${chunkIndex}: created=${rowsCreated}, skipped=${rowsSkipped}`);
 
     // Match rows and update in smaller batches
     const [orders, skus] = await Promise.all([
@@ -179,22 +203,50 @@ Deno.serve(async (req) => {
     });
 
     // Update import job
-    const newProcessedRows = importJob.processed_rows + chunkRowsWithMeta.length;
+    const newProcessedRows = importJob.processed_rows + rowsCreated;
     const newCursor = end;
     const isDone = newCursor >= parsedRows.length;
 
     let newStatus = importJob.status;
     if (isDone) {
-      newStatus = importJob.total_parse_errors > 0 ? 'completed_with_errors' : 'completed';
-    }
+      // Verify SettlementRow count matches expected
+      const actualRowCount = await base44.asServiceRole.entities.SettlementRow.filter({
+        settlement_import_id: importId
+      }).then(rows => rows.length);
 
-    await base44.asServiceRole.entities.SettlementImport.update(importId, {
-      status: newStatus,
-      processed_rows: newProcessedRows,
-      cursor: newCursor,
-      rows_count: newProcessedRows,
-      import_completed_at: isDone ? new Date().toISOString() : null
-    });
+      const expectedRows = parsedRows.length;
+      
+      console.log(`[importSettlementProcessChunk] Completion check: expected=${expectedRows}, actual=${actualRowCount}`);
+
+      if (actualRowCount < expectedRows * 0.95) {
+        // Missing >5% of rows - mark as failed
+        newStatus = 'failed';
+        await base44.asServiceRole.entities.SettlementImport.update(importId, {
+          status: newStatus,
+          error_message: `Integrity check failed: expected ${expectedRows} rows, found ${actualRowCount}`,
+          processed_rows: newProcessedRows,
+          cursor: newCursor,
+          rows_count: actualRowCount,
+          import_completed_at: new Date().toISOString()
+        });
+      } else {
+        newStatus = importJob.total_parse_errors > 0 ? 'completed_with_errors' : 'completed';
+        await base44.asServiceRole.entities.SettlementImport.update(importId, {
+          status: newStatus,
+          processed_rows: newProcessedRows,
+          cursor: newCursor,
+          rows_count: actualRowCount,
+          import_completed_at: new Date().toISOString()
+        });
+      }
+    } else {
+      await base44.asServiceRole.entities.SettlementImport.update(importId, {
+        status: newStatus,
+        processed_rows: newProcessedRows,
+        cursor: newCursor,
+        rows_count: newProcessedRows
+      });
+    }
 
     return Response.json({
       ok: true,

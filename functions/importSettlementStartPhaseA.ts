@@ -229,6 +229,7 @@ Deno.serve(async (req) => {
 
         settlementRows.push({
           tenant_id: tenantId,
+          row_index: settlementRows.length,
           datetime: datetime.toISOString(),
           settlement_id: getFieldValue(fields, 'settlement_id', headerMap),
           type: getFieldValue(fields, 'type', headerMap),

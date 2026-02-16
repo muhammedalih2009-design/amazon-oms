@@ -15,6 +15,7 @@ export default function SettlementImportsTab({
 }) {
   const { toast } = useToast();
   const [rebuilding, setRebuilding] = useState(null);
+  const [integrityChecks, setIntegrityChecks] = useState({});
 
   const handleRebuildRows = async (importId) => {
     setRebuilding(importId);
@@ -26,9 +27,11 @@ export default function SettlementImportsTab({
 
       toast({
         title: 'Rows Rebuilt',
-        description: `Created ${response.data.rows_created} rows, ${response.data.rows_matched} matched`
+        description: `Created ${response.data.rows_created} new rows, ${response.data.rows_matched} matched with orders`
       });
 
+      // Refresh integrity check
+      checkIntegrity(importId);
       if (onImportSuccess) onImportSuccess();
     } catch (error) {
       toast({
@@ -40,6 +43,24 @@ export default function SettlementImportsTab({
       setRebuilding(null);
     }
   };
+
+  const checkIntegrity = async (importId) => {
+    try {
+      const { data } = await base44.functions.invoke('checkSettlementIntegrity', {
+        workspace_id: tenantId,
+        import_id: importId
+      });
+      setIntegrityChecks(prev => ({ ...prev, [importId]: data }));
+    } catch (error) {
+      console.error('Integrity check error:', error);
+    }
+  };
+
+  React.useEffect(() => {
+    if (imports.length > 0 && tenantId) {
+      imports.forEach(imp => checkIntegrity(imp.id));
+    }
+  }, [imports, tenantId]);
   const getStatusIcon = (status) => {
     if (status === 'completed') return <CheckCircle2 className="w-5 h-5 text-emerald-600" />;
     if (status === 'completed_with_errors') return <AlertCircle className="w-5 h-5 text-amber-600" />;
@@ -93,11 +114,13 @@ export default function SettlementImportsTab({
                       <p className="text-xs text-slate-500">
                         {imp.matched_rows_count} matched, {imp.unmatched_rows_count} unmatched
                       </p>
-                      <p className={`text-xs font-medium mt-1 ${
-                        imp.total_parse_errors > 0 ? 'text-amber-600' : 'text-emerald-600'
-                      }`}>
-                        {getStatusBadge(imp.status, imp.total_parse_errors)}
-                      </p>
+                      {integrityChecks[imp.id] && (
+                        <p className={`text-xs font-medium mt-1 ${
+                          integrityChecks[imp.id].status === 'OK' ? 'text-emerald-600' : 'text-red-600'
+                        }`}>
+                          {integrityChecks[imp.id].status === 'OK' ? '✓ Integrity OK' : `⚠ ${integrityChecks[imp.id].missing_rows} missing`}
+                        </p>
+                      )}
                     </div>
                     <Button
                       variant="ghost"

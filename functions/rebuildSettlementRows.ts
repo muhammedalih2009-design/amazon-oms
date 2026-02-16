@@ -32,35 +32,49 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Import not found' }, { status: 404 });
     }
 
-    // Delete existing rows for this import
+    // Get existing rows
     const existingRows = await base44.asServiceRole.entities.SettlementRow.filter({
       settlement_import_id: import_id
     });
 
-    console.log(`[rebuildSettlementRows] Deleting ${existingRows.length} existing rows`);
+    const existingRowIndices = new Set(existingRows.map(r => r.row_index));
+    console.log(`[rebuildSettlementRows] Found ${existingRows.length} existing rows`);
     
-    for (const row of existingRows) {
-      await base44.asServiceRole.entities.SettlementRow.delete(row.id);
-    }
-
-    // Parse and recreate rows
+    // Parse target rows
     const parsedRows = JSON.parse(importJob.parsed_rows_json || '[]');
-    console.log(`[rebuildSettlementRows] Recreating ${parsedRows.length} rows`);
+    console.log(`[rebuildSettlementRows] Target: ${parsedRows.length} rows from parsed_rows_json`);
 
-    const rowsToCreate = parsedRows.map(row => ({
-      ...row,
-      settlement_import_id: import_id
-    }));
-
-    // Insert in batches
-    const BATCH_SIZE = 100;
+    // Create only missing rows (idempotent)
     let totalCreated = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
+    const failedRows = [];
 
-    for (let i = 0; i < rowsToCreate.length; i += BATCH_SIZE) {
-      const batch = rowsToCreate.slice(i, i + BATCH_SIZE);
-      await base44.asServiceRole.entities.SettlementRow.bulkCreate(batch);
-      totalCreated += batch.length;
-      console.log(`[rebuildSettlementRows] Created ${totalCreated}/${rowsToCreate.length}`);
+    for (let i = 0; i < parsedRows.length; i++) {
+      const row = parsedRows[i];
+      const rowIndex = i;
+
+      if (existingRowIndices.has(rowIndex)) {
+        totalSkipped++;
+        continue;
+      }
+
+      try {
+        await base44.asServiceRole.entities.SettlementRow.create({
+          ...row,
+          settlement_import_id: import_id,
+          row_index: rowIndex
+        });
+        totalCreated++;
+      } catch (err) {
+        totalFailed++;
+        failedRows.push({ row_index: rowIndex, error: err.message });
+        console.error(`[rebuildSettlementRows] Failed row ${rowIndex}:`, err);
+      }
+
+      if ((totalCreated + totalSkipped + totalFailed) % 100 === 0) {
+        console.log(`[rebuildSettlementRows] Progress: created=${totalCreated}, skipped=${totalSkipped}, failed=${totalFailed}`);
+      }
     }
 
     // Match with orders and SKUs
@@ -121,11 +135,24 @@ Deno.serve(async (req) => {
       console.log(`[rebuildSettlementRows] Updated ${Math.min(i + BATCH_SIZE, updates.length)}/${updates.length}`);
     }
 
+    // Update import job with final counts
+    const finalRowCount = existingRows.length + totalCreated;
+    await base44.asServiceRole.entities.SettlementImport.update(import_id, {
+      rows_count: finalRowCount,
+      matched_rows_count: matchedCount,
+      unmatched_rows_count: finalRowCount - matchedCount
+    });
+
     return Response.json({
       success: true,
+      rows_expected: parsedRows.length,
+      rows_existing_before: existingRows.length,
       rows_created: totalCreated,
+      rows_skipped: totalSkipped,
+      rows_failed: totalFailed,
+      failed_rows: failedRows.slice(0, 10),
       rows_matched: matchedCount,
-      rows_unmatched: totalCreated - matchedCount
+      rows_unmatched: finalRowCount - matchedCount
     });
   } catch (error) {
     console.error('[rebuildSettlementRows] Error:', error);

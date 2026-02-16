@@ -9,7 +9,7 @@ import SettlementOrdersTab from '@/components/settlement/SettlementOrdersTab';
 import SettlementSKUTab from '@/components/settlement/SettlementSKUTab';
 import SettlementUnmatchedTab from '@/components/settlement/SettlementUnmatchedTab';
 import SettlementImportsTab from '@/components/settlement/SettlementImportsTab';
-import { DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function Settlement() {
   const { tenantId } = useTenant();
@@ -18,6 +18,8 @@ export default function Settlement() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedImportId, setSelectedImportId] = useState(null);
+  const [integrityStatus, setIntegrityStatus] = useState(null);
+  const [autoHealing, setAutoHealing] = useState(false);
 
   useEffect(() => {
     if (tenantId) loadImports();
@@ -44,9 +46,38 @@ export default function Settlement() {
 
   useEffect(() => {
     if (selectedImportId && tenantId) {
-      loadRows();
+      checkIntegrityAndHeal();
     }
   }, [selectedImportId, tenantId]);
+
+  const checkIntegrityAndHeal = async () => {
+    try {
+      const { data } = await base44.functions.invoke('checkSettlementIntegrity', {
+        workspace_id: tenantId,
+        import_id: selectedImportId
+      });
+
+      setIntegrityStatus(data);
+
+      if (data.needs_rebuild && data.status !== 'OK') {
+        // Auto-heal
+        setAutoHealing(true);
+        await base44.functions.invoke('rebuildSettlementRows', {
+          workspace_id: tenantId,
+          import_id: selectedImportId
+        });
+        setAutoHealing(false);
+        // Reload after heal
+        loadRows();
+        loadImports();
+      } else {
+        loadRows();
+      }
+    } catch (error) {
+      console.error('Integrity check error:', error);
+      loadRows();
+    }
+  };
 
   const loadRows = async (forceRefresh = false) => {
     try {
@@ -83,6 +114,33 @@ export default function Settlement() {
             <p className="text-slate-500">Track Amazon settlement transactions and order profitability</p>
           </div>
         </div>
+
+        {/* Auto-heal banner */}
+        {autoHealing && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            <div>
+              <p className="font-medium text-blue-900">Data repair in progress</p>
+              <p className="text-sm text-blue-700">Rebuilding settlement rows from import data...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Integrity warning */}
+        {integrityStatus && integrityStatus.status !== 'OK' && !autoHealing && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-900">Data inconsistency detected</p>
+                <p className="text-sm text-amber-700">
+                  Expected {integrityStatus.expected_rows} rows, found {integrityStatus.actual_rows}. 
+                  Missing {integrityStatus.missing_rows} rows.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Summary Cards */}
         {latestImport && (
