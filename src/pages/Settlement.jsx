@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import SettlementUpload from '@/components/settlement/SettlementUpload';
 import SettlementOrdersTab from '@/components/settlement/SettlementOrdersTab';
 import SettlementSKUTab from '@/components/settlement/SettlementSKUTab';
 import SettlementUnmatchedTab from '@/components/settlement/SettlementUnmatchedTab';
 import SettlementImportsTab from '@/components/settlement/SettlementImportsTab';
+import SettlementFilters from '@/components/settlement/SettlementFilters';
 import { DollarSign, TrendingUp, AlertCircle, Loader2, Info } from 'lucide-react';
-import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 export default function Settlement() {
   const { tenantId } = useTenant();
@@ -21,6 +22,40 @@ export default function Settlement() {
   const [selectedImportId, setSelectedImportId] = useState(null);
   const [integrityStatus, setIntegrityStatus] = useState(null);
   const [autoHealing, setAutoHealing] = useState(false);
+
+  // URL-persisted filters
+  const [dateRange, setDateRange] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get('from');
+    const to = params.get('to');
+    return {
+      from: from ? parseISO(from) : null,
+      to: to ? parseISO(to) : null
+    };
+  });
+  const [selectedStoreIds, setSelectedStoreIds] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stores = params.get('stores');
+    return stores ? stores.split(',') : [];
+  });
+
+  // Load stores
+  const { data: stores = [] } = useQuery({
+    queryKey: ['stores', tenantId],
+    queryFn: () => base44.entities.Store.filter({ tenant_id: tenantId }),
+    enabled: !!tenantId
+  });
+
+  // Update URL when filters change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (dateRange.from) params.set('from', format(dateRange.from, 'yyyy-MM-dd'));
+    if (dateRange.to) params.set('to', format(dateRange.to, 'yyyy-MM-dd'));
+    if (selectedStoreIds.length > 0) params.set('stores', selectedStoreIds.join(','));
+    
+    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+    window.history.replaceState({}, '', newUrl);
+  }, [dateRange, selectedStoreIds]);
 
   useEffect(() => {
     if (tenantId) loadImports();
@@ -82,7 +117,6 @@ export default function Settlement() {
 
   const loadRows = async (forceRefresh = false) => {
     try {
-      // Force a fresh fetch by adding a timestamp to bust any caching
       const rowsData = await base44.entities.SettlementRow.filter({
         tenant_id: tenantId,
         settlement_import_id: selectedImportId
@@ -94,13 +128,43 @@ export default function Settlement() {
     }
   };
 
+  // Filter rows based on date and store
+  const filteredRows = useMemo(() => {
+    let filtered = rows.filter(r => !r.is_deleted);
+
+    // Date filter
+    if (dateRange.from || dateRange.to) {
+      filtered = filtered.filter(row => {
+        if (!row.datetime) return false;
+        const rowDate = new Date(row.datetime);
+        if (dateRange.from && rowDate < dateRange.from) return false;
+        if (dateRange.to && rowDate > dateRange.to) return false;
+        return true;
+      });
+    }
+
+    // Store filter (match by marketplace field)
+    if (selectedStoreIds.length > 0) {
+      const storeNames = stores
+        .filter(s => selectedStoreIds.includes(s.id))
+        .map(s => s.name.toLowerCase());
+      
+      filtered = filtered.filter(row => {
+        if (!row.marketplace) return false;
+        return storeNames.some(name => row.marketplace.toLowerCase().includes(name));
+      });
+    }
+
+    return filtered;
+  }, [rows, dateRange, selectedStoreIds, stores]);
+
   const latestImport = selectedImportId 
     ? imports.find(i => i.id === selectedImportId)
     : imports[0];
 
-  // Calculate KPIs from active rows (real-time calculation as fallback)
+  // Calculate KPIs from filtered rows (real-time calculation as fallback)
   const calculatedTotals = useMemo(() => {
-    const activeRows = rows.filter(r => !r.is_deleted);
+    const activeRows = filteredRows;
     
     if (activeRows.length === 0) {
       return {
@@ -126,7 +190,7 @@ export default function Settlement() {
       source: 'calculated',
       rows_count: activeRows.length
     };
-  }, [rows]);
+  }, [filteredRows]);
 
   // Use cached totals if available, otherwise use calculated
   const totals = latestImport?.totals_cached_json && latestImport.totals_cached_json.total_revenue !== undefined
@@ -135,15 +199,20 @@ export default function Settlement() {
 
   // Log warning if KPIs are zero but rows exist
   useEffect(() => {
-    if (rows.length > 0 && totals.total_revenue === 0) {
+    if (filteredRows.length > 0 && totals.total_revenue === 0) {
       console.warn('[Settlement] WARNING: KPIs are zero but rows exist', {
         rows_count: rows.length,
-        active_rows: rows.filter(r => !r.is_deleted).length,
+        filtered_rows: filteredRows.length,
         totals,
         import_id: selectedImportId
       });
     }
-  }, [rows, totals, selectedImportId]);
+  }, [filteredRows, totals, selectedImportId]);
+
+  const handleResetFilters = () => {
+    setDateRange({ from: null, to: null });
+    setSelectedStoreIds([]);
+  };
 
   return (
     <ErrorBoundary fallbackTitle="Settlement page failed to load">
@@ -183,6 +252,16 @@ export default function Settlement() {
           </div>
         )}
 
+        {/* Filters */}
+        <SettlementFilters
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          selectedStoreIds={selectedStoreIds}
+          onStoreIdsChange={setSelectedStoreIds}
+          stores={stores}
+          onReset={handleResetFilters}
+        />
+
         {/* Summary Cards */}
         {latestImport && (
           <div className="space-y-2">
@@ -191,7 +270,7 @@ export default function Settlement() {
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Info className="w-3 h-3" />
                 <span>
-                  {totals.source === 'cached' ? 'Using cached totals' : `Calculated from ${totals.rows_count || 0} active rows`}
+                  {totals.source === 'cached' ? 'Using cached totals' : `Calculated from ${totals.rows_count || 0} filtered rows`}
                 </span>
               </div>
             )}
@@ -253,7 +332,7 @@ export default function Settlement() {
 
           <TabsContent value="orders" className="space-y-4">
             <SettlementOrdersTab 
-              rows={rows} 
+              rows={filteredRows} 
               tenantId={tenantId}
               onDataChange={() => {
                 loadRows();
@@ -263,12 +342,12 @@ export default function Settlement() {
           </TabsContent>
 
           <TabsContent value="skus" className="space-y-4">
-            <SettlementSKUTab rows={rows} tenantId={tenantId} />
+            <SettlementSKUTab rows={filteredRows} tenantId={tenantId} />
           </TabsContent>
 
           <TabsContent value="unmatched" className="space-y-4">
             <SettlementUnmatchedTab 
-              rows={rows} 
+              rows={filteredRows} 
               tenantId={tenantId}
               onDataChange={() => {
                 loadRows();
