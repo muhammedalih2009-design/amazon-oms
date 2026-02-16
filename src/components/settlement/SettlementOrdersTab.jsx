@@ -34,6 +34,16 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     queryFn: () => base44.entities.SKU.filter({ tenant_id: tenantId })
   });
 
+  const { data: orders = [], refetch: refetchOrders } = useQuery({
+    queryKey: ['orders', tenantId],
+    queryFn: () => base44.entities.Order.filter({ tenant_id: tenantId, is_deleted: false })
+  });
+
+  const normalizeOrderId = (orderId) => {
+    if (!orderId) return '';
+    return orderId.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+  };
+
   const orderProfit = useMemo(() => {
     const orderMap = {};
 
@@ -53,7 +63,8 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
           matched_rows: 0,
           unmatched_rows: 0,
           rows: [],
-          is_deleted: row.is_deleted || false
+          is_deleted: row.is_deleted || false,
+          order_found: false
         };
       }
 
@@ -63,27 +74,44 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
 
       if (row.match_status === 'matched') {
         orderMap[orderId].matched_rows++;
-        const sku = skus.find(s => s.id === row.matched_sku_id);
-        if (sku && sku.cost_price) {
-          orderMap[orderId].cogs += sku.cost_price * row.signed_qty;
-        }
       } else {
         orderMap[orderId].unmatched_rows++;
       }
     });
 
-    return Object.values(orderMap).map(order => ({
-      ...order,
-      profit: order.net_total - order.cogs,
-      margin: order.net_total !== 0 ? ((order.net_total - order.cogs) / order.net_total) * 100 : 0,
-      status: order.unmatched_rows > 0 ? 'Partial' : order.profit < 0 ? 'Loss' : 'Profitable'
-    })).filter(order => {
+    // Match with Orders table and get COGS from Orders.total_cost
+    return Object.values(orderMap).map(order => {
+      const normalizedOrderId = normalizeOrderId(order.order_id);
+      const matchedOrder = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedOrderId);
+      
+      let cogs = 0;
+      let orderFound = false;
+
+      if (matchedOrder) {
+        cogs = matchedOrder.total_cost || 0;
+        orderFound = true;
+      }
+
+      const profit = order.net_total - cogs;
+      const margin = order.net_total !== 0 ? (profit / order.net_total) * 100 : 0;
+
+      return {
+        ...order,
+        cogs,
+        profit,
+        margin,
+        order_found: orderFound,
+        status: !orderFound ? 'Not Found' : order.unmatched_rows > 0 ? 'Partial' : profit < 0 ? 'Loss' : 'Profitable'
+      };
+    }).filter(order => {
       if (filterStatus === 'profitable') return order.profit > 0;
       if (filterStatus === 'loss') return order.profit < 0;
       if (filterStatus === 'partial') return order.unmatched_rows > 0;
+      if (filterStatus === 'found') return order.order_found;
+      if (filterStatus === 'not_found') return !order.order_found;
       return true;
     });
-  }, [rows, skus, filterStatus, showDeleted]);
+  }, [rows, orders, filterStatus, showDeleted]);
 
   const handleSelectAll = (checked) => {
     if (checked) {
@@ -192,6 +220,12 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
         </div>
       )
     },
+    {
+      key: 'order_found',
+      header: 'Order Found',
+      align: 'center',
+      render: (val) => val ? '✅' : '❌'
+    },
     { key: 'signed_units', header: 'Units', align: 'right' },
     {
       key: 'net_total',
@@ -223,7 +257,7 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
     },
     {
       key: 'matched_rows',
-      header: 'Matched / Unmatched',
+      header: 'SKU Match',
       render: (_, row) => `${row.matched_rows} / ${row.unmatched_rows}`
     },
     ...(isAdmin ? [{
@@ -261,13 +295,27 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             variant={filterStatus === 'all' ? 'default' : 'outline'}
             onClick={() => setFilterStatus('all')}
             size="sm"
           >
             All
+          </Button>
+          <Button
+            variant={filterStatus === 'found' ? 'default' : 'outline'}
+            onClick={() => setFilterStatus('found')}
+            size="sm"
+          >
+            Found
+          </Button>
+          <Button
+            variant={filterStatus === 'not_found' ? 'default' : 'outline'}
+            onClick={() => setFilterStatus('not_found')}
+            size="sm"
+          >
+            Not Found
           </Button>
           <Button
             variant={filterStatus === 'profitable' ? 'default' : 'outline'}
@@ -288,20 +336,29 @@ export default function SettlementOrdersTab({ rows, tenantId, onDataChange }) {
             onClick={() => setFilterStatus('partial')}
             size="sm"
           >
-            Partial Match
+            Partial SKU Match
           </Button>
           
           {isAdmin && (
-            <Button
-              variant={showDeleted ? 'default' : 'outline'}
-              onClick={() => {
-                setShowDeleted(!showDeleted);
-                setSelectedOrders(new Set());
-              }}
-              size="sm"
-            >
-              Show Deleted
-            </Button>
+            <>
+              <Button
+                variant={showDeleted ? 'default' : 'outline'}
+                onClick={() => {
+                  setShowDeleted(!showDeleted);
+                  setSelectedOrders(new Set());
+                }}
+                size="sm"
+              >
+                Show Deleted
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => refetchOrders()}
+                size="sm"
+              >
+                🔄 Recompute
+              </Button>
+            </>
           )}
         </div>
 

@@ -154,7 +154,14 @@ export default function Settlement() {
           </TabsContent>
 
           <TabsContent value="unmatched" className="space-y-4">
-            <SettlementUnmatchedTab rows={rows} tenantId={tenantId} />
+            <SettlementUnmatchedTab 
+              rows={rows} 
+              tenantId={tenantId}
+              onDataChange={() => {
+                loadRows();
+                loadImports();
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="import" className="space-y-4">
