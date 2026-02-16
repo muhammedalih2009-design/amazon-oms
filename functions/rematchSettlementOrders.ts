@@ -11,22 +11,18 @@ function normalizeOrderId(orderId) {
     .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // Remove zero-width and non-breaking chars
     .replace(/\s+/g, '') // Remove all whitespace
     .replace(/[\u2010-\u2015\u2212]/g, '-') // Normalize unicode dashes
-    .replace(/-/g, ''); // Remove hyphens for comparison
+    .replace(/[^a-zA-Z0-9]/g, ''); // Remove ALL non-alphanumeric characters for broader comparison
 }
 
 // Try multiple matching strategies
 function findMatchingOrder(settlementOrderId, orders) {
   const normalizedSettlement = normalizeOrderId(settlementOrderId);
   
-  // Strategy 1: Direct normalized match
+  // Strategy 1: Direct normalized match against amazon_order_id
   let match = orders.find(o => normalizeOrderId(o.amazon_order_id) === normalizedSettlement);
   if (match) return { order: match, strategy: 'normalized_amazon_id', confidence: 'high' };
   
-  // Strategy 2: Match with internal ID
-  match = orders.find(o => normalizeOrderId(o.id) === normalizedSettlement);
-  if (match) return { order: match, strategy: 'internal_id', confidence: 'high' };
-  
-  // Strategy 3: Partial match (contains) - only if both IDs are long enough
+  // Strategy 2: Partial match (contains) - only if both IDs are long enough
   match = orders.find(o => {
     const norm = normalizeOrderId(o.amazon_order_id);
     return norm.length >= 8 && normalizedSettlement.length >= 8 &&
@@ -46,7 +42,7 @@ const NOT_FOUND_REASONS = {
 };
 
 Deno.serve(async (req) => {
-  const DEPLOYMENT_TIMESTAMP = '2026-02-16T17:30:00Z';
+  const DEPLOYMENT_TIMESTAMP = '2026-02-16T18:00:00Z';
   
   try {
     const base44 = createClientFromRequest(req);
@@ -79,69 +75,6 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[3] Membership verified`);
-
-    // DIAGNOSTIC QUERIES - Test 3 different query patterns
-    console.log(`\n${'='.repeat(80)}`);
-    console.log('DIAGNOSTIC: Testing Order Query Patterns');
-    console.log(`${'='.repeat(80)}`);
-    
-    // Query 1: Filter by tenant_id only
-    const ordersByTenant = await base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id });
-    console.log(`\n[Query 1] Filter by tenant_id only: ${ordersByTenant.length} orders found`);
-    if (ordersByTenant.length > 0) {
-      console.log('First 5 orders:');
-      ordersByTenant.slice(0, 5).forEach((o, idx) => {
-        console.log(`  ${idx + 1}. ID: ${o.id}`);
-        console.log(`     amazon_order_id: ${o.amazon_order_id}`);
-        console.log(`     tenant_id: ${o.tenant_id}`);
-        console.log(`     is_deleted: ${o.is_deleted}`);
-      });
-    } else {
-      console.log('  ⚠️  NO ORDERS FOUND WITH THIS TENANT_ID!');
-    }
-    
-    // Query 2: Filter by amazon_order_id only (specific test ID)
-    const testOrderId = '406-9098319-4354700';
-    const ordersByAmazonId = await base44.asServiceRole.entities.Order.filter({ amazon_order_id: testOrderId });
-    console.log(`\n[Query 2] Filter by amazon_order_id='${testOrderId}': ${ordersByAmazonId.length} orders found`);
-    if (ordersByAmazonId.length > 0) {
-      ordersByAmazonId.forEach((o, idx) => {
-        console.log(`  ${idx + 1}. ID: ${o.id}`);
-        console.log(`     amazon_order_id: ${o.amazon_order_id}`);
-        console.log(`     tenant_id: ${o.tenant_id}`);
-        console.log(`     is_deleted: ${o.is_deleted}`);
-      });
-    } else {
-      console.log('  ⚠️  ORDER NOT FOUND BY AMAZON_ORDER_ID!');
-    }
-    
-    // Query 3: Filter by tenant_id + amazon_order_id
-    const ordersByBoth = await base44.asServiceRole.entities.Order.filter({ 
-      tenant_id: workspace_id, 
-      amazon_order_id: testOrderId 
-    });
-    console.log(`\n[Query 3] Filter by tenant_id + amazon_order_id: ${ordersByBoth.length} orders found`);
-    if (ordersByBoth.length > 0) {
-      ordersByBoth.forEach((o, idx) => {
-        console.log(`  ${idx + 1}. ID: ${o.id}`);
-        console.log(`     amazon_order_id: ${o.amazon_order_id}`);
-        console.log(`     tenant_id: ${o.tenant_id}`);
-        console.log(`     is_deleted: ${o.is_deleted}`);
-      });
-    } else {
-      console.log('  ⚠️  NO ORDERS MATCH BOTH CRITERIA!');
-    }
-
-    // Check field name usage
-    console.log(`\n${'='.repeat(80)}`);
-    console.log('DIAGNOSTIC: Field Name Confirmation');
-    console.log(`${'='.repeat(80)}`);
-    if (ordersByTenant.length > 0) {
-      const sampleOrder = ordersByTenant[0];
-      console.log('Sample Order all fields:', Object.keys(sampleOrder));
-      console.log(`Has 'amazon_order_id' field? ${('amazon_order_id' in sampleOrder)}`);
-      console.log(`Has 'order_id' field? ${('order_id' in sampleOrder)}`);
-    }
 
     // Load all workspace data - CRITICAL: Load ALL workspace orders, ignore date filters
     const [allOrders, skus, orderLines] = await Promise.all([
@@ -186,12 +119,8 @@ Deno.serve(async (req) => {
     }
 
     console.log(`\nSettlement Rows to Match: ${rowsToMatch.length}`);
-    if (rowsToMatch.length > 0) {
-      console.log('Sample SettlementRow fields:', Object.keys(rowsToMatch[0]));
-      console.log(`Has 'order_id' field? ${('order_id' in rowsToMatch[0])}`);
-    }
 
-    // Diagnostic tracking for specific orders
+    // Diagnostic tracking for specific orders from screenshot
     const diagnosticOrderIds = ['406-9098319-4354700', '405-9237140-1177144', '407-7729567-8966740'];
     const diagnosticResults = [];
 
@@ -229,6 +158,8 @@ Deno.serve(async (req) => {
         const deletedMatch = findMatchingOrder(row.order_id, deletedOrders);
         if (deletedMatch) {
           notFoundReason = NOT_FOUND_REASONS.ORDER_DELETED;
+          updateData.match_status = 'unmatched_order'; // Keep as unmatched but with specific reason
+          console.log(`  -> Found in deleted orders: ${row.order_id}`);
         }
       }
 
@@ -278,6 +209,8 @@ Deno.serve(async (req) => {
         if (order.total_cost !== undefined && order.total_cost > 0) {
           results.updated_cogs++;
         }
+        
+        console.log(`  ✓ MATCHED: ${row.order_id} -> Order ID: ${order.id}, Strategy: ${strategy}, COGS: ${order.total_cost || 0}`);
       } else {
         // No order match - reset matched_order_id
         updateData.matched_order_id = null;
@@ -285,6 +218,13 @@ Deno.serve(async (req) => {
         updateData.match_strategy = null;
         results.still_unmatched++;
         updateData.not_found_reason = notFoundReason || NOT_FOUND_REASONS.NO_MATCH_AFTER_NORMALIZATION;
+        
+        console.log(`  ✗ NO MATCH: Settlement Row ${row.id}, Original: ${row.order_id}, Normalized: ${normalizeOrderId(row.order_id)}`);
+        // Log sample normalized order IDs from the database to compare
+        if (orders.length > 0) {
+          const sampleNormalizedOrders = orders.slice(0, 5).map(o => `${normalizeOrderId(o.amazon_order_id)}`).join(', ');
+          console.log(`    Sample normalized active order IDs: ${sampleNormalizedOrders}`);
+        }
       }
 
       // Collect diagnostic data for specific order IDs
