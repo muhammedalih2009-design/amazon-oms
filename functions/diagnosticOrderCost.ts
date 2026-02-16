@@ -9,14 +9,18 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id } = await req.json();
+    const { workspace_id, import_id } = await req.json();
 
     // Get a matched settlement row
-    const matchedRows = await base44.asServiceRole.entities.SettlementRow.filter({
+    const query = {
       tenant_id: workspace_id,
-      is_deleted: false,
-      limit: 1
-    });
+      is_deleted: false
+    };
+    if (import_id) {
+      query.settlement_import_id = import_id;
+    }
+
+    const matchedRows = await base44.asServiceRole.entities.SettlementRow.filter(query);
 
     if (matchedRows.length === 0) {
       return Response.json({ error: 'No settlement rows found' }, { status: 400 });
