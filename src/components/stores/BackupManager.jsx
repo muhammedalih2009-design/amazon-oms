@@ -222,6 +222,9 @@ export default function BackupManager({ tenantId }) {
     const startTime = new Date().toISOString();
     
     try {
+      // CRITICAL: Log workspace IDs for debugging
+      console.log(`🔄 RESTORE STARTING - Target Workspace ID: ${tenantId}, Name: ${tenant?.name}`);
+      
       let backupData = backup.data;
       
       // Extract source workspace info (handle uploaded backups without metadata)
@@ -330,10 +333,22 @@ export default function BackupManager({ tenantId }) {
       setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
 
       // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
-      const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
+      const stripBuiltins = (items) => {
+        if (!Array.isArray(items)) return [];
+        return items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => {
+          // CRITICAL: Force tenant_id to TARGET workspace - never use source tenant_id
+          return { ...rest, tenant_id: tenantId };
+        });
+      };
 
-      // Support both old format (data at root) and new format (data nested)
-      const dataSource = backupData.data || backupData;
+      // Support multiple backup formats: { data: {...} } or { tables: {...} } or direct {...}
+      let dataSource = backupData.data || backupData.tables || backupData;
+      
+      // Validation: Ensure we're not accidentally using source workspace ID
+      const firstItem = dataSource.stores?.[0] || dataSource.skus?.[0] || dataSource.orders?.[0];
+      if (firstItem?.tenant_id && firstItem.tenant_id !== tenantId) {
+        console.warn(`⚠️ Source tenant_id detected: ${firstItem.tenant_id}, will be replaced with target: ${tenantId}`);
+      }
       const totalToRestore = Object.values(dataSource).reduce((sum, value) => {
         if (Array.isArray(value)) return sum + value.length;
         return sum;
@@ -351,7 +366,16 @@ export default function BackupManager({ tenantId }) {
 
       // Helper: Bulk create in smaller batches with delays and retry logic
       const bulkCreateWithDelay = async (entityName, items, batchSize = 20, retries = 5) => {
+        if (!items || !Array.isArray(items) || items.length === 0) return;
+        
         const cleaned = stripBuiltins(items);
+        
+        // CRITICAL VALIDATION: Verify ALL records have correct tenant_id BEFORE creating
+        const wrongTenantRecords = cleaned.filter(item => item.tenant_id !== tenantId);
+        if (wrongTenantRecords.length > 0) {
+          throw new Error(`SECURITY: ${wrongTenantRecords.length} ${entityName} records have wrong tenant_id! Aborting restore.`);
+        }
+        
         const totalBatches = Math.ceil(cleaned.length / batchSize);
         
         for (let i = 0; i < cleaned.length; i += batchSize) {
