@@ -216,8 +216,13 @@ export default function BackupManager({ tenantId }) {
     
     try {
       let backupData = backup.data;
-      const sourceWorkspaceId = backup.source_workspace_id || backup.data?.tenant_id;
-      const sourceWorkspaceName = backup.source_workspace_name || 'Unknown';
+      
+      // Extract source workspace info (handle uploaded backups without metadata)
+      const sourceWorkspaceId = backup.source_workspace_id || 
+        (backupData?.stores?.[0]?.tenant_id) || 
+        (backupData?.skus?.[0]?.tenant_id) ||
+        'unknown';
+      const sourceWorkspaceName = backup.source_workspace_name || 'Uploaded Backup';
       
       // Create restore log
       const restoreLog = await base44.entities.RestoreLog.create({
