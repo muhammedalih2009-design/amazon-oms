@@ -314,19 +314,25 @@ export default function BulkUpdateModal({ open, onClose, onComplete, tenantId })
           
           // Handle supplier - ONLY if it's in changes (meaning it was selected)
           if (row.changes.supplier) {
-            const newSupplierName = row.changes.supplier.new.replace(' (new)', '');
-            let supplier = supplierMap.get(newSupplierName.toLowerCase());
+            const newSupplierName = row.changes.supplier.new.replace(' (new)', '').trim();
             
-            if (!supplier) {
-              // Create new supplier
-              supplier = await base44.entities.Supplier.create({
-                tenant_id: tenantId,
-                supplier_name: newSupplierName
-              });
-              supplierMap.set(newSupplierName.toLowerCase(), supplier);
+            // Handle empty supplier (set to null)
+            if (!newSupplierName || newSupplierName === '-') {
+              updateData.supplier_id = null;
+            } else {
+              let supplier = supplierMap.get(newSupplierName.toLowerCase());
+              
+              if (!supplier) {
+                // Create new supplier
+                supplier = await base44.entities.Supplier.create({
+                  tenant_id: tenantId,
+                  supplier_name: newSupplierName
+                });
+                supplierMap.set(newSupplierName.toLowerCase(), supplier);
+              }
+              
+              updateData.supplier_id = supplier.id;
             }
-            
-            updateData.supplier_id = supplier.id;
           }
 
           // Handle other fields - ONLY if they're in changes
