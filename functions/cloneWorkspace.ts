@@ -66,8 +66,10 @@ Deno.serve(async (req) => {
       try {
         const idMap = {};
 
+        console.log('Clone options:', JSON.stringify(options, null, 2));
+        
         // PHASE 1: STORES
-        if (options.copy_master_data) {
+        if (options?.copy_master_data) {
           await updateJobStep(base44, cloneJob.id, 'stores');
           const stores = await base44.asServiceRole.entities.Store.filter({ tenant_id: source_workspace_id });
           for (const store of stores) {
@@ -84,7 +86,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 2: SUPPLIERS
-        if (options.copy_master_data) {
+        if (options?.copy_master_data) {
           await updateJobStep(base44, cloneJob.id, 'suppliers');
           const suppliers = await base44.asServiceRole.entities.Supplier.filter({ tenant_id: source_workspace_id });
           for (const supplier of suppliers) {
@@ -103,7 +105,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 3: SKUs
-        if (options.copy_master_data) {
+        if (options?.copy_master_data) {
           await updateJobStep(base44, cloneJob.id, 'skus');
           const skus = await base44.asServiceRole.entities.SKU.filter({ tenant_id: source_workspace_id });
           for (const sku of skus) {
@@ -123,7 +125,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 4: ORDERS + ORDER LINES
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           await updateJobStep(base44, cloneJob.id, 'orders');
           const orders = await base44.asServiceRole.entities.Order.filter({ tenant_id: source_workspace_id });
           if (!idMap.orders) idMap.orders = {};
@@ -166,7 +168,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 5: PURCHASE REQUESTS (if entity exists)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'purchase_requests');
             const prqs = await base44.asServiceRole.entities.PurchaseRequest.filter({ tenant_id: source_workspace_id });
@@ -190,7 +192,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 6: PURCHASES + PURCHASE ITEMS
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           await updateJobStep(base44, cloneJob.id, 'purchases');
           const purchases = await base44.asServiceRole.entities.Purchase.filter({ tenant_id: source_workspace_id });
           if (!idMap.purchases) idMap.purchases = {};
@@ -214,7 +216,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 7: RETURNS (if entity exists)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'returns');
             const returns = await base44.asServiceRole.entities.Return.filter({ tenant_id: source_workspace_id });
@@ -237,7 +239,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 8: TASKS + COMMENTS + CHECKLIST (if copy_operational_data enabled)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'tasks');
             const tasks = await base44.asServiceRole.entities.Task.filter({ tenant_id: source_workspace_id });
@@ -294,7 +296,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 9: CURRENT STOCK (replicate stock levels)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'currentStock');
             const stocks = await base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: source_workspace_id });
@@ -311,7 +313,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 10: STOCK MOVEMENTS (audit trail)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'stockMovements');
             const movements = await base44.asServiceRole.entities.StockMovement.filter({ tenant_id: source_workspace_id });
@@ -334,7 +336,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 11: PURCHASE CARTS (purchase line items)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'purchaseCarts');
             const carts = await base44.asServiceRole.entities.PurchaseCart.filter({ tenant_id: source_workspace_id });
@@ -354,7 +356,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 12: PROFITABILITY LINES (order profitability details)
-        if (options.copy_operational_data) {
+        if (options?.copy_operational_data) {
           try {
             await updateJobStep(base44, cloneJob.id, 'profitabilityLines');
             const profLines = await base44.asServiceRole.entities.ProfitabilityLine.filter({ tenant_id: source_workspace_id });
@@ -382,7 +384,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 13: PROFITABILITY IMPORT BATCHES
-        if (options.copy_logs) {
+        if (options?.copy_logs) {
           try {
             await updateJobStep(base44, cloneJob.id, 'profitabilityBatches');
             const profBatches = await base44.asServiceRole.entities.ProfitabilityImportBatch.filter({ tenant_id: source_workspace_id });
@@ -405,7 +407,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 14: IMPORT BATCHES (if copy_logs enabled)
-        if (options.copy_logs) {
+        if (options?.copy_logs) {
           try {
             await updateJobStep(base44, cloneJob.id, 'importBatches');
             const batches = await base44.asServiceRole.entities.ImportBatch.filter({ tenant_id: source_workspace_id });
@@ -428,7 +430,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 15: IMPORT ERRORS (if copy_logs enabled)
-        if (options.copy_logs) {
+        if (options?.copy_logs) {
           try {
             await updateJobStep(base44, cloneJob.id, 'importErrors');
             const errors = await base44.asServiceRole.entities.ImportError.filter({ tenant_id: source_workspace_id });
@@ -447,7 +449,7 @@ Deno.serve(async (req) => {
         }
 
         // PHASE 16: MEMBERSHIPS (if enabled)
-        if (options.copy_members) {
+        if (options?.copy_members) {
           await updateJobStep(base44, cloneJob.id, 'memberships');
           const memberships = await base44.asServiceRole.entities.Membership.filter({ tenant_id: source_workspace_id });
           for (const mem of memberships) {
