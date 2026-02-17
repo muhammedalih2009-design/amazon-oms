@@ -311,21 +311,21 @@ export default function BackupManager({ tenantId }) {
 
       // PURGE: Delete all existing target workspace data (dependencies first)
       let deleted = 0;
-      await deleteWithDelay(profitabilityLines, 'ProfitabilityLine', 50);
-      await deleteWithDelay(profitabilityBatches, 'ProfitabilityImportBatch', 30);
-      await deleteWithDelay(orderLines, 'OrderLine', 100);
-      await deleteWithDelay(orders, 'Order', 100);
-      await deleteWithDelay(purchases, 'Purchase', 50);
-      await deleteWithDelay(currentStock, 'CurrentStock', 50);
-      await deleteWithDelay(stockMovements, 'StockMovement', 50);
-      await deleteWithDelay(skus, 'SKU', 50);
-      await deleteWithDelay(suppliers, 'Supplier', 30);
-      await deleteWithDelay(stores, 'Store', 30);
-      await deleteWithDelay(importErrors, 'ImportError', 30);
-      await deleteWithDelay(importBatches, 'ImportBatch', 30);
-      await deleteWithDelay(checklistItems, 'TaskChecklistItem', 30);
-      await deleteWithDelay(comments, 'TaskComment', 30);
-      await deleteWithDelay(tasks, 'Task', 30);
+      await deleteWithDelay(profitabilityLines, 'ProfitabilityLine', 100);
+      await deleteWithDelay(profitabilityBatches, 'ProfitabilityImportBatch', 80);
+      await deleteWithDelay(orderLines, 'OrderLine', 200);
+      await deleteWithDelay(orders, 'Order', 200);
+      await deleteWithDelay(purchases, 'Purchase', 100);
+      await deleteWithDelay(currentStock, 'CurrentStock', 100);
+      await deleteWithDelay(stockMovements, 'StockMovement', 100);
+      await deleteWithDelay(skus, 'SKU', 100);
+      await deleteWithDelay(suppliers, 'Supplier', 80);
+      await deleteWithDelay(stores, 'Store', 80);
+      await deleteWithDelay(importErrors, 'ImportError', 80);
+      await deleteWithDelay(importBatches, 'ImportBatch', 80);
+      await deleteWithDelay(checklistItems, 'TaskChecklistItem', 80);
+      await deleteWithDelay(comments, 'TaskComment', 80);
+      await deleteWithDelay(tasks, 'Task', 80);
 
       setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
 
@@ -361,21 +361,21 @@ export default function BackupManager({ tenantId }) {
 
       // Restore in dependency order (support both old and new backup formats)
       const entitiesToRestore = [
-        { name: 'Supplier', data: dataSource.suppliers, delay: 200, track: true },
-        { name: 'Store', data: dataSource.stores, delay: 200, track: true },
-        { name: 'SKU', data: dataSource.skus, delay: 300, track: true },
-        { name: 'CurrentStock', data: dataSource.currentStock, delay: 200, track: true },
-        { name: 'StockMovement', data: dataSource.stockMovements, delay: 200, track: false },
-        { name: 'ImportBatch', data: dataSource.importBatches, delay: 150, track: false },
-        { name: 'ImportError', data: dataSource.importErrors, delay: 150, track: false },
-        { name: 'Order', data: dataSource.orders, delay: 300, track: true },
-        { name: 'OrderLine', data: dataSource.orderLines, delay: 300, track: true },
-        { name: 'Purchase', data: dataSource.purchases, delay: 200, track: true },
-        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 150, track: false },
-        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 150, track: false },
-        { name: 'Task', data: dataSource.tasks, delay: 150, track: true },
-        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 150, track: false },
-        { name: 'TaskComment', data: dataSource.comments, delay: 150, track: false }
+        { name: 'Supplier', data: dataSource.suppliers, delay: 300, track: true },
+        { name: 'Store', data: dataSource.stores, delay: 300, track: true },
+        { name: 'SKU', data: dataSource.skus, delay: 500, track: true },
+        { name: 'CurrentStock', data: dataSource.currentStock, delay: 300, track: true },
+        { name: 'StockMovement', data: dataSource.stockMovements, delay: 300, track: false },
+        { name: 'ImportBatch', data: dataSource.importBatches, delay: 250, track: false },
+        { name: 'ImportError', data: dataSource.importErrors, delay: 250, track: false },
+        { name: 'Order', data: dataSource.orders, delay: 400, track: true },
+        { name: 'OrderLine', data: dataSource.orderLines, delay: 400, track: true },
+        { name: 'Purchase', data: dataSource.purchases, delay: 300, track: true },
+        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 250, track: false },
+        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 250, track: false },
+        { name: 'Task', data: dataSource.tasks, delay: 250, track: true },
+        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 250, track: false },
+        { name: 'TaskComment', data: dataSource.comments, delay: 250, track: false }
       ];
 
       for (const entity of entitiesToRestore) {
