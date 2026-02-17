@@ -44,8 +44,7 @@ Deno.serve(async (req) => {
       profitabilityBatchesResult,
       tasksResult,
       checklistResult,
-      commentsResult,
-      returnsResult
+      commentsResult
     ] = await Promise.all([
       fetchEntity('Order', { tenant_id: tenantId }),
       fetchEntity('OrderLine', { tenant_id: tenantId }),
@@ -61,8 +60,7 @@ Deno.serve(async (req) => {
       fetchEntity('ProfitabilityImportBatch', { tenant_id: tenantId }),
       fetchEntity('Task', { tenant_id: tenantId }),
       fetchEntity('TaskChecklistItem', { tenant_id: tenantId }),
-      fetchEntity('TaskComment', { tenant_id: tenantId }),
-      fetchEntity('Return', { tenant_id: tenantId })
+      fetchEntity('TaskComment', { tenant_id: tenantId })
     ]);
 
     const orders = ordersResult.data;
@@ -80,7 +78,6 @@ Deno.serve(async (req) => {
     const tasks = tasksResult.data;
     const checklistItems = checklistResult.data;
     const comments = commentsResult.data;
-    const returns = returnsResult.data;
 
     // Track errors for diagnostics
     const entityErrors = Object.entries({
@@ -98,8 +95,7 @@ Deno.serve(async (req) => {
       ProfitabilityImportBatch: profitabilityBatchesResult.error,
       Task: tasksResult.error,
       TaskChecklistItem: checklistResult.error,
-      TaskComment: commentsResult.error,
-      Return: returnsResult.error
+      TaskComment: commentsResult.error
     }).filter(([_, err]) => err !== null);
 
     // Build backup payload with complete manifest
@@ -125,8 +121,7 @@ Deno.serve(async (req) => {
         importErrors,
         tasks,
         checklistItems,
-        comments,
-        returns
+        comments
       },
       stats: {
         stores: stores.length,
@@ -143,15 +138,14 @@ Deno.serve(async (req) => {
         importErrors: importErrors.length,
         tasks: tasks.length,
         checklistItems: checklistItems.length,
-        comments: comments.length,
-        returns: returns.length
+        comments: comments.length
       },
       manifest: {
         entities_included: [
           'Store', 'Supplier', 'SKU', 'CurrentStock', 'StockMovement',
           'Order', 'OrderLine', 'Purchase',
           'ProfitabilityLine', 'ProfitabilityImportBatch',
-          'ImportBatch', 'ImportError', 'Task', 'TaskChecklistItem', 'TaskComment', 'Return'
+          'ImportBatch', 'ImportError', 'Task', 'TaskChecklistItem', 'TaskComment'
         ],
         exclusions: [],
         relation_map: {

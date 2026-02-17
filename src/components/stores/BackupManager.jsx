@@ -251,7 +251,7 @@ export default function BackupManager({ tenantId }) {
       const [
         orders, orderLines, skus, stores, purchases,
         currentStock, suppliers, stockMovements, importBatches, importErrors,
-        profitabilityLines, profitabilityBatches, tasks, checklistItems, comments, returns
+        profitabilityLines, profitabilityBatches, tasks, checklistItems, comments
       ] = await Promise.all([
         base44.entities.Order.filter({ tenant_id: tenantId }),
         base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -267,8 +267,7 @@ export default function BackupManager({ tenantId }) {
         base44.entities.ProfitabilityImportBatch.filter({ tenant_id: tenantId }),
         base44.entities.Task.filter({ tenant_id: tenantId }),
         base44.entities.TaskChecklistItem.filter({ tenant_id: tenantId }),
-        base44.entities.TaskComment.filter({ tenant_id: tenantId }),
-        base44.entities.Return.filter({ tenant_id: tenantId })
+        base44.entities.TaskComment.filter({ tenant_id: tenantId })
       ]);
 
       const countsBefore = {
@@ -286,8 +285,7 @@ export default function BackupManager({ tenantId }) {
         profitabilityBatches: profitabilityBatches.length,
         tasks: tasks.length,
         checklistItems: checklistItems.length,
-        comments: comments.length,
-        returns: returns.length
+        comments: comments.length
       };
 
       const totalToDelete = Object.values(countsBefore).reduce((sum, count) => sum + count, 0);
@@ -318,7 +316,6 @@ export default function BackupManager({ tenantId }) {
       await deleteWithDelay(orderLines, 'OrderLine', 100);
       await deleteWithDelay(orders, 'Order', 100);
       await deleteWithDelay(purchases, 'Purchase', 50);
-      await deleteWithDelay(returns, 'Return', 30);
       await deleteWithDelay(currentStock, 'CurrentStock', 50);
       await deleteWithDelay(stockMovements, 'StockMovement', 50);
       await deleteWithDelay(skus, 'SKU', 50);
@@ -371,7 +368,6 @@ export default function BackupManager({ tenantId }) {
         { name: 'Purchase', data: backupData.data?.purchases, delay: 200, track: true },
         { name: 'ProfitabilityLine', data: backupData.data?.profitabilityLines, delay: 150, track: false },
         { name: 'ProfitabilityImportBatch', data: backupData.data?.profitabilityBatches, delay: 150, track: false },
-        { name: 'Return', data: backupData.data?.returns, delay: 150, track: false },
         { name: 'Task', data: backupData.data?.tasks, delay: 150, track: true },
         { name: 'TaskChecklistItem', data: backupData.data?.checklistItems, delay: 150, track: false },
         { name: 'TaskComment', data: backupData.data?.comments, delay: 150, track: false }
@@ -405,8 +401,7 @@ export default function BackupManager({ tenantId }) {
         profitabilityBatches: backupData.data?.profitabilityBatches?.length || 0,
         tasks: backupData.data?.tasks?.length || 0,
         checklistItems: backupData.data?.checklistItems?.length || 0,
-        comments: backupData.data?.comments?.length || 0,
-        returns: backupData.data?.returns?.length || 0
+        comments: backupData.data?.comments?.length || 0
       };
 
       // Update restore log
@@ -666,7 +661,7 @@ export default function BackupManager({ tenantId }) {
               <span>• Profitability Batches (import history)</span>
               <span>• Import Batches (upload history)</span>
               <span>• Import Errors (error logs)</span>
-              <span>• Returns (all fields)</span>
+
               <span>• Tasks + Checklist + Comments</span>
             </div>
             <p className="text-xs text-blue-700 mt-2 font-medium">
