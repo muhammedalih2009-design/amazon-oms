@@ -293,19 +293,25 @@ export default function BackupManager({ tenantId }) {
 
   const deleteBackupJob = async (jobId) => {
     try {
-      const response = await base44.functions.invoke('deleteBackupJob', {
-        jobId,
-        restoreFromPrevious
-      });
+      // Get previous backup if restore is requested
+      let previousBackup = null;
+      if (restoreFromPrevious && allJobs.length > 1) {
+        const deletedIndex = allJobs.findIndex(j => j.id === jobId);
+        if (deletedIndex >= 0 && deletedIndex < allJobs.length - 1) {
+          previousBackup = allJobs[deletedIndex + 1];
+        }
+      }
 
+      // Delete the backup job
+      await base44.entities.BackupJob.delete(jobId);
       setAllJobs(prev => prev.filter(j => j.id !== jobId));
       
       // If restoring from previous backup
-      if (restoreFromPrevious && response.data.previousBackup) {
-        const backupData = JSON.parse(response.data.previousBackup.backup_data);
+      if (restoreFromPrevious && previousBackup?.backup_data) {
+        const backupData = JSON.parse(previousBackup.backup_data);
         await restoreBackup({ 
           data: backupData, 
-          timestamp: response.data.previousBackup.started_at 
+          timestamp: previousBackup.started_at 
         });
         return;
       }
