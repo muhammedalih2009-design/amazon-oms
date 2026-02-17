@@ -160,19 +160,34 @@ function LayoutContent({ children, currentPageName }) {
             )}
 
             {(user?.role === 'admin' || user?.email === 'your-admin@email.com') && (
-              <Link
-                to={createPageUrl('Admin')}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mt-4
-                  ${currentPageName === 'Admin'
-                    ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg'
-                    : 'text-red-600 hover:bg-red-50 border border-red-200'}
-                `}
-              >
-                <Shield className="w-5 h-5" />
-                <span className="font-medium">Platform Admin</span>
-              </Link>
+              <>
+                <Link
+                  to={createPageUrl('Admin')}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`
+                    flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mt-4
+                    ${currentPageName === 'Admin'
+                      ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg'
+                      : 'text-red-600 hover:bg-red-50 border border-red-200'}
+                  `}
+                >
+                  <Shield className="w-5 h-5" />
+                  <span className="font-medium">Platform Admin</span>
+                </Link>
+                <Link
+                  to={createPageUrl('EmergencyRestore')}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`
+                    flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                    ${currentPageName === 'EmergencyRestore'
+                      ? 'bg-gradient-to-r from-red-700 to-red-900 text-white shadow-lg'
+                      : 'text-red-700 hover:bg-red-50 border border-red-300'}
+                  `}
+                >
+                  <Shield className="w-5 h-5" />
+                  <span className="font-medium">Emergency Restore</span>
+                </Link>
+              </>
             )}
           </nav>
 
