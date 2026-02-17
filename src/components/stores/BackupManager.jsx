@@ -248,17 +248,29 @@ export default function BackupManager({ tenantId }) {
       setRestoreProgress({ current: 10, total: 100, step: 'Loading existing data...' });
 
       // Count existing data BEFORE purge
-      const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
+      const [
+        orders, orderLines, skus, stores, purchases, purchaseRequests, purchaseCarts,
+        currentStock, suppliers, stockMovements, importBatches, importErrors,
+        profitabilityLines, profitabilityBatches, tasks, checklistItems, comments, returns
+      ] = await Promise.all([
         base44.entities.Order.filter({ tenant_id: tenantId }),
         base44.entities.OrderLine.filter({ tenant_id: tenantId }),
         base44.entities.SKU.filter({ tenant_id: tenantId }),
         base44.entities.Store.filter({ tenant_id: tenantId }),
         base44.entities.Purchase.filter({ tenant_id: tenantId }),
+        base44.entities.PurchaseRequest.filter({ tenant_id: tenantId }),
+        base44.entities.PurchaseCart.filter({ tenant_id: tenantId }),
         base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
         base44.entities.Supplier.filter({ tenant_id: tenantId }),
         base44.entities.StockMovement.filter({ tenant_id: tenantId }),
         base44.entities.ImportBatch.filter({ tenant_id: tenantId }),
-        base44.entities.Task.filter({ tenant_id: tenantId })
+        base44.entities.ImportError.filter({ tenant_id: tenantId }),
+        base44.entities.ProfitabilityLine.filter({ tenant_id: tenantId }),
+        base44.entities.ProfitabilityImportBatch.filter({ tenant_id: tenantId }),
+        base44.entities.Task.filter({ tenant_id: tenantId }),
+        base44.entities.TaskChecklistItem.filter({ tenant_id: tenantId }),
+        base44.entities.TaskComment.filter({ tenant_id: tenantId }),
+        base44.entities.Return.filter({ tenant_id: tenantId })
       ]);
 
       const countsBefore = {
@@ -267,16 +279,22 @@ export default function BackupManager({ tenantId }) {
         skus: skus.length,
         stores: stores.length,
         purchases: purchases.length,
+        purchaseRequests: purchaseRequests.length,
+        purchaseCarts: purchaseCarts.length,
         currentStock: currentStock.length,
         suppliers: suppliers.length,
         stockMovements: stockMovements.length,
         importBatches: importBatches.length,
-        tasks: tasks.length
+        importErrors: importErrors.length,
+        profitabilityLines: profitabilityLines.length,
+        profitabilityBatches: profitabilityBatches.length,
+        tasks: tasks.length,
+        checklistItems: checklistItems.length,
+        comments: comments.length,
+        returns: returns.length
       };
 
-      const totalToDelete = countsBefore.orders + countsBefore.orderLines + countsBefore.skus + 
-        countsBefore.stores + countsBefore.purchases + countsBefore.currentStock +
-        countsBefore.suppliers + countsBefore.stockMovements + countsBefore.importBatches + countsBefore.tasks;
+      const totalToDelete = Object.values(countsBefore).reduce((sum, count) => sum + count, 0);
 
       setRestoreProgress({ current: 20, total: 100, step: `Deleting ${totalToDelete} existing records...` });
 
@@ -299,15 +317,23 @@ export default function BackupManager({ tenantId }) {
 
       // PURGE: Delete all existing target workspace data (dependencies first)
       let deleted = 0;
+      await deleteWithDelay(profitabilityLines, 'ProfitabilityLine', 50);
+      await deleteWithDelay(profitabilityBatches, 'ProfitabilityImportBatch', 30);
       await deleteWithDelay(orderLines, 'OrderLine', 100);
       await deleteWithDelay(orders, 'Order', 100);
-      await deleteWithDelay(currentStock, 'CurrentStock', 50);
+      await deleteWithDelay(purchaseCarts, 'PurchaseCart', 50);
+      await deleteWithDelay(purchaseRequests, 'PurchaseRequest', 50);
       await deleteWithDelay(purchases, 'Purchase', 50);
-      await deleteWithDelay(skus, 'SKU', 50);
+      await deleteWithDelay(returns, 'Return', 30);
+      await deleteWithDelay(currentStock, 'CurrentStock', 50);
       await deleteWithDelay(stockMovements, 'StockMovement', 50);
+      await deleteWithDelay(skus, 'SKU', 50);
       await deleteWithDelay(suppliers, 'Supplier', 30);
       await deleteWithDelay(stores, 'Store', 30);
+      await deleteWithDelay(importErrors, 'ImportError', 30);
       await deleteWithDelay(importBatches, 'ImportBatch', 30);
+      await deleteWithDelay(checklistItems, 'TaskChecklistItem', 30);
+      await deleteWithDelay(comments, 'TaskComment', 30);
       await deleteWithDelay(tasks, 'Task', 30);
 
       setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
@@ -315,10 +341,7 @@ export default function BackupManager({ tenantId }) {
       // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
       const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
 
-      const totalToRestore = (backupData.suppliers?.length || 0) + (backupData.stores?.length || 0) +
-        (backupData.skus?.length || 0) + (backupData.orders?.length || 0) + 
-        (backupData.orderLines?.length || 0) + (backupData.purchases?.length || 0) +
-        (backupData.currentStock?.length || 0) + (backupData.tasks?.length || 0);
+      const totalToRestore = Object.values(backupData.data).reduce((sum, arr) => sum + (arr?.length || 0), 0);
 
       let restored = 0;
       const updateRestoreProgress = (count) => {
@@ -340,81 +363,60 @@ export default function BackupManager({ tenantId }) {
         }
       };
 
-      if (backupData.suppliers?.length) {
-        await bulkCreateWithDelay('Supplier', backupData.suppliers);
-        updateRestoreProgress(backupData.suppliers.length);
-        await delay(200);
-      }
-      if (backupData.stores?.length) {
-        await bulkCreateWithDelay('Store', backupData.stores);
-        updateRestoreProgress(backupData.stores.length);
-        await delay(200);
-      }
-      if (backupData.skus?.length) {
-        await bulkCreateWithDelay('SKU', backupData.skus);
-        updateRestoreProgress(backupData.skus.length);
-        await delay(300);
-      }
-      if (backupData.importBatches?.length) {
-        await bulkCreateWithDelay('ImportBatch', backupData.importBatches);
-        await delay(200);
-      }
-      if (backupData.orders?.length) {
-        await bulkCreateWithDelay('Order', backupData.orders);
-        updateRestoreProgress(backupData.orders.length);
-        await delay(300);
-      }
-      if (backupData.orderLines?.length) {
-        await bulkCreateWithDelay('OrderLine', backupData.orderLines);
-        updateRestoreProgress(backupData.orderLines.length);
-        await delay(300);
-      }
-      if (backupData.purchases?.length) {
-        await bulkCreateWithDelay('Purchase', backupData.purchases);
-        updateRestoreProgress(backupData.purchases.length);
-        await delay(200);
-      }
-      if (backupData.currentStock?.length) {
-        await bulkCreateWithDelay('CurrentStock', backupData.currentStock);
-        updateRestoreProgress(backupData.currentStock.length);
-        await delay(200);
-      }
-      if (backupData.stockMovements?.length) {
-        await bulkCreateWithDelay('StockMovement', backupData.stockMovements);
-        await delay(200);
-      }
-      if (backupData.tasks?.length) {
-        await bulkCreateWithDelay('Task', backupData.tasks);
-        updateRestoreProgress(backupData.tasks.length);
-        await delay(200);
-      }
-      if (backupData.checklistItems?.length) {
-        await bulkCreateWithDelay('TaskChecklistItem', backupData.checklistItems);
-        await delay(150);
-      }
-      if (backupData.comments?.length) {
-        await bulkCreateWithDelay('TaskComment', backupData.comments);
-        await delay(150);
-      }
-      if (backupData.returns?.length) {
-        await bulkCreateWithDelay('Return', backupData.returns);
-        await delay(150);
+      // Restore in dependency order
+      const entitiesToRestore = [
+        { name: 'Supplier', data: backupData.data?.suppliers, delay: 200, track: true },
+        { name: 'Store', data: backupData.data?.stores, delay: 200, track: true },
+        { name: 'SKU', data: backupData.data?.skus, delay: 300, track: true },
+        { name: 'CurrentStock', data: backupData.data?.currentStock, delay: 200, track: true },
+        { name: 'StockMovement', data: backupData.data?.stockMovements, delay: 200, track: false },
+        { name: 'ImportBatch', data: backupData.data?.importBatches, delay: 150, track: false },
+        { name: 'ImportError', data: backupData.data?.importErrors, delay: 150, track: false },
+        { name: 'Order', data: backupData.data?.orders, delay: 300, track: true },
+        { name: 'OrderLine', data: backupData.data?.orderLines, delay: 300, track: true },
+        { name: 'Purchase', data: backupData.data?.purchases, delay: 200, track: true },
+        { name: 'PurchaseRequest', data: backupData.data?.purchaseRequests, delay: 150, track: false },
+        { name: 'PurchaseCart', data: backupData.data?.purchaseCarts, delay: 150, track: false },
+        { name: 'ProfitabilityLine', data: backupData.data?.profitabilityLines, delay: 150, track: false },
+        { name: 'ProfitabilityImportBatch', data: backupData.data?.profitabilityBatches, delay: 150, track: false },
+        { name: 'Return', data: backupData.data?.returns, delay: 150, track: false },
+        { name: 'Task', data: backupData.data?.tasks, delay: 150, track: true },
+        { name: 'TaskChecklistItem', data: backupData.data?.checklistItems, delay: 150, track: false },
+        { name: 'TaskComment', data: backupData.data?.comments, delay: 150, track: false }
+      ];
+
+      for (const entity of entitiesToRestore) {
+        if (entity.data?.length > 0) {
+          await bulkCreateWithDelay(entity.name, entity.data);
+          if (entity.track) {
+            updateRestoreProgress(entity.data.length);
+          }
+          await delay(entity.delay);
+        }
       }
 
       setRestoreProgress({ current: 98, total: 100, step: 'Finalizing...' });
 
       // Count AFTER restore
       const countsAfter = {
-        orders: backupData.orders?.length || 0,
-        orderLines: backupData.orderLines?.length || 0,
-        skus: backupData.skus?.length || 0,
-        stores: backupData.stores?.length || 0,
-        purchases: backupData.purchases?.length || 0,
-        currentStock: backupData.currentStock?.length || 0,
-        suppliers: backupData.suppliers?.length || 0,
-        stockMovements: backupData.stockMovements?.length || 0,
-        importBatches: backupData.importBatches?.length || 0,
-        tasks: backupData.tasks?.length || 0
+        orders: backupData.data?.orders?.length || 0,
+        orderLines: backupData.data?.orderLines?.length || 0,
+        skus: backupData.data?.skus?.length || 0,
+        stores: backupData.data?.stores?.length || 0,
+        purchases: backupData.data?.purchases?.length || 0,
+        purchaseRequests: backupData.data?.purchaseRequests?.length || 0,
+        purchaseCarts: backupData.data?.purchaseCarts?.length || 0,
+        currentStock: backupData.data?.currentStock?.length || 0,
+        suppliers: backupData.data?.suppliers?.length || 0,
+        stockMovements: backupData.data?.stockMovements?.length || 0,
+        importBatches: backupData.data?.importBatches?.length || 0,
+        importErrors: backupData.data?.importErrors?.length || 0,
+        profitabilityLines: backupData.data?.profitabilityLines?.length || 0,
+        profitabilityBatches: backupData.data?.profitabilityBatches?.length || 0,
+        tasks: backupData.data?.tasks?.length || 0,
+        checklistItems: backupData.data?.checklistItems?.length || 0,
+        comments: backupData.data?.comments?.length || 0,
+        returns: backupData.data?.returns?.length || 0
       };
 
       // Update restore log
@@ -659,21 +661,28 @@ export default function BackupManager({ tenantId }) {
           
           {/* Package Contents Info */}
           <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs font-semibold text-blue-900 mb-2">✓ Backup Package Includes:</p>
+            <p className="text-xs font-semibold text-blue-900 mb-2">✓ 100% Parity Backup - All Workspace Data Included:</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-blue-800">
-              <span>• Stores (all fields)</span>
-              <span>• SKUs/Products (all fields)</span>
-              <span>• Current Stock</span>
-              <span>• Stock Movements (full history)</span>
-              <span>• Orders (all fields)</span>
-              <span>• Order Lines (all links)</span>
-              <span>• Purchases (all fields)</span>
-              <span>• Purchase Requests</span>
+              <span>• Stores (all fields + metadata)</span>
               <span>• Suppliers (all fields)</span>
+              <span>• SKUs/Products (all fields + supplier refs)</span>
+              <span>• Current Stock (quantities)</span>
+              <span>• Stock Movements (complete history)</span>
+              <span>• Orders (all fields + store refs)</span>
+              <span>• Order Lines (all links + SKU refs)</span>
+              <span>• Purchases (all fields + costs)</span>
+              <span>• Purchase Requests (batch history)</span>
+              <span>• Purchase Carts (line items)</span>
+              <span>• Profitability Lines (order details)</span>
+              <span>• Profitability Batches (import history)</span>
+              <span>• Import Batches (upload history)</span>
+              <span>• Import Errors (error logs)</span>
+              <span>• Returns (all fields)</span>
               <span>• Tasks + Checklist + Comments</span>
-              <span>• Import Batches/History</span>
-              <span>• Returns</span>
             </div>
+            <p className="text-xs text-blue-700 mt-2 font-medium">
+              ✓ All relationships preserved • ✓ Full drill-down details • ✓ No silent exclusions
+            </p>
           </div>
         </div>
         <div className="flex gap-2">

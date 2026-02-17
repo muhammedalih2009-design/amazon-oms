@@ -35,10 +35,15 @@ Deno.serve(async (req) => {
       skusResult,
       storesResult,
       purchasesResult,
+      purchaseRequestsResult,
+      purchaseCartsResult,
       currentStockResult,
       suppliersResult,
       stockMovementsResult,
       importBatchesResult,
+      importErrorsResult,
+      profitabilityLinesResult,
+      profitabilityBatchesResult,
       tasksResult,
       checklistResult,
       commentsResult,
@@ -49,13 +54,18 @@ Deno.serve(async (req) => {
       fetchEntity('SKU', { tenant_id: tenantId }),
       fetchEntity('Store', { tenant_id: tenantId }),
       fetchEntity('Purchase', { tenant_id: tenantId }),
+      fetchEntity('PurchaseRequest', { tenant_id: tenantId }),
+      fetchEntity('PurchaseCart', { tenant_id: tenantId }),
       fetchEntity('CurrentStock', { tenant_id: tenantId }),
       fetchEntity('Supplier', { tenant_id: tenantId }),
       fetchEntity('StockMovement', { tenant_id: tenantId }),
       fetchEntity('ImportBatch', { tenant_id: tenantId }),
+      fetchEntity('ImportError', { tenant_id: tenantId }),
+      fetchEntity('ProfitabilityLine', { tenant_id: tenantId }),
+      fetchEntity('ProfitabilityImportBatch', { tenant_id: tenantId }),
       fetchEntity('Task', { tenant_id: tenantId }),
-      fetchEntity('TaskChecklistItem', {}),
-      fetchEntity('TaskComment', {}),
+      fetchEntity('TaskChecklistItem', { tenant_id: tenantId }),
+      fetchEntity('TaskComment', { tenant_id: tenantId }),
       fetchEntity('Return', { tenant_id: tenantId })
     ]);
 
@@ -64,10 +74,15 @@ Deno.serve(async (req) => {
     const skus = skusResult.data;
     const stores = storesResult.data;
     const purchases = purchasesResult.data;
+    const purchaseRequests = purchaseRequestsResult.data;
+    const purchaseCarts = purchaseCartsResult.data;
     const currentStock = currentStockResult.data;
     const suppliers = suppliersResult.data;
     const stockMovements = stockMovementsResult.data;
     const importBatches = importBatchesResult.data;
+    const importErrors = importErrorsResult.data;
+    const profitabilityLines = profitabilityLinesResult.data;
+    const profitabilityBatches = profitabilityBatchesResult.data;
     const tasks = tasksResult.data;
     const checklistItems = checklistResult.data;
     const comments = commentsResult.data;
@@ -80,49 +95,92 @@ Deno.serve(async (req) => {
       SKU: skusResult.error,
       Store: storesResult.error,
       Purchase: purchasesResult.error,
+      PurchaseRequest: purchaseRequestsResult.error,
+      PurchaseCart: purchaseCartsResult.error,
       CurrentStock: currentStockResult.error,
       Supplier: suppliersResult.error,
       StockMovement: stockMovementsResult.error,
       ImportBatch: importBatchesResult.error,
+      ImportError: importErrorsResult.error,
+      ProfitabilityLine: profitabilityLinesResult.error,
+      ProfitabilityImportBatch: profitabilityBatchesResult.error,
       Task: tasksResult.error,
       TaskChecklistItem: checklistResult.error,
       TaskComment: commentsResult.error,
       Return: returnsResult.error
     }).filter(([_, err]) => err !== null);
 
-    // Build backup payload
+    // Build backup payload with complete manifest
     const backupData = {
       tenant_id: tenantId,
+      workspace_id: tenantId,
+      backup_created_at: new Date().toISOString(),
+      app_version: '1.0',
+      schema_version: '1.0',
       timestamp: new Date().toISOString(),
       data: {
+        stores,
+        suppliers,
+        skus,
+        currentStock,
+        stockMovements,
         orders,
         orderLines,
-        skus,
-        stores,
         purchases,
-        currentStock,
-        suppliers,
-        stockMovements,
+        purchaseRequests,
+        purchaseCarts,
+        profitabilityLines,
+        profitabilityBatches,
         importBatches,
+        importErrors,
         tasks,
         checklistItems,
         comments,
         returns
       },
       stats: {
-        orders: orders.length,
-        skus: skus.length,
-        purchases: purchases.length,
-        suppliers: suppliers.length,
         stores: stores.length,
-        tasks: tasks.length,
-        orderLines: orderLines.length,
+        suppliers: suppliers.length,
+        skus: skus.length,
         currentStock: currentStock.length,
         stockMovements: stockMovements.length,
+        orders: orders.length,
+        orderLines: orderLines.length,
+        purchases: purchases.length,
+        purchaseRequests: purchaseRequests.length,
+        purchaseCarts: purchaseCarts.length,
+        profitabilityLines: profitabilityLines.length,
+        profitabilityBatches: profitabilityBatches.length,
         importBatches: importBatches.length,
+        importErrors: importErrors.length,
+        tasks: tasks.length,
         checklistItems: checklistItems.length,
         comments: comments.length,
         returns: returns.length
+      },
+      manifest: {
+        entities_included: [
+          'Store', 'Supplier', 'SKU', 'CurrentStock', 'StockMovement',
+          'Order', 'OrderLine', 'Purchase', 'PurchaseRequest', 'PurchaseCart',
+          'ProfitabilityLine', 'ProfitabilityImportBatch',
+          'ImportBatch', 'ImportError', 'Task', 'TaskChecklistItem', 'TaskComment', 'Return'
+        ],
+        exclusions: [],
+        relation_map: {
+          'OrderLine -> Order': 'order_id',
+          'OrderLine -> SKU': 'sku_id',
+          'StockMovement -> SKU': 'sku_id',
+          'Purchase -> SKU': 'sku_id',
+          'Purchase -> Supplier': 'supplier_id',
+          'SKU -> Supplier': 'supplier_id',
+          'Order -> Store': 'store_id',
+          'ProfitabilityLine -> Order': 'order_id',
+          'ProfitabilityLine -> OrderLine': 'order_line_id',
+          'PurchaseCart -> SKU': 'sku_id',
+          'ImportError -> ImportBatch': 'batch_id',
+          'TaskChecklistItem -> Task': 'tenant_id filter',
+          'TaskComment -> Task': 'tenant_id filter'
+        }
       },
       warnings: entityErrors.length > 0 ? entityErrors.map(([name, err]) => `${name}: ${err}`) : []
     };

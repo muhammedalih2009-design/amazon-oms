@@ -57,14 +57,20 @@ Deno.serve(async (req) => {
     const validationResults = [];
 
     // Check referential integrity within backup
-    const orders = backupData.data.orders || [];
-    const orderLines = backupData.data.orderLines || [];
-    const skus = backupData.data.skus || [];
-    const stockMovements = backupData.data.stockMovements || [];
-    const purchases = backupData.data.purchases || [];
+    const orders = backupData.data?.orders || [];
+    const orderLines = backupData.data?.orderLines || [];
+    const skus = backupData.data?.skus || [];
+    const stores = backupData.data?.stores || [];
+    const suppliers = backupData.data?.suppliers || [];
+    const stockMovements = backupData.data?.stockMovements || [];
+    const purchases = backupData.data?.purchases || [];
+    const profitabilityLines = backupData.data?.profitabilityLines || [];
+    const purchaseCarts = backupData.data?.purchaseCarts || [];
     
     const orderIds = new Set(orders.map(o => o.id));
     const skuIds = new Set(skus.map(s => s.id));
+    const storeIds = new Set(stores.map(s => s.id));
+    const supplierIds = new Set(suppliers.map(s => s.id));
 
     // Validate OrderLine.order_id exists in Orders
     const orphanedOrderLines = orderLines.filter(ol => !orderIds.has(ol.order_id));
@@ -110,28 +116,111 @@ Deno.serve(async (req) => {
       sample_ids: orphanedPurchases.slice(0, 5).map(p => p.id)
     });
 
+    // Validate Order.store_id exists in Stores
+    const orphanedOrderStores = orders.filter(o => o.store_id && !storeIds.has(o.store_id));
+    validationResults.push({
+      check: 'Order.store_id referential integrity',
+      passed: orphanedOrderStores.length === 0,
+      details: orphanedOrderStores.length > 0
+        ? `${orphanedOrderStores.length} orders reference missing stores`
+        : 'All orders reference valid stores',
+      sample_ids: orphanedOrderStores.slice(0, 5).map(o => o.id)
+    });
+
+    // Validate SKU.supplier_id exists in Suppliers
+    const orphanedSKUSuppliers = skus.filter(s => s.supplier_id && !supplierIds.has(s.supplier_id));
+    validationResults.push({
+      check: 'SKU.supplier_id referential integrity',
+      passed: orphanedSKUSuppliers.length === 0,
+      details: orphanedSKUSuppliers.length > 0
+        ? `${orphanedSKUSuppliers.length} SKUs reference missing suppliers`
+        : 'All SKUs with suppliers reference valid suppliers',
+      sample_ids: orphanedSKUSuppliers.slice(0, 5).map(s => s.id)
+    });
+
+    // Validate ProfitabilityLine relations
+    const orphanedProfitOrders = profitabilityLines.filter(pl => pl.order_id && !orderIds.has(pl.order_id));
+    validationResults.push({
+      check: 'ProfitabilityLine.order_id referential integrity',
+      passed: orphanedProfitOrders.length === 0,
+      details: orphanedProfitOrders.length > 0
+        ? `${orphanedProfitOrders.length} profitability lines reference missing orders`
+        : 'All profitability lines reference valid orders',
+      sample_ids: orphanedProfitOrders.slice(0, 5).map(pl => pl.id)
+    });
+
+    // Validate PurchaseCart.sku_id exists in SKUs
+    const orphanedCartSKUs = purchaseCarts.filter(pc => pc.sku_id && !skuIds.has(pc.sku_id));
+    validationResults.push({
+      check: 'PurchaseCart.sku_id referential integrity',
+      passed: orphanedCartSKUs.length === 0,
+      details: orphanedCartSKUs.length > 0
+        ? `${orphanedCartSKUs.length} purchase cart items reference missing SKUs`
+        : 'All purchase cart items reference valid SKUs',
+      sample_ids: orphanedCartSKUs.slice(0, 5).map(pc => pc.id)
+    });
+
+    // Critical UI features validation
+    validationResults.push({
+      check: 'SKU supplier linkage completeness',
+      passed: skus.length > 0 ? skus.filter(s => s.supplier_id).length > 0 : true,
+      details: `${skus.filter(s => s.supplier_id).length}/${skus.length} SKUs have supplier references`,
+      sample_ids: []
+    });
+
+    validationResults.push({
+      check: 'Stock movement history present',
+      passed: stockMovements.length > 0 || skus.length === 0,
+      details: `${stockMovements.length} stock movements for ${skus.length} SKUs`,
+      sample_ids: []
+    });
+
+    validationResults.push({
+      check: 'Profitability data completeness',
+      passed: profitabilityLines.length > 0 || orders.length === 0,
+      details: `${profitabilityLines.length} profitability lines for ${orders.length} orders`,
+      sample_ids: []
+    });
+
+    validationResults.push({
+      check: 'Purchase batch/cart history present',
+      passed: purchaseCarts.length > 0 || purchases.length === 0,
+      details: `${purchaseCarts.length} purchase cart items for workspace`,
+      sample_ids: []
+    });
+
     // PHASE E: Completeness verification (compare live workspace vs backup)
     const liveComparison = [];
     
     try {
-      const liveOrders = await base44.asServiceRole.entities.Order.filter({ tenant_id: sourceWorkspaceId });
-      const liveSkus = await base44.asServiceRole.entities.SKU.filter({ tenant_id: sourceWorkspaceId });
-      const livePurchases = await base44.asServiceRole.entities.Purchase.filter({ tenant_id: sourceWorkspaceId });
-      const liveStores = await base44.asServiceRole.entities.Store.filter({ tenant_id: sourceWorkspaceId });
-      const liveSuppliers = await base44.asServiceRole.entities.Supplier.filter({ tenant_id: sourceWorkspaceId });
-      const liveStock = await base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: sourceWorkspaceId });
-      const liveStockMovements = await base44.asServiceRole.entities.StockMovement.filter({ tenant_id: sourceWorkspaceId });
-      const liveTasks = await base44.asServiceRole.entities.Task.filter({ tenant_id: sourceWorkspaceId });
+      const liveData = await Promise.all([
+        base44.asServiceRole.entities.Store.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.Supplier.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.SKU.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.StockMovement.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.Order.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.OrderLine.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.Purchase.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.PurchaseRequest.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.PurchaseCart.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.ProfitabilityLine.filter({ tenant_id: sourceWorkspaceId }),
+        base44.asServiceRole.entities.Task.filter({ tenant_id: sourceWorkspaceId })
+      ]);
 
       liveComparison.push(
-        { entity: 'Stores', source_count: liveStores.length, backup_count: backupCounts.stores || 0, match: liveStores.length === (backupCounts.stores || 0) },
-        { entity: 'SKUs', source_count: liveSkus.length, backup_count: backupCounts.skus || 0, match: liveSkus.length === (backupCounts.skus || 0) },
-        { entity: 'CurrentStock', source_count: liveStock.length, backup_count: backupCounts.currentStock || 0, match: liveStock.length === (backupCounts.currentStock || 0) },
-        { entity: 'StockMovements', source_count: liveStockMovements.length, backup_count: backupCounts.stockMovements || 0, match: liveStockMovements.length === (backupCounts.stockMovements || 0) },
-        { entity: 'Orders', source_count: liveOrders.length, backup_count: backupCounts.orders || 0, match: liveOrders.length === (backupCounts.orders || 0) },
-        { entity: 'Purchases', source_count: livePurchases.length, backup_count: backupCounts.purchases || 0, match: livePurchases.length === (backupCounts.purchases || 0) },
-        { entity: 'Suppliers', source_count: liveSuppliers.length, backup_count: backupCounts.suppliers || 0, match: liveSuppliers.length === (backupCounts.suppliers || 0) },
-        { entity: 'Tasks', source_count: liveTasks.length, backup_count: backupCounts.tasks || 0, match: liveTasks.length === (backupCounts.tasks || 0) }
+        { entity: 'Stores', source_count: liveData[0].length, backup_count: backupCounts.stores || 0, match: liveData[0].length === (backupCounts.stores || 0) },
+        { entity: 'Suppliers', source_count: liveData[1].length, backup_count: backupCounts.suppliers || 0, match: liveData[1].length === (backupCounts.suppliers || 0) },
+        { entity: 'SKUs', source_count: liveData[2].length, backup_count: backupCounts.skus || 0, match: liveData[2].length === (backupCounts.skus || 0) },
+        { entity: 'CurrentStock', source_count: liveData[3].length, backup_count: backupCounts.currentStock || 0, match: liveData[3].length === (backupCounts.currentStock || 0) },
+        { entity: 'StockMovements', source_count: liveData[4].length, backup_count: backupCounts.stockMovements || 0, match: liveData[4].length === (backupCounts.stockMovements || 0) },
+        { entity: 'Orders', source_count: liveData[5].length, backup_count: backupCounts.orders || 0, match: liveData[5].length === (backupCounts.orders || 0) },
+        { entity: 'OrderLines', source_count: liveData[6].length, backup_count: backupCounts.orderLines || 0, match: liveData[6].length === (backupCounts.orderLines || 0) },
+        { entity: 'Purchases', source_count: liveData[7].length, backup_count: backupCounts.purchases || 0, match: liveData[7].length === (backupCounts.purchases || 0) },
+        { entity: 'PurchaseRequests', source_count: liveData[8].length, backup_count: backupCounts.purchaseRequests || 0, match: liveData[8].length === (backupCounts.purchaseRequests || 0) },
+        { entity: 'PurchaseCarts', source_count: liveData[9].length, backup_count: backupCounts.purchaseCarts || 0, match: liveData[9].length === (backupCounts.purchaseCarts || 0) },
+        { entity: 'ProfitabilityLines', source_count: liveData[10].length, backup_count: backupCounts.profitabilityLines || 0, match: liveData[10].length === (backupCounts.profitabilityLines || 0) },
+        { entity: 'Tasks', source_count: liveData[11].length, backup_count: backupCounts.tasks || 0, match: liveData[11].length === (backupCounts.tasks || 0) }
       );
     } catch (err) {
       console.warn('Live comparison failed:', err.message);
