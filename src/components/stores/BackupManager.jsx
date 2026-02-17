@@ -38,11 +38,14 @@ export default function BackupManager({ tenantId }) {
   const [selectedBackup, setSelectedBackup] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStep, setUploadStep] = useState('');
+  const [showUploadProgress, setShowUploadProgress] = useState(false);
   const [jobPolling, setJobPolling] = useState(null);
   const [allJobs, setAllJobs] = useState([]);
   const [jobToDelete, setJobToDelete] = useState(null);
   const [restoreFromPrevious, setRestoreFromPrevious] = useState(false);
   const [confirmationText, setConfirmationText] = useState('');
+  const [restoreProgress, setRestoreProgress] = useState({ current: 0, total: 0, step: '' });
 
   useEffect(() => {
     loadBackups();
@@ -212,6 +215,7 @@ export default function BackupManager({ tenantId }) {
 
   const restoreBackup = async (backup) => {
     setRestoring(true);
+    setRestoreProgress({ current: 0, total: 100, step: 'Preparing restore...' });
     const startTime = new Date().toISOString();
     
     try {
@@ -224,6 +228,8 @@ export default function BackupManager({ tenantId }) {
         'unknown';
       const sourceWorkspaceName = backup.source_workspace_name || 'Uploaded Backup';
       
+      setRestoreProgress({ current: 5, total: 100, step: 'Creating restore log...' });
+      
       // Create restore log
       const restoreLog = await base44.entities.RestoreLog.create({
         backup_job_id: backup.id || 'uploaded',
@@ -235,6 +241,8 @@ export default function BackupManager({ tenantId }) {
         restored_by: user?.email,
         started_at: startTime
       });
+
+      setRestoreProgress({ current: 10, total: 100, step: 'Loading existing data...' });
 
       // Count existing data BEFORE purge
       const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
@@ -263,9 +271,24 @@ export default function BackupManager({ tenantId }) {
         tasks: tasks.length
       };
 
+      const totalToDelete = countsBefore.orders + countsBefore.orderLines + countsBefore.skus + 
+        countsBefore.stores + countsBefore.purchases + countsBefore.currentStock +
+        countsBefore.suppliers + countsBefore.stockMovements + countsBefore.importBatches + countsBefore.tasks;
+
+      setRestoreProgress({ current: 20, total: 100, step: `Deleting ${totalToDelete} existing records...` });
+
       // PURGE: Delete all existing target workspace data (dependencies first)
-      for (const item of orderLines) await base44.entities.OrderLine.delete(item.id);
-      for (const item of orders) await base44.entities.Order.delete(item.id);
+      let deleted = 0;
+      for (const item of orderLines) {
+        await base44.entities.OrderLine.delete(item.id);
+        deleted++;
+        if (deleted % 50 === 0) setRestoreProgress({ current: 20 + (deleted / totalToDelete) * 20, total: 100, step: `Deleting... ${deleted}/${totalToDelete}` });
+      }
+      for (const item of orders) {
+        await base44.entities.Order.delete(item.id);
+        deleted++;
+        if (deleted % 50 === 0) setRestoreProgress({ current: 20 + (deleted / totalToDelete) * 20, total: 100, step: `Deleting... ${deleted}/${totalToDelete}` });
+      }
       for (const item of currentStock) await base44.entities.CurrentStock.delete(item.id);
       for (const item of purchases) await base44.entities.Purchase.delete(item.id);
       for (const item of skus) await base44.entities.SKU.delete(item.id);
@@ -275,22 +298,65 @@ export default function BackupManager({ tenantId }) {
       for (const item of importBatches) await base44.entities.ImportBatch.delete(item.id);
       for (const item of tasks) await base44.entities.Task.delete(item.id);
 
+      setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
+
       // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
       const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
 
-      if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
-      if (backupData.stores?.length) await base44.entities.Store.bulkCreate(stripBuiltins(backupData.stores));
-      if (backupData.skus?.length) await base44.entities.SKU.bulkCreate(stripBuiltins(backupData.skus));
+      const totalToRestore = (backupData.suppliers?.length || 0) + (backupData.stores?.length || 0) +
+        (backupData.skus?.length || 0) + (backupData.orders?.length || 0) + 
+        (backupData.orderLines?.length || 0) + (backupData.purchases?.length || 0) +
+        (backupData.currentStock?.length || 0) + (backupData.tasks?.length || 0);
+
+      let restored = 0;
+      const updateRestoreProgress = (count) => {
+        restored += count;
+        setRestoreProgress({ 
+          current: 45 + (restored / totalToRestore) * 50, 
+          total: 100, 
+          step: `Restoring... ${restored}/${totalToRestore}` 
+        });
+      };
+
+      if (backupData.suppliers?.length) {
+        await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
+        updateRestoreProgress(backupData.suppliers.length);
+      }
+      if (backupData.stores?.length) {
+        await base44.entities.Store.bulkCreate(stripBuiltins(backupData.stores));
+        updateRestoreProgress(backupData.stores.length);
+      }
+      if (backupData.skus?.length) {
+        await base44.entities.SKU.bulkCreate(stripBuiltins(backupData.skus));
+        updateRestoreProgress(backupData.skus.length);
+      }
       if (backupData.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(stripBuiltins(backupData.importBatches));
-      if (backupData.orders?.length) await base44.entities.Order.bulkCreate(stripBuiltins(backupData.orders));
-      if (backupData.orderLines?.length) await base44.entities.OrderLine.bulkCreate(stripBuiltins(backupData.orderLines));
-      if (backupData.purchases?.length) await base44.entities.Purchase.bulkCreate(stripBuiltins(backupData.purchases));
-      if (backupData.currentStock?.length) await base44.entities.CurrentStock.bulkCreate(stripBuiltins(backupData.currentStock));
+      if (backupData.orders?.length) {
+        await base44.entities.Order.bulkCreate(stripBuiltins(backupData.orders));
+        updateRestoreProgress(backupData.orders.length);
+      }
+      if (backupData.orderLines?.length) {
+        await base44.entities.OrderLine.bulkCreate(stripBuiltins(backupData.orderLines));
+        updateRestoreProgress(backupData.orderLines.length);
+      }
+      if (backupData.purchases?.length) {
+        await base44.entities.Purchase.bulkCreate(stripBuiltins(backupData.purchases));
+        updateRestoreProgress(backupData.purchases.length);
+      }
+      if (backupData.currentStock?.length) {
+        await base44.entities.CurrentStock.bulkCreate(stripBuiltins(backupData.currentStock));
+        updateRestoreProgress(backupData.currentStock.length);
+      }
       if (backupData.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(stripBuiltins(backupData.stockMovements));
-      if (backupData.tasks?.length) await base44.entities.Task.bulkCreate(stripBuiltins(backupData.tasks));
+      if (backupData.tasks?.length) {
+        await base44.entities.Task.bulkCreate(stripBuiltins(backupData.tasks));
+        updateRestoreProgress(backupData.tasks.length);
+      }
       if (backupData.checklistItems?.length) await base44.entities.TaskChecklistItem.bulkCreate(stripBuiltins(backupData.checklistItems));
       if (backupData.comments?.length) await base44.entities.TaskComment.bulkCreate(stripBuiltins(backupData.comments));
       if (backupData.returns?.length) await base44.entities.Return.bulkCreate(stripBuiltins(backupData.returns));
+
+      setRestoreProgress({ current: 98, total: 100, step: 'Finalizing...' });
 
       // Count AFTER restore
       const countsAfter = {
@@ -315,23 +381,29 @@ export default function BackupManager({ tenantId }) {
         completed_at: new Date().toISOString()
       });
 
-      setShowRestoreDialog(false);
-      setSelectedBackup(null);
-      setConfirmationText('');
-      toast({ 
-        title: '✓ Restore complete', 
-        description: `${countsAfter.orders} orders, ${countsAfter.skus} SKUs restored. Refreshing...` 
-      });
-      
-      setTimeout(() => window.location.reload(), 1500);
+      setRestoreProgress({ current: 100, total: 100, step: 'Complete!' });
+
+      setTimeout(() => {
+        setShowRestoreDialog(false);
+        setSelectedBackup(null);
+        setConfirmationText('');
+        setRestoreProgress({ current: 0, total: 0, step: '' });
+        toast({ 
+          title: '✓ Restore complete', 
+          description: `${countsAfter.orders} orders, ${countsAfter.skus} SKUs restored. Refreshing...` 
+        });
+        
+        setTimeout(() => window.location.reload(), 1500);
+      }, 500);
     } catch (error) {
+      setRestoreProgress({ current: 0, total: 0, step: '' });
       toast({ 
         title: 'Restore failed', 
         description: error.message, 
         variant: 'destructive' 
       });
+      setRestoring(false);
     }
-    setRestoring(false);
   };
 
   const deleteBackup = (backupId) => {
@@ -429,32 +501,52 @@ export default function BackupManager({ tenantId }) {
     }
 
     setUploadingFile(file.name);
-    setUploadProgress(10);
+    setUploadProgress(0);
+    setUploadStep('Reading file...');
+    setShowUploadProgress(true);
 
     const reader = new FileReader();
     
     reader.onprogress = (event) => {
       if (event.lengthComputable) {
-        const percentComplete = (event.loaded / event.total) * 90;
-        setUploadProgress(10 + percentComplete);
+        const percentComplete = Math.floor((event.loaded / event.total) * 80);
+        setUploadProgress(percentComplete);
       }
     };
 
     reader.onload = (event) => {
       try {
-        setUploadProgress(95);
-        const backup = JSON.parse(event.target.result);
-        if (!backup.data || !backup.timestamp) {
-          throw new Error('Invalid backup file format');
-        }
-        setUploadProgress(100);
-        setSelectedBackup(backup);
-        setUploadingFile(null);
-        setUploadProgress(0);
-        setShowRestoreDialog(true);
+        setUploadStep('Parsing backup data...');
+        setUploadProgress(85);
+        
+        setTimeout(() => {
+          const backup = JSON.parse(event.target.result);
+          if (!backup.data || !backup.timestamp) {
+            throw new Error('Invalid backup file format');
+          }
+          
+          setUploadStep('Validating backup...');
+          setUploadProgress(95);
+          
+          setTimeout(() => {
+            setUploadProgress(100);
+            setUploadStep('Ready to restore');
+            
+            setTimeout(() => {
+              setSelectedBackup(backup);
+              setUploadingFile(null);
+              setUploadProgress(0);
+              setUploadStep('');
+              setShowUploadProgress(false);
+              setShowRestoreDialog(true);
+            }, 500);
+          }, 300);
+        }, 200);
       } catch (error) {
         setUploadingFile(null);
         setUploadProgress(0);
+        setUploadStep('');
+        setShowUploadProgress(false);
         toast({ 
           title: 'Invalid file', 
           description: 'Please upload a valid backup JSON file', 
@@ -466,6 +558,8 @@ export default function BackupManager({ tenantId }) {
     reader.onerror = () => {
       setUploadingFile(null);
       setUploadProgress(0);
+      setUploadStep('');
+      setShowUploadProgress(false);
       toast({ 
         title: 'File read error', 
         description: 'Failed to read the backup file', 
@@ -711,6 +805,32 @@ export default function BackupManager({ tenantId }) {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Upload Progress Modal */}
+      <Dialog open={showUploadProgress} onOpenChange={setShowUploadProgress}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Uploading Backup</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">{uploadStep}</span>
+                <span className="font-medium">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2">
+                <div 
+                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+            {uploadingFile && (
+              <p className="text-sm text-slate-500">File: {uploadingFile}</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Restore Confirmation Dialog */}
       <AlertDialog open={showRestoreDialog} onOpenChange={setShowRestoreDialog}>
         <AlertDialogContent className="max-w-2xl">
@@ -790,7 +910,12 @@ export default function BackupManager({ tenantId }) {
                 (selectedBackup?.source_workspace_id !== tenantId && confirmationText !== tenant?.name)
               }
             >
-              {restoring ? 'Restoring...' : 'Confirm Replace All Data'}
+              {restoring ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>{restoreProgress.step || 'Restoring...'}</span>
+                </div>
+              ) : 'Confirm Replace All Data'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
