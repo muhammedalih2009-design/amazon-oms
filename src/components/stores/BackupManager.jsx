@@ -249,7 +249,7 @@ export default function BackupManager({ tenantId }) {
 
       // Count existing data BEFORE purge
       const [
-        orders, orderLines, skus, stores, purchases, purchaseRequests, purchaseCarts,
+        orders, orderLines, skus, stores, purchases,
         currentStock, suppliers, stockMovements, importBatches, importErrors,
         profitabilityLines, profitabilityBatches, tasks, checklistItems, comments, returns
       ] = await Promise.all([
@@ -258,8 +258,6 @@ export default function BackupManager({ tenantId }) {
         base44.entities.SKU.filter({ tenant_id: tenantId }),
         base44.entities.Store.filter({ tenant_id: tenantId }),
         base44.entities.Purchase.filter({ tenant_id: tenantId }),
-        base44.entities.PurchaseRequest.filter({ tenant_id: tenantId }),
-        base44.entities.PurchaseCart.filter({ tenant_id: tenantId }),
         base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
         base44.entities.Supplier.filter({ tenant_id: tenantId }),
         base44.entities.StockMovement.filter({ tenant_id: tenantId }),
@@ -279,8 +277,6 @@ export default function BackupManager({ tenantId }) {
         skus: skus.length,
         stores: stores.length,
         purchases: purchases.length,
-        purchaseRequests: purchaseRequests.length,
-        purchaseCarts: purchaseCarts.length,
         currentStock: currentStock.length,
         suppliers: suppliers.length,
         stockMovements: stockMovements.length,
@@ -321,8 +317,6 @@ export default function BackupManager({ tenantId }) {
       await deleteWithDelay(profitabilityBatches, 'ProfitabilityImportBatch', 30);
       await deleteWithDelay(orderLines, 'OrderLine', 100);
       await deleteWithDelay(orders, 'Order', 100);
-      await deleteWithDelay(purchaseCarts, 'PurchaseCart', 50);
-      await deleteWithDelay(purchaseRequests, 'PurchaseRequest', 50);
       await deleteWithDelay(purchases, 'Purchase', 50);
       await deleteWithDelay(returns, 'Return', 30);
       await deleteWithDelay(currentStock, 'CurrentStock', 50);
@@ -375,8 +369,6 @@ export default function BackupManager({ tenantId }) {
         { name: 'Order', data: backupData.data?.orders, delay: 300, track: true },
         { name: 'OrderLine', data: backupData.data?.orderLines, delay: 300, track: true },
         { name: 'Purchase', data: backupData.data?.purchases, delay: 200, track: true },
-        { name: 'PurchaseRequest', data: backupData.data?.purchaseRequests, delay: 150, track: false },
-        { name: 'PurchaseCart', data: backupData.data?.purchaseCarts, delay: 150, track: false },
         { name: 'ProfitabilityLine', data: backupData.data?.profitabilityLines, delay: 150, track: false },
         { name: 'ProfitabilityImportBatch', data: backupData.data?.profitabilityBatches, delay: 150, track: false },
         { name: 'Return', data: backupData.data?.returns, delay: 150, track: false },
@@ -404,8 +396,6 @@ export default function BackupManager({ tenantId }) {
         skus: backupData.data?.skus?.length || 0,
         stores: backupData.data?.stores?.length || 0,
         purchases: backupData.data?.purchases?.length || 0,
-        purchaseRequests: backupData.data?.purchaseRequests?.length || 0,
-        purchaseCarts: backupData.data?.purchaseCarts?.length || 0,
         currentStock: backupData.data?.currentStock?.length || 0,
         suppliers: backupData.data?.suppliers?.length || 0,
         stockMovements: backupData.data?.stockMovements?.length || 0,
@@ -671,8 +661,7 @@ export default function BackupManager({ tenantId }) {
               <span>• Orders (all fields + store refs)</span>
               <span>• Order Lines (all links + SKU refs)</span>
               <span>• Purchases (all fields + costs)</span>
-              <span>• Purchase Requests (batch history)</span>
-              <span>• Purchase Carts (line items)</span>
+
               <span>• Profitability Lines (order details)</span>
               <span>• Profitability Batches (import history)</span>
               <span>• Import Batches (upload history)</span>

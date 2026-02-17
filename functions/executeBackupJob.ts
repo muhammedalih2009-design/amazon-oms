@@ -35,8 +35,6 @@ Deno.serve(async (req) => {
       skusResult,
       storesResult,
       purchasesResult,
-      purchaseRequestsResult,
-      purchaseCartsResult,
       currentStockResult,
       suppliersResult,
       stockMovementsResult,
@@ -54,8 +52,6 @@ Deno.serve(async (req) => {
       fetchEntity('SKU', { tenant_id: tenantId }),
       fetchEntity('Store', { tenant_id: tenantId }),
       fetchEntity('Purchase', { tenant_id: tenantId }),
-      fetchEntity('PurchaseRequest', { tenant_id: tenantId }),
-      fetchEntity('PurchaseCart', { tenant_id: tenantId }),
       fetchEntity('CurrentStock', { tenant_id: tenantId }),
       fetchEntity('Supplier', { tenant_id: tenantId }),
       fetchEntity('StockMovement', { tenant_id: tenantId }),
@@ -74,8 +70,6 @@ Deno.serve(async (req) => {
     const skus = skusResult.data;
     const stores = storesResult.data;
     const purchases = purchasesResult.data;
-    const purchaseRequests = purchaseRequestsResult.data;
-    const purchaseCarts = purchaseCartsResult.data;
     const currentStock = currentStockResult.data;
     const suppliers = suppliersResult.data;
     const stockMovements = stockMovementsResult.data;
@@ -95,8 +89,6 @@ Deno.serve(async (req) => {
       SKU: skusResult.error,
       Store: storesResult.error,
       Purchase: purchasesResult.error,
-      PurchaseRequest: purchaseRequestsResult.error,
-      PurchaseCart: purchaseCartsResult.error,
       CurrentStock: currentStockResult.error,
       Supplier: suppliersResult.error,
       StockMovement: stockMovementsResult.error,
@@ -127,8 +119,6 @@ Deno.serve(async (req) => {
         orders,
         orderLines,
         purchases,
-        purchaseRequests,
-        purchaseCarts,
         profitabilityLines,
         profitabilityBatches,
         importBatches,
@@ -147,8 +137,6 @@ Deno.serve(async (req) => {
         orders: orders.length,
         orderLines: orderLines.length,
         purchases: purchases.length,
-        purchaseRequests: purchaseRequests.length,
-        purchaseCarts: purchaseCarts.length,
         profitabilityLines: profitabilityLines.length,
         profitabilityBatches: profitabilityBatches.length,
         importBatches: importBatches.length,
@@ -161,7 +149,7 @@ Deno.serve(async (req) => {
       manifest: {
         entities_included: [
           'Store', 'Supplier', 'SKU', 'CurrentStock', 'StockMovement',
-          'Order', 'OrderLine', 'Purchase', 'PurchaseRequest', 'PurchaseCart',
+          'Order', 'OrderLine', 'Purchase',
           'ProfitabilityLine', 'ProfitabilityImportBatch',
           'ImportBatch', 'ImportError', 'Task', 'TaskChecklistItem', 'TaskComment', 'Return'
         ],
@@ -176,7 +164,6 @@ Deno.serve(async (req) => {
           'Order -> Store': 'store_id',
           'ProfitabilityLine -> Order': 'order_id',
           'ProfitabilityLine -> OrderLine': 'order_line_id',
-          'PurchaseCart -> SKU': 'sku_id',
           'ImportError -> ImportBatch': 'batch_id',
           'TaskChecklistItem -> Task': 'tenant_id filter',
           'TaskComment -> Task': 'tenant_id filter'
