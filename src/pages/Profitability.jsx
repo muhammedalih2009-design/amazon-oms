@@ -51,19 +51,21 @@ export default function ProfitabilityPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordersData, storesData, profLines, importBatches] = await Promise.all([
-        base44.entities.Order.filter({ 
-          tenant_id: tenant.id,
-          status: 'fulfilled'
-        }),
+      // Load in batches to avoid rate limits
+      const ordersData = await base44.entities.Order.filter({ 
+        tenant_id: tenant.id,
+        status: 'fulfilled'
+      });
+      
+      const [storesData, orderLines, skus] = await Promise.all([
         base44.entities.Store.filter({ tenant_id: tenant.id }),
-        base44.entities.ProfitabilityLine.filter({ tenant_id: tenant.id }),
-        base44.entities.ProfitabilityImportBatch.filter({ tenant_id: tenant.id })
-      ]);
-
-      const [orderLines, skus] = await Promise.all([
         base44.entities.OrderLine.filter({ tenant_id: tenant.id }),
         base44.entities.SKU.filter({ tenant_id: tenant.id })
+      ]);
+
+      const [profLines, importBatches] = await Promise.all([
+        base44.entities.ProfitabilityLine.filter({ tenant_id: tenant.id }),
+        base44.entities.ProfitabilityImportBatch.filter({ tenant_id: tenant.id })
       ]);
 
       // Build maps
