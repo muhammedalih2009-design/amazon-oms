@@ -332,7 +332,12 @@ export default function BackupManager({ tenantId }) {
       // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
       const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
 
-      const totalToRestore = Object.values(backupData.data).reduce((sum, arr) => sum + (arr?.length || 0), 0);
+      // Support both old format (data at root) and new format (data nested)
+      const dataSource = backupData.data || backupData;
+      const totalToRestore = Object.values(dataSource).reduce((sum, value) => {
+        if (Array.isArray(value)) return sum + value.length;
+        return sum;
+      }, 0);
 
       let restored = 0;
       const updateRestoreProgress = (count) => {
@@ -354,23 +359,23 @@ export default function BackupManager({ tenantId }) {
         }
       };
 
-      // Restore in dependency order
+      // Restore in dependency order (support both old and new backup formats)
       const entitiesToRestore = [
-        { name: 'Supplier', data: backupData.data?.suppliers, delay: 200, track: true },
-        { name: 'Store', data: backupData.data?.stores, delay: 200, track: true },
-        { name: 'SKU', data: backupData.data?.skus, delay: 300, track: true },
-        { name: 'CurrentStock', data: backupData.data?.currentStock, delay: 200, track: true },
-        { name: 'StockMovement', data: backupData.data?.stockMovements, delay: 200, track: false },
-        { name: 'ImportBatch', data: backupData.data?.importBatches, delay: 150, track: false },
-        { name: 'ImportError', data: backupData.data?.importErrors, delay: 150, track: false },
-        { name: 'Order', data: backupData.data?.orders, delay: 300, track: true },
-        { name: 'OrderLine', data: backupData.data?.orderLines, delay: 300, track: true },
-        { name: 'Purchase', data: backupData.data?.purchases, delay: 200, track: true },
-        { name: 'ProfitabilityLine', data: backupData.data?.profitabilityLines, delay: 150, track: false },
-        { name: 'ProfitabilityImportBatch', data: backupData.data?.profitabilityBatches, delay: 150, track: false },
-        { name: 'Task', data: backupData.data?.tasks, delay: 150, track: true },
-        { name: 'TaskChecklistItem', data: backupData.data?.checklistItems, delay: 150, track: false },
-        { name: 'TaskComment', data: backupData.data?.comments, delay: 150, track: false }
+        { name: 'Supplier', data: dataSource.suppliers, delay: 200, track: true },
+        { name: 'Store', data: dataSource.stores, delay: 200, track: true },
+        { name: 'SKU', data: dataSource.skus, delay: 300, track: true },
+        { name: 'CurrentStock', data: dataSource.currentStock, delay: 200, track: true },
+        { name: 'StockMovement', data: dataSource.stockMovements, delay: 200, track: false },
+        { name: 'ImportBatch', data: dataSource.importBatches, delay: 150, track: false },
+        { name: 'ImportError', data: dataSource.importErrors, delay: 150, track: false },
+        { name: 'Order', data: dataSource.orders, delay: 300, track: true },
+        { name: 'OrderLine', data: dataSource.orderLines, delay: 300, track: true },
+        { name: 'Purchase', data: dataSource.purchases, delay: 200, track: true },
+        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 150, track: false },
+        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 150, track: false },
+        { name: 'Task', data: dataSource.tasks, delay: 150, track: true },
+        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 150, track: false },
+        { name: 'TaskComment', data: dataSource.comments, delay: 150, track: false }
       ];
 
       for (const entity of entitiesToRestore) {
@@ -387,21 +392,21 @@ export default function BackupManager({ tenantId }) {
 
       // Count AFTER restore
       const countsAfter = {
-        orders: backupData.data?.orders?.length || 0,
-        orderLines: backupData.data?.orderLines?.length || 0,
-        skus: backupData.data?.skus?.length || 0,
-        stores: backupData.data?.stores?.length || 0,
-        purchases: backupData.data?.purchases?.length || 0,
-        currentStock: backupData.data?.currentStock?.length || 0,
-        suppliers: backupData.data?.suppliers?.length || 0,
-        stockMovements: backupData.data?.stockMovements?.length || 0,
-        importBatches: backupData.data?.importBatches?.length || 0,
-        importErrors: backupData.data?.importErrors?.length || 0,
-        profitabilityLines: backupData.data?.profitabilityLines?.length || 0,
-        profitabilityBatches: backupData.data?.profitabilityBatches?.length || 0,
-        tasks: backupData.data?.tasks?.length || 0,
-        checklistItems: backupData.data?.checklistItems?.length || 0,
-        comments: backupData.data?.comments?.length || 0
+        orders: dataSource.orders?.length || 0,
+        orderLines: dataSource.orderLines?.length || 0,
+        skus: dataSource.skus?.length || 0,
+        stores: dataSource.stores?.length || 0,
+        purchases: dataSource.purchases?.length || 0,
+        currentStock: dataSource.currentStock?.length || 0,
+        suppliers: dataSource.suppliers?.length || 0,
+        stockMovements: dataSource.stockMovements?.length || 0,
+        importBatches: dataSource.importBatches?.length || 0,
+        importErrors: dataSource.importErrors?.length || 0,
+        profitabilityLines: dataSource.profitabilityLines?.length || 0,
+        profitabilityBatches: dataSource.profitabilityBatches?.length || 0,
+        tasks: dataSource.tasks?.length || 0,
+        checklistItems: dataSource.checklistItems?.length || 0,
+        comments: dataSource.comments?.length || 0
       };
 
       // Update restore log
