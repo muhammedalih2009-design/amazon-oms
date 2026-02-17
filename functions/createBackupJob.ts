@@ -15,10 +15,16 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing tenantId' }, { status: 400 });
     }
 
-    // Create backup job record with queued status
+    // Get tenant info
+    const tenant = await base44.asServiceRole.entities.Tenant.get(tenantId);
+    
+    // Create backup job record with source workspace metadata
     const job = await base44.asServiceRole.entities.BackupJob.create({
       tenant_id: tenantId,
       backup_name: backupName || `Backup ${new Date().toISOString().split('T')[0]}`,
+      source_workspace_id: tenantId,
+      source_workspace_name: tenant?.name || 'Unknown',
+      backup_version: '1.0',
       status: 'queued',
       started_at: new Date().toISOString()
     });
