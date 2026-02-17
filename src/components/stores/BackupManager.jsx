@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Database, Download, Upload, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Database, Download, Upload, Trash2, AlertTriangle, CheckCircle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,10 +21,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format } from 'date-fns';
+import { useTenant } from '@/components/hooks/useTenant';
 
 export default function BackupManager({ tenantId }) {
   const { toast } = useToast();
+  const { tenant, user } = useTenant();
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -39,6 +42,7 @@ export default function BackupManager({ tenantId }) {
   const [allJobs, setAllJobs] = useState([]);
   const [jobToDelete, setJobToDelete] = useState(null);
   const [restoreFromPrevious, setRestoreFromPrevious] = useState(false);
+  const [confirmationText, setConfirmationText] = useState('');
 
   useEffect(() => {
     loadBackups();
@@ -117,6 +121,8 @@ export default function BackupManager({ tenantId }) {
         file_url: job.file_url,
         file_size_bytes: job.file_size_bytes,
         stats: job.stats || {},
+        source_workspace_id: job.source_workspace_id,
+        source_workspace_name: job.source_workspace_name,
         serverBackup: true
       }));
 
@@ -206,10 +212,26 @@ export default function BackupManager({ tenantId }) {
 
   const restoreBackup = async (backup) => {
     setRestoring(true);
+    const startTime = new Date().toISOString();
+    
     try {
       let backupData = backup.data;
+      const sourceWorkspaceId = backup.source_workspace_id || backup.data?.tenant_id;
+      const sourceWorkspaceName = backup.source_workspace_name || 'Unknown';
+      
+      // Create restore log
+      const restoreLog = await base44.entities.RestoreLog.create({
+        backup_job_id: backup.id || 'uploaded',
+        source_workspace_id: sourceWorkspaceId,
+        source_workspace_name: sourceWorkspaceName,
+        target_workspace_id: tenantId,
+        target_workspace_name: tenant?.name || 'Current Workspace',
+        status: 'in_progress',
+        restored_by: user?.email,
+        started_at: startTime
+      });
 
-      // Delete all existing workspace data
+      // Count existing data BEFORE purge
       const [orders, orderLines, skus, stores, purchases, currentStock, suppliers, stockMovements, importBatches, tasks] = await Promise.all([
         base44.entities.Order.filter({ tenant_id: tenantId }),
         base44.entities.OrderLine.filter({ tenant_id: tenantId }),
@@ -223,7 +245,20 @@ export default function BackupManager({ tenantId }) {
         base44.entities.Task.filter({ tenant_id: tenantId })
       ]);
 
-      // Delete in correct order (dependencies first)
+      const countsBefore = {
+        orders: orders.length,
+        orderLines: orderLines.length,
+        skus: skus.length,
+        stores: stores.length,
+        purchases: purchases.length,
+        currentStock: currentStock.length,
+        suppliers: suppliers.length,
+        stockMovements: stockMovements.length,
+        importBatches: importBatches.length,
+        tasks: tasks.length
+      };
+
+      // PURGE: Delete all existing target workspace data (dependencies first)
       for (const item of orderLines) await base44.entities.OrderLine.delete(item.id);
       for (const item of orders) await base44.entities.Order.delete(item.id);
       for (const item of currentStock) await base44.entities.CurrentStock.delete(item.id);
@@ -235,7 +270,7 @@ export default function BackupManager({ tenantId }) {
       for (const item of importBatches) await base44.entities.ImportBatch.delete(item.id);
       for (const item of tasks) await base44.entities.Task.delete(item.id);
 
-      // Restore from backup (in correct order, removing built-in fields and tenant_id to use current workspace)
+      // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
       const stripBuiltins = (items) => items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({ ...rest, tenant_id: tenantId }));
 
       if (backupData.suppliers?.length) await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
@@ -252,11 +287,35 @@ export default function BackupManager({ tenantId }) {
       if (backupData.comments?.length) await base44.entities.TaskComment.bulkCreate(stripBuiltins(backupData.comments));
       if (backupData.returns?.length) await base44.entities.Return.bulkCreate(stripBuiltins(backupData.returns));
 
+      // Count AFTER restore
+      const countsAfter = {
+        orders: backupData.orders?.length || 0,
+        orderLines: backupData.orderLines?.length || 0,
+        skus: backupData.skus?.length || 0,
+        stores: backupData.stores?.length || 0,
+        purchases: backupData.purchases?.length || 0,
+        currentStock: backupData.currentStock?.length || 0,
+        suppliers: backupData.suppliers?.length || 0,
+        stockMovements: backupData.stockMovements?.length || 0,
+        importBatches: backupData.importBatches?.length || 0,
+        tasks: backupData.tasks?.length || 0
+      };
+
+      // Update restore log
+      await base44.entities.RestoreLog.update(restoreLog.id, {
+        status: 'completed',
+        counts_before_purge: countsBefore,
+        counts_after_restore: countsAfter,
+        validation_results: { success: true },
+        completed_at: new Date().toISOString()
+      });
+
       setShowRestoreDialog(false);
       setSelectedBackup(null);
+      setConfirmationText('');
       toast({ 
         title: '✓ Restore complete', 
-        description: 'Workspace restored from backup. Refreshing...' 
+        description: `${countsAfter.orders} orders, ${countsAfter.skus} SKUs restored. Refreshing...` 
       });
       
       setTimeout(() => window.location.reload(), 1500);
@@ -518,12 +577,16 @@ export default function BackupManager({ tenantId }) {
           {backups.map(backup => (
            <div key={backup.id} className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50">
              <div className="flex-1">
-               <h3 className="font-semibold text-slate-900">
-                 {backup.name}
-                 {backup.serverBackup && <span className="ml-2 text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Server</span>}
-               </h3>
+               <div className="flex items-center gap-2">
+                 <h3 className="font-semibold text-slate-900">{backup.name}</h3>
+                 {backup.serverBackup && <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Server</span>}
+                 {backup.source_workspace_id === tenantId && (
+                   <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">This Workspace</span>
+                 )}
+               </div>
                <p className="text-sm text-slate-500">
                  {format(new Date(backup.timestamp), 'MMM d, yyyy h:mm a')} • 
+                 Source: {backup.source_workspace_name || 'Unknown'} • 
                  {backup.stats?.stores || 0} stores • {backup.stats?.skus || 0} SKUs • {backup.stats?.orders || 0} orders • {backup.stats?.purchases || 0} purchases
                </p>
                <p className="text-xs text-slate-400 mt-1">
@@ -645,26 +708,63 @@ export default function BackupManager({ tenantId }) {
 
       {/* Restore Confirmation Dialog */}
       <AlertDialog open={showRestoreDialog} onOpenChange={setShowRestoreDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Restore Workspace from Backup?</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-red-600" />
+              Restore Workspace from Backup?
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                {/* Source/Target Info */}
+                <Alert className="border-indigo-200 bg-indigo-50">
+                  <AlertDescription>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <strong>Source Workspace:</strong> {selectedBackup?.source_workspace_name || 'Unknown'}
+                      </div>
+                      <div>
+                        <strong>Target Workspace (Current):</strong> {tenant?.name}
+                      </div>
+                      <div>
+                        <strong>Backup Created:</strong> {selectedBackup && format(new Date(selectedBackup.timestamp), 'MMM d, yyyy h:mm a')}
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+
+                {/* Warning */}
+                <Alert className="border-red-200 bg-red-50">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                  <AlertDescription>
                     <div>
-                      <p className="text-sm font-semibold text-red-900 mb-2">Warning: This action is IRREVERSIBLE</p>
+                      <p className="text-sm font-semibold text-red-900 mb-2">⚠️ IRREVERSIBLE OPERATION</p>
                       <ul className="text-xs text-red-800 space-y-1 list-disc list-inside">
-                        <li>All current workspace data will be deleted</li>
-                        <li>Data will be replaced with backup snapshot</li>
-                        <li>Any changes made after {selectedBackup && format(new Date(selectedBackup.timestamp), 'MMM d, yyyy h:mm a')} will be lost</li>
+                        <li>All data in <strong>{tenant?.name}</strong> will be DELETED</li>
+                        <li>Target workspace will be replaced with backup data from <strong>{selectedBackup?.source_workspace_name}</strong></li>
+                        <li>No undo or merge - this is a complete replacement</li>
                       </ul>
                     </div>
+                  </AlertDescription>
+                </Alert>
+
+                {/* Confirmation Input */}
+                {selectedBackup?.source_workspace_id !== tenantId && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Type the target workspace name to confirm: <span className="text-red-600">{tenant?.name}</span>
+                    </Label>
+                    <Input
+                      value={confirmationText}
+                      onChange={(e) => setConfirmationText(e.target.value)}
+                      placeholder="Type workspace name"
+                      className="font-mono"
+                    />
                   </div>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Restoring: <strong>{selectedBackup?.name}</strong>
+                )}
+
+                <p className="text-xs text-slate-600">
+                  Restoring: <strong>{selectedBackup?.name}</strong> ({selectedBackup?.stats?.orders || 0} orders, {selectedBackup?.stats?.skus || 0} SKUs, {selectedBackup?.stats?.purchases || 0} purchases)
                 </p>
               </div>
             </AlertDialogDescription>
@@ -673,15 +773,19 @@ export default function BackupManager({ tenantId }) {
             <AlertDialogCancel onClick={() => {
               setShowRestoreDialog(false);
               setSelectedBackup(null);
+              setConfirmationText('');
             }}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction 
               onClick={() => restoreBackup(selectedBackup)}
               className="bg-red-600 hover:bg-red-700"
-              disabled={restoring}
+              disabled={
+                restoring || 
+                (selectedBackup?.source_workspace_id !== tenantId && confirmationText !== tenant?.name)
+              }
             >
-              {restoring ? 'Restoring...' : 'Confirm Restore'}
+              {restoring ? 'Restoring...' : 'Confirm Replace All Data'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
