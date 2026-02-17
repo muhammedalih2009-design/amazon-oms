@@ -349,33 +349,47 @@ export default function BackupManager({ tenantId }) {
         });
       };
 
-      // Helper: Bulk create in smaller batches with delays
-      const bulkCreateWithDelay = async (entityName, items, batchSize = 200) => {
+      // Helper: Bulk create in smaller batches with delays and retry logic
+      const bulkCreateWithDelay = async (entityName, items, batchSize = 50, retries = 3) => {
         const cleaned = stripBuiltins(items);
         for (let i = 0; i < cleaned.length; i += batchSize) {
           const batch = cleaned.slice(i, i + batchSize);
-          await base44.entities[entityName].bulkCreate(batch);
-          if (i + batchSize < cleaned.length) await delay(300);
+          let attempt = 0;
+          while (attempt < retries) {
+            try {
+              await base44.entities[entityName].bulkCreate(batch);
+              break; // Success, exit retry loop
+            } catch (error) {
+              attempt++;
+              if (error.message?.includes('rate limit') && attempt < retries) {
+                const backoffDelay = 1000 * Math.pow(2, attempt); // Exponential backoff
+                await delay(backoffDelay);
+              } else {
+                throw error; // Re-throw if not rate limit or out of retries
+              }
+            }
+          }
+          if (i + batchSize < cleaned.length) await delay(800);
         }
       };
 
       // Restore in dependency order (support both old and new backup formats)
       const entitiesToRestore = [
-        { name: 'Supplier', data: dataSource.suppliers, delay: 300, track: true },
-        { name: 'Store', data: dataSource.stores, delay: 300, track: true },
-        { name: 'SKU', data: dataSource.skus, delay: 500, track: true },
-        { name: 'CurrentStock', data: dataSource.currentStock, delay: 300, track: true },
-        { name: 'StockMovement', data: dataSource.stockMovements, delay: 300, track: false },
-        { name: 'ImportBatch', data: dataSource.importBatches, delay: 250, track: false },
-        { name: 'ImportError', data: dataSource.importErrors, delay: 250, track: false },
-        { name: 'Order', data: dataSource.orders, delay: 400, track: true },
-        { name: 'OrderLine', data: dataSource.orderLines, delay: 400, track: true },
-        { name: 'Purchase', data: dataSource.purchases, delay: 300, track: true },
-        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 250, track: false },
-        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 250, track: false },
-        { name: 'Task', data: dataSource.tasks, delay: 250, track: true },
-        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 250, track: false },
-        { name: 'TaskComment', data: dataSource.comments, delay: 250, track: false }
+        { name: 'Supplier', data: dataSource.suppliers, delay: 600, track: true },
+        { name: 'Store', data: dataSource.stores, delay: 600, track: true },
+        { name: 'SKU', data: dataSource.skus, delay: 1000, track: true },
+        { name: 'CurrentStock', data: dataSource.currentStock, delay: 700, track: true },
+        { name: 'StockMovement', data: dataSource.stockMovements, delay: 700, track: false },
+        { name: 'ImportBatch', data: dataSource.importBatches, delay: 500, track: false },
+        { name: 'ImportError', data: dataSource.importErrors, delay: 500, track: false },
+        { name: 'Order', data: dataSource.orders, delay: 800, track: true },
+        { name: 'OrderLine', data: dataSource.orderLines, delay: 800, track: true },
+        { name: 'Purchase', data: dataSource.purchases, delay: 700, track: true },
+        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 600, track: false },
+        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 500, track: false },
+        { name: 'Task', data: dataSource.tasks, delay: 500, track: true },
+        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 500, track: false },
+        { name: 'TaskComment', data: dataSource.comments, delay: 500, track: false }
       ];
 
       for (const entity of entitiesToRestore) {
