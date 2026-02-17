@@ -280,26 +280,35 @@ export default function BackupManager({ tenantId }) {
 
       setRestoreProgress({ current: 20, total: 100, step: `Deleting ${totalToDelete} existing records...` });
 
+      // Helper: Delete with rate limit protection
+      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      const deleteWithDelay = async (items, entityName, delayMs = 100) => {
+        for (let i = 0; i < items.length; i++) {
+          await base44.entities[entityName].delete(items[i].id);
+          deleted++;
+          if (deleted % 50 === 0) {
+            setRestoreProgress({ 
+              current: 20 + (deleted / totalToDelete) * 20, 
+              total: 100, 
+              step: `Deleting... ${deleted}/${totalToDelete}` 
+            });
+          }
+          if (i % 10 === 0 && i > 0) await delay(delayMs);
+        }
+      };
+
       // PURGE: Delete all existing target workspace data (dependencies first)
       let deleted = 0;
-      for (const item of orderLines) {
-        await base44.entities.OrderLine.delete(item.id);
-        deleted++;
-        if (deleted % 50 === 0) setRestoreProgress({ current: 20 + (deleted / totalToDelete) * 20, total: 100, step: `Deleting... ${deleted}/${totalToDelete}` });
-      }
-      for (const item of orders) {
-        await base44.entities.Order.delete(item.id);
-        deleted++;
-        if (deleted % 50 === 0) setRestoreProgress({ current: 20 + (deleted / totalToDelete) * 20, total: 100, step: `Deleting... ${deleted}/${totalToDelete}` });
-      }
-      for (const item of currentStock) await base44.entities.CurrentStock.delete(item.id);
-      for (const item of purchases) await base44.entities.Purchase.delete(item.id);
-      for (const item of skus) await base44.entities.SKU.delete(item.id);
-      for (const item of stockMovements) await base44.entities.StockMovement.delete(item.id);
-      for (const item of suppliers) await base44.entities.Supplier.delete(item.id);
-      for (const item of stores) await base44.entities.Store.delete(item.id);
-      for (const item of importBatches) await base44.entities.ImportBatch.delete(item.id);
-      for (const item of tasks) await base44.entities.Task.delete(item.id);
+      await deleteWithDelay(orderLines, 'OrderLine', 100);
+      await deleteWithDelay(orders, 'Order', 100);
+      await deleteWithDelay(currentStock, 'CurrentStock', 50);
+      await deleteWithDelay(purchases, 'Purchase', 50);
+      await deleteWithDelay(skus, 'SKU', 50);
+      await deleteWithDelay(stockMovements, 'StockMovement', 50);
+      await deleteWithDelay(suppliers, 'Supplier', 30);
+      await deleteWithDelay(stores, 'Store', 30);
+      await deleteWithDelay(importBatches, 'ImportBatch', 30);
+      await deleteWithDelay(tasks, 'Task', 30);
 
       setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
 
@@ -321,43 +330,77 @@ export default function BackupManager({ tenantId }) {
         });
       };
 
+      // Helper: Bulk create in smaller batches with delays
+      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      const bulkCreateWithDelay = async (entityName, items, batchSize = 200) => {
+        const cleaned = stripBuiltins(items);
+        for (let i = 0; i < cleaned.length; i += batchSize) {
+          const batch = cleaned.slice(i, i + batchSize);
+          await base44.entities[entityName].bulkCreate(batch);
+          if (i + batchSize < cleaned.length) await delay(300);
+        }
+      };
+
       if (backupData.suppliers?.length) {
-        await base44.entities.Supplier.bulkCreate(stripBuiltins(backupData.suppliers));
+        await bulkCreateWithDelay('Supplier', backupData.suppliers);
         updateRestoreProgress(backupData.suppliers.length);
+        await delay(200);
       }
       if (backupData.stores?.length) {
-        await base44.entities.Store.bulkCreate(stripBuiltins(backupData.stores));
+        await bulkCreateWithDelay('Store', backupData.stores);
         updateRestoreProgress(backupData.stores.length);
+        await delay(200);
       }
       if (backupData.skus?.length) {
-        await base44.entities.SKU.bulkCreate(stripBuiltins(backupData.skus));
+        await bulkCreateWithDelay('SKU', backupData.skus);
         updateRestoreProgress(backupData.skus.length);
+        await delay(300);
       }
-      if (backupData.importBatches?.length) await base44.entities.ImportBatch.bulkCreate(stripBuiltins(backupData.importBatches));
+      if (backupData.importBatches?.length) {
+        await bulkCreateWithDelay('ImportBatch', backupData.importBatches);
+        await delay(200);
+      }
       if (backupData.orders?.length) {
-        await base44.entities.Order.bulkCreate(stripBuiltins(backupData.orders));
+        await bulkCreateWithDelay('Order', backupData.orders);
         updateRestoreProgress(backupData.orders.length);
+        await delay(300);
       }
       if (backupData.orderLines?.length) {
-        await base44.entities.OrderLine.bulkCreate(stripBuiltins(backupData.orderLines));
+        await bulkCreateWithDelay('OrderLine', backupData.orderLines);
         updateRestoreProgress(backupData.orderLines.length);
+        await delay(300);
       }
       if (backupData.purchases?.length) {
-        await base44.entities.Purchase.bulkCreate(stripBuiltins(backupData.purchases));
+        await bulkCreateWithDelay('Purchase', backupData.purchases);
         updateRestoreProgress(backupData.purchases.length);
+        await delay(200);
       }
       if (backupData.currentStock?.length) {
-        await base44.entities.CurrentStock.bulkCreate(stripBuiltins(backupData.currentStock));
+        await bulkCreateWithDelay('CurrentStock', backupData.currentStock);
         updateRestoreProgress(backupData.currentStock.length);
+        await delay(200);
       }
-      if (backupData.stockMovements?.length) await base44.entities.StockMovement.bulkCreate(stripBuiltins(backupData.stockMovements));
+      if (backupData.stockMovements?.length) {
+        await bulkCreateWithDelay('StockMovement', backupData.stockMovements);
+        await delay(200);
+      }
       if (backupData.tasks?.length) {
-        await base44.entities.Task.bulkCreate(stripBuiltins(backupData.tasks));
+        await bulkCreateWithDelay('Task', backupData.tasks);
         updateRestoreProgress(backupData.tasks.length);
+        await delay(200);
       }
-      if (backupData.checklistItems?.length) await base44.entities.TaskChecklistItem.bulkCreate(stripBuiltins(backupData.checklistItems));
-      if (backupData.comments?.length) await base44.entities.TaskComment.bulkCreate(stripBuiltins(backupData.comments));
-      if (backupData.returns?.length) await base44.entities.Return.bulkCreate(stripBuiltins(backupData.returns));
+      if (backupData.checklistItems?.length) {
+        await bulkCreateWithDelay('TaskChecklistItem', backupData.checklistItems);
+        await delay(150);
+      }
+      if (backupData.comments?.length) {
+        await bulkCreateWithDelay('TaskComment', backupData.comments);
+        await delay(150);
+      }
+      if (backupData.returns?.length) {
+        await bulkCreateWithDelay('Return', backupData.returns);
+        await delay(150);
+      }
 
       setRestoreProgress({ current: 98, total: 100, step: 'Finalizing...' });
 
