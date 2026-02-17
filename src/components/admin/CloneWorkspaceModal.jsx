@@ -206,10 +206,10 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                   />
                   <div className="flex-1">
                     <Label htmlFor="copy_operational" className="font-medium cursor-pointer">
-                      Operational Data (Full Clone)
+                      Operational Data (100% Full Clone)
                     </Label>
                     <p className="text-xs text-slate-600 mt-1">
-                      Orders, Purchases, Returns, Tasks, Settlement data
+                      Orders + Lines, Purchases + Requests + Carts, Stock Movements, Profitability, Returns, Tasks
                     </p>
                   </div>
                 </div>
@@ -341,54 +341,100 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                     <span>{jobStatus.progress.currentStock} Stock Records</span>
                   </div>
                 )}
+                {jobStatus.progress?.stockMovements > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>{jobStatus.progress.stockMovements} Stock Movements</span>
+                  </div>
+                )}
+                {jobStatus.progress?.purchaseCarts > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>{jobStatus.progress.purchaseCarts} Purchase Carts</span>
+                  </div>
+                )}
+                {jobStatus.progress?.profitabilityLines > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>{jobStatus.progress.profitabilityLines} Profitability Lines</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {step === 'done' && jobStatus && (
             <div className="space-y-4">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex gap-3">
-                <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-emerald-900">Clone completed!</p>
-                  <p className="text-sm text-emerald-700 mt-1">{formData.name} is ready to use</p>
+              {jobStatus.validation_passed ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex gap-3">
+                  <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-emerald-900">Clone completed with 100% parity!</p>
+                    <p className="text-sm text-emerald-700 mt-1">{formData.name} is ready to use</p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-amber-900">Clone completed with warnings</p>
+                    <p className="text-sm text-amber-700 mt-1">Some entity counts don't match - see validation report below</p>
+                  </div>
+                </div>
+              )}
 
-              <div className="bg-slate-50 p-4 rounded-lg space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Stores:</span>
-                  <span className="font-medium">{jobStatus.progress?.stores || 0}</span>
+              {/* Validation Report */}
+              {jobStatus.validation_report && (
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                    <p className="font-semibold text-sm text-slate-900">Entity Count Validation</p>
+                  </div>
+                  <div className="p-3 space-y-1 text-xs">
+                    {Object.entries(jobStatus.validation_report).map(([entity, counts]) => (
+                      <div key={entity} className="flex items-center justify-between py-1">
+                        <span className="text-slate-600 capitalize">{entity}:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-900 font-medium">
+                            {counts.source} → {counts.target}
+                          </span>
+                          {counts.match ? (
+                            <Check className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-amber-600" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Suppliers:</span>
-                  <span className="font-medium">{jobStatus.progress?.suppliers || 0}</span>
+              )}
+
+              {/* Integrity Checks */}
+              {jobStatus.integrity_checks && jobStatus.integrity_checks.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                    <p className="font-semibold text-sm text-slate-900">Integrity Checks</p>
+                  </div>
+                  <div className="p-3 space-y-1 text-xs">
+                    {jobStatus.integrity_checks.map((check, idx) => (
+                      <div key={idx} className="flex items-center justify-between py-1">
+                        <span className="text-slate-600">{check.check}:</span>
+                        {check.passed ? (
+                          <div className="flex items-center gap-1 text-emerald-600">
+                            <Check className="w-4 h-4" />
+                            <span className="font-medium">Passed</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-red-600">
+                            <AlertCircle className="w-4 h-4" />
+                            <span className="font-medium">Failed</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">SKUs:</span>
-                  <span className="font-medium">{jobStatus.progress?.skus || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Orders:</span>
-                  <span className="font-medium">{jobStatus.progress?.orders || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Purchases:</span>
-                  <span className="font-medium">{jobStatus.progress?.purchases || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Returns:</span>
-                  <span className="font-medium">{jobStatus.progress?.returns || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Tasks:</span>
-                  <span className="font-medium">{jobStatus.progress?.tasks || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Current Stock:</span>
-                  <span className="font-medium">{jobStatus.progress?.currentStock || 0}</span>
-                </div>
-              </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button

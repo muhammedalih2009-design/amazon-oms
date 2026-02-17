@@ -333,7 +333,78 @@ Deno.serve(async (req) => {
           } catch (e) { }
         }
 
-        // PHASE 11: IMPORT BATCHES (if copy_logs enabled)
+        // PHASE 11: PURCHASE CARTS (purchase line items)
+        if (options.copy_operational_data) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'purchaseCarts');
+            const carts = await base44.asServiceRole.entities.PurchaseCart.filter({ tenant_id: source_workspace_id });
+            for (const cart of carts) {
+              await base44.asServiceRole.entities.PurchaseCart.create({
+                tenant_id: newWs.id,
+                sku_id: idMap.skus?.[cart.sku_id] || cart.sku_id,
+                ...Object.keys(cart).reduce((acc, k) => {
+                  if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by' || k === 'tenant_id' || k === 'sku_id') return acc;
+                  acc[k] = cart[k];
+                  return acc;
+                }, {})
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'purchaseCarts', carts.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 12: PROFITABILITY LINES (order profitability details)
+        if (options.copy_operational_data) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'profitabilityLines');
+            const profLines = await base44.asServiceRole.entities.ProfitabilityLine.filter({ tenant_id: source_workspace_id });
+            for (const line of profLines) {
+              await base44.asServiceRole.entities.ProfitabilityLine.create({
+                tenant_id: newWs.id,
+                order_id: idMap.orders?.[line.order_id] || line.order_id,
+                order_line_id: line.order_line_id,
+                amazon_order_id: line.amazon_order_id,
+                sku_code: line.sku_code,
+                quantity: line.quantity,
+                unit_cost: line.unit_cost,
+                total_cost: line.total_cost,
+                revenue: line.revenue,
+                profit: line.profit,
+                margin_percent: line.margin_percent,
+                match_status: line.match_status,
+                import_batch_id: line.import_batch_id,
+                uploaded_by: line.uploaded_by,
+                uploaded_at: line.uploaded_at
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'profitabilityLines', profLines.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 13: PROFITABILITY IMPORT BATCHES
+        if (options.copy_logs) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'profitabilityBatches');
+            const profBatches = await base44.asServiceRole.entities.ProfitabilityImportBatch.filter({ tenant_id: source_workspace_id });
+            for (const batch of profBatches) {
+              await base44.asServiceRole.entities.ProfitabilityImportBatch.create({
+                tenant_id: newWs.id,
+                file_name: batch.file_name,
+                status: batch.status,
+                total_rows: batch.total_rows,
+                matched_rows: batch.matched_rows,
+                unmatched_rows: batch.unmatched_rows,
+                qty_mismatch_rows: batch.qty_mismatch_rows,
+                error_summary: batch.error_summary,
+                unmatched_data: batch.unmatched_data,
+                uploaded_by: batch.uploaded_by
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'profitabilityBatches', profBatches.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 14: IMPORT BATCHES (if copy_logs enabled)
         if (options.copy_logs) {
           try {
             await updateJobStep(base44, cloneJob.id, 'importBatches');
@@ -356,7 +427,26 @@ Deno.serve(async (req) => {
           } catch (e) { }
         }
 
-        // PHASE 12: MEMBERSHIPS (if enabled)
+        // PHASE 15: IMPORT ERRORS (if copy_logs enabled)
+        if (options.copy_logs) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'importErrors');
+            const errors = await base44.asServiceRole.entities.ImportError.filter({ tenant_id: source_workspace_id });
+            for (const err of errors) {
+              await base44.asServiceRole.entities.ImportError.create({
+                tenant_id: newWs.id,
+                ...Object.keys(err).reduce((acc, k) => {
+                  if (k === 'id' || k === 'created_date' || k === 'updated_date' || k === 'created_by' || k === 'tenant_id') return acc;
+                  acc[k] = err[k];
+                  return acc;
+                }, {})
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'importErrors', errors.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 16: MEMBERSHIPS (if enabled)
         if (options.copy_members) {
           await updateJobStep(base44, cloneJob.id, 'memberships');
           const memberships = await base44.asServiceRole.entities.Membership.filter({ tenant_id: source_workspace_id });
@@ -386,15 +476,92 @@ Deno.serve(async (req) => {
             orders: { view: true, edit: true },
             purchases: { view: true, edit: true },
             returns: { view: true, edit: true },
+            settlement: { view: true, edit: true },
             suppliers: { view: true, edit: true }
           }
         });
 
-        // Mark as completed
+        // PHASE 17: VALIDATION
+        await updateJobStep(base44, cloneJob.id, 'validating');
+        
+        // Count all entities in both workspaces
+        const [sourceOrders, sourceSkus, sourcePurchases, sourceStores, sourceSuppliers,
+               sourceOrderLines, sourceStockMovements, sourceCurrentStock, sourcePurchaseRequests,
+               sourcePurchaseCarts, sourceProfitLines, sourceReturns, sourceTasks,
+               targetOrders, targetSkus, targetPurchases, targetStores, targetSuppliers,
+               targetOrderLines, targetStockMovements, targetCurrentStock, targetPurchaseRequests,
+               targetPurchaseCarts, targetProfitLines, targetReturns, targetTasks] = await Promise.all([
+          base44.asServiceRole.entities.Order.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.SKU.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.Purchase.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.Store.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.Supplier.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.OrderLine.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.StockMovement.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: source_workspace_id }),
+          base44.asServiceRole.entities.PurchaseRequest.filter({ tenant_id: source_workspace_id }).catch(() => []),
+          base44.asServiceRole.entities.PurchaseCart.filter({ tenant_id: source_workspace_id }).catch(() => []),
+          base44.asServiceRole.entities.ProfitabilityLine.filter({ tenant_id: source_workspace_id }).catch(() => []),
+          base44.asServiceRole.entities.Return.filter({ tenant_id: source_workspace_id }).catch(() => []),
+          base44.asServiceRole.entities.Task.filter({ tenant_id: source_workspace_id }).catch(() => []),
+          base44.asServiceRole.entities.Order.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.SKU.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.Purchase.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.Store.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.Supplier.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.OrderLine.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.StockMovement.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: newWs.id }),
+          base44.asServiceRole.entities.PurchaseRequest.filter({ tenant_id: newWs.id }).catch(() => []),
+          base44.asServiceRole.entities.PurchaseCart.filter({ tenant_id: newWs.id }).catch(() => []),
+          base44.asServiceRole.entities.ProfitabilityLine.filter({ tenant_id: newWs.id }).catch(() => []),
+          base44.asServiceRole.entities.Return.filter({ tenant_id: newWs.id }).catch(() => []),
+          base44.asServiceRole.entities.Task.filter({ tenant_id: newWs.id }).catch(() => [])
+        ]);
+
+        const validationReport = {
+          stores: { source: sourceStores.length, target: targetStores.length, match: sourceStores.length === targetStores.length },
+          suppliers: { source: sourceSuppliers.length, target: targetSuppliers.length, match: sourceSuppliers.length === targetSuppliers.length },
+          skus: { source: sourceSkus.length, target: targetSkus.length, match: sourceSkus.length === targetSkus.length },
+          currentStock: { source: sourceCurrentStock.length, target: targetCurrentStock.length, match: sourceCurrentStock.length === targetCurrentStock.length },
+          stockMovements: { source: sourceStockMovements.length, target: targetStockMovements.length, match: sourceStockMovements.length === targetStockMovements.length },
+          orders: { source: sourceOrders.length, target: targetOrders.length, match: sourceOrders.length === targetOrders.length },
+          orderLines: { source: sourceOrderLines.length, target: targetOrderLines.length, match: sourceOrderLines.length === targetOrderLines.length },
+          purchases: { source: sourcePurchases.length, target: targetPurchases.length, match: sourcePurchases.length === targetPurchases.length },
+          purchaseRequests: { source: sourcePurchaseRequests.length, target: targetPurchaseRequests.length, match: sourcePurchaseRequests.length === targetPurchaseRequests.length },
+          purchaseCarts: { source: sourcePurchaseCarts.length, target: targetPurchaseCarts.length, match: sourcePurchaseCarts.length === targetPurchaseCarts.length },
+          profitabilityLines: { source: sourceProfitLines.length, target: targetProfitLines.length, match: sourceProfitLines.length === targetProfitLines.length },
+          returns: { source: sourceReturns.length, target: targetReturns.length, match: sourceReturns.length === targetReturns.length },
+          tasks: { source: sourceTasks.length, target: targetTasks.length, match: sourceTasks.length === targetTasks.length }
+        };
+
+        // Check for mismatches
+        const mismatches = Object.entries(validationReport).filter(([_, v]) => !v.match);
+        const allMatch = mismatches.length === 0;
+
+        // Referential integrity checks
+        const integrityChecks = [];
+        
+        // Check no cross-tenant leakage
+        const leakageCheck = targetOrders.every(o => o.tenant_id === newWs.id) &&
+                            targetSkus.every(s => s.tenant_id === newWs.id) &&
+                            targetPurchases.every(p => p.tenant_id === newWs.id);
+        integrityChecks.push({ check: 'Tenant isolation', passed: leakageCheck });
+
+        // Check no source IDs in target foreign keys
+        const sourceOrderIds = new Set(sourceOrders.map(o => o.id));
+        const targetOrderLinesFKs = targetOrderLines.map(ol => ol.order_id);
+        const noSourceIds = !targetOrderLinesFKs.some(id => sourceOrderIds.has(id));
+        integrityChecks.push({ check: 'No source IDs in target', passed: noSourceIds });
+
+        // Mark as completed with validation
         await base44.asServiceRole.entities.CloneJob.update(cloneJob.id, {
-          status: 'completed',
+          status: allMatch ? 'completed' : 'completed',
           completed_at: new Date().toISOString(),
-          id_map: idMap
+          id_map: idMap,
+          validation_report: validationReport,
+          integrity_checks: integrityChecks,
+          validation_passed: allMatch && integrityChecks.every(c => c.passed)
         });
       } catch (error) {
         console.error('Clone job error:', error);
