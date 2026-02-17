@@ -25,7 +25,8 @@ import {
   Sun,
   Shield,
   CheckSquare,
-  Store
+  Store,
+  TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -43,6 +44,7 @@ const navItems = [
   { name: 'Stores', icon: Store, page: 'Stores', pageKey: 'skus' },
   { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus' },
   { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders' },
+  { name: 'Profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders' },
   { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
   { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases' },
   { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns' },

@@ -61,6 +61,7 @@ import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import EmergencyRestore from './pages/EmergencyRestore';
+import Profitability from './pages/Profitability';
 import __Layout from './Layout.jsx';
 
 
@@ -79,6 +80,7 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "EmergencyRestore": EmergencyRestore,
+    "Profitability": Profitability,
 }
 
 export const pagesConfig = {
