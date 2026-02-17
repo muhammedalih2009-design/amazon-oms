@@ -46,6 +46,9 @@ export default function BackupManager({ tenantId }) {
   const [restoreFromPrevious, setRestoreFromPrevious] = useState(false);
   const [confirmationText, setConfirmationText] = useState('');
   const [restoreProgress, setRestoreProgress] = useState({ current: 0, total: 0, step: '' });
+  const [validatingBackup, setValidatingBackup] = useState(null);
+  const [validationReport, setValidationReport] = useState(null);
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
 
   useEffect(() => {
     loadBackups();
@@ -570,12 +573,66 @@ export default function BackupManager({ tenantId }) {
     reader.readAsText(file);
   };
 
+  const validateBackupCompleteness = async (backupJobId) => {
+    setValidatingBackup(backupJobId);
+    try {
+      const response = await base44.functions.invoke('validateBackupCompleteness', { backupJobId });
+      setValidationReport(response.data);
+      setShowValidationDialog(true);
+      
+      toast({
+        title: response.data.overall_status === 'PASSED' ? '✓ Validation passed' : '⚠ Validation completed with issues',
+        description: `${response.data.summary.passed_checks}/${response.data.summary.total_checks} checks passed`
+      });
+    } catch (error) {
+      toast({
+        title: 'Validation failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setValidatingBackup(null);
+    }
+  };
+
+  const downloadValidationReport = () => {
+    if (!validationReport) return;
+    
+    const json = JSON.stringify(validationReport, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_validation_${validationReport.backup_job_id}_${format(new Date(), 'yyyyMMdd_HHmmss')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Backup & Restore</h2>
-          <p className="text-sm text-slate-500">Create and restore workspace data backups</p>
+          <p className="text-sm text-slate-500">Create and restore complete workspace data backups with integrity validation</p>
+          
+          {/* Package Contents Info */}
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-xs font-semibold text-blue-900 mb-2">✓ Backup Package Includes:</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-blue-800">
+              <span>• Stores (all fields)</span>
+              <span>• SKUs/Products (all fields)</span>
+              <span>• Current Stock</span>
+              <span>• Stock Movements (full history)</span>
+              <span>• Orders (all fields)</span>
+              <span>• Order Lines (all links)</span>
+              <span>• Purchases (all fields)</span>
+              <span>• Purchase Requests</span>
+              <span>• Suppliers (all fields)</span>
+              <span>• Tasks + Checklist + Comments</span>
+              <span>• Import Batches/History</span>
+              <span>• Returns</span>
+            </div>
+          </div>
         </div>
         <div className="flex gap-2">
           <label htmlFor="upload-backup">
@@ -705,6 +762,25 @@ export default function BackupManager({ tenantId }) {
                 <Button 
                   variant="outline" 
                   size="sm"
+                  onClick={() => validateBackupCompleteness(backup.id)}
+                  disabled={validatingBackup === backup.id}
+                  className="text-orange-600 hover:text-orange-700"
+                >
+                  {validatingBackup === backup.id ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border-2 border-orange-300 border-t-orange-600 rounded-full animate-spin" />
+                      Validating...
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="w-4 h-4 mr-2" />
+                      Validate
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
                   onClick={() => {
                     setSelectedBackup(backup);
                     setShowRestoreDialog(true);
@@ -828,6 +904,144 @@ export default function BackupManager({ tenantId }) {
               <p className="text-sm text-slate-500">File: {uploadingFile}</p>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Validation Report Dialog */}
+      <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className={`w-5 h-5 ${validationReport?.overall_status === 'PASSED' ? 'text-green-600' : 'text-orange-600'}`} />
+              Backup Completeness Validation Report
+            </DialogTitle>
+          </DialogHeader>
+          
+          {validationReport && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <Alert className={validationReport.overall_status === 'PASSED' ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}>
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-lg">
+                        {validationReport.overall_status === 'PASSED' ? '✓ All Checks Passed' : '⚠ Some Issues Found'}
+                      </span>
+                      <span className="text-sm">
+                        {validationReport.summary.passed_checks}/{validationReport.summary.total_checks} checks passed
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="font-semibold">Total Records:</span> {validationReport.summary.total_records.toLocaleString()}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Entities:</span> {validationReport.summary.entities_in_backup}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Validated:</span> {format(new Date(validationReport.validated_at), 'MMM d, yyyy h:mm a')}
+                      </div>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+
+              {/* Entity Counts */}
+              <div>
+                <h3 className="font-semibold mb-2">Backup Contents (Entity Counts)</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                  {Object.entries(validationReport.manifest.entity_counts).map(([entity, count]) => (
+                    <div key={entity} className="flex justify-between p-2 bg-slate-50 rounded border">
+                      <span className="font-medium">{entity}:</span>
+                      <span>{count.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Integrity Checks */}
+              <div>
+                <h3 className="font-semibold mb-2">Referential Integrity Checks</h3>
+                <div className="space-y-2">
+                  {validationReport.integrity_checks.map((check, idx) => (
+                    <div key={idx} className={`p-3 rounded border ${check.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={check.passed ? 'text-green-600' : 'text-red-600'}>
+                              {check.passed ? '✓' : '✗'}
+                            </span>
+                            <span className="font-medium text-sm">{check.check}</span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1">{check.details}</p>
+                          {check.sample_ids?.length > 0 && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Sample IDs: {check.sample_ids.slice(0, 3).join(', ')}
+                              {check.sample_ids.length > 3 && '...'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Comparison */}
+              {validationReport.completeness_comparison?.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-2">Source vs Backup Comparison</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-100 border-b">
+                        <tr>
+                          <th className="text-left p-2">Entity</th>
+                          <th className="text-right p-2">Source Count</th>
+                          <th className="text-right p-2">Backup Count</th>
+                          <th className="text-center p-2">Match</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {validationReport.completeness_comparison.map((row, idx) => (
+                          <tr key={idx} className={`border-b ${row.match ? '' : 'bg-orange-50'}`}>
+                            <td className="p-2 font-medium">{row.entity}</td>
+                            <td className="p-2 text-right">{row.source_count.toLocaleString()}</td>
+                            <td className="p-2 text-right">{row.backup_count.toLocaleString()}</td>
+                            <td className="p-2 text-center">
+                              {row.match ? (
+                                <span className="text-green-600">✓</span>
+                              ) : (
+                                <span className="text-orange-600">⚠ Δ {Math.abs(row.source_count - row.backup_count)}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Manifest Info */}
+              <div className="text-xs text-slate-500 space-y-1">
+                <p><strong>Manifest Version:</strong> {validationReport.manifest.backup_version}</p>
+                <p><strong>Entities Included:</strong> {validationReport.manifest.entities_included.join(', ')}</p>
+                {validationReport.manifest.exclusions?.length > 0 && (
+                  <p><strong>Exclusions:</strong> {validationReport.manifest.exclusions.join(', ')}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowValidationDialog(false)}>
+                  Close
+                </Button>
+                <Button onClick={downloadValidationReport} className="bg-indigo-600">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Report
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
