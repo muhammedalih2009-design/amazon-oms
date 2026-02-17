@@ -27,7 +27,7 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
     slug: workspace ? `${workspace.slug}-copy` : '',
     copy_settings: true,
     copy_master_data: true,
-    copy_operational_data: false,
+    copy_operational_data: true,
     copy_logs: false,
     copy_members: false
   });
@@ -196,7 +196,7 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
                   <Checkbox
                     id="copy_operational"
                     checked={formData.copy_operational_data}
@@ -206,10 +206,10 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                   />
                   <div className="flex-1">
                     <Label htmlFor="copy_operational" className="font-medium cursor-pointer">
-                      Operational Data
+                      Operational Data (Full Clone)
                     </Label>
                     <p className="text-xs text-slate-600 mt-1">
-                      Orders, Purchases, Returns, Settlement data
+                      Orders, Purchases, Returns, Tasks, Settlement data
                     </p>
                   </div>
                 </div>
@@ -329,6 +329,18 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                     <span>{jobStatus.progress.returns} Returns</span>
                   </div>
                 )}
+                {jobStatus.progress?.tasks > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>{jobStatus.progress.tasks} Tasks</span>
+                  </div>
+                )}
+                {jobStatus.progress?.currentStock > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>{jobStatus.progress.currentStock} Stock Records</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -363,6 +375,18 @@ export default function CloneWorkspaceModal({ workspace, open, onOpenChange, onS
                 <div className="flex justify-between">
                   <span className="text-slate-600">Purchases:</span>
                   <span className="font-medium">{jobStatus.progress?.purchases || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Returns:</span>
+                  <span className="font-medium">{jobStatus.progress?.returns || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Tasks:</span>
+                  <span className="font-medium">{jobStatus.progress?.tasks || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Current Stock:</span>
+                  <span className="font-medium">{jobStatus.progress?.currentStock || 0}</span>
                 </div>
               </div>
 

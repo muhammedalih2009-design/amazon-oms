@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       options: options || {
         copy_settings: true,
         copy_master_data: true,
-        copy_operational_data: false,
+        copy_operational_data: true,
         copy_logs: false,
         copy_members: false
       },
@@ -236,7 +236,127 @@ Deno.serve(async (req) => {
           }
         }
 
-        // PHASE 8: MEMBERSHIPS (if enabled)
+        // PHASE 8: TASKS + COMMENTS + CHECKLIST (if copy_operational_data enabled)
+        if (options.copy_operational_data) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'tasks');
+            const tasks = await base44.asServiceRole.entities.Task.filter({ tenant_id: source_workspace_id });
+            if (!idMap.tasks) idMap.tasks = {};
+
+            for (const task of tasks) {
+              const newTask = await base44.asServiceRole.entities.Task.create({
+                tenant_id: newWs.id,
+                title: task.title,
+                description: task.description,
+                account_name: task.account_name,
+                assigned_to: task.assigned_to,
+                assigned_to_email: task.assigned_to_email,
+                created_by: task.created_by,
+                created_by_email: task.created_by_email,
+                tag: task.tag,
+                status: task.status,
+                due_date: task.due_date,
+                priority: task.priority
+              });
+              idMap.tasks[task.id] = newTask.id;
+
+              // Copy task checklist items
+              try {
+                const checklistItems = await base44.asServiceRole.entities.TaskChecklistItem.filter({ task_id: task.id });
+                for (const item of checklistItems) {
+                  await base44.asServiceRole.entities.TaskChecklistItem.create({
+                    task_id: newTask.id,
+                    content: item.content,
+                    is_completed: item.is_completed,
+                    order_index: item.order_index
+                  });
+                }
+              } catch (e) { }
+
+              // Copy task comments
+              try {
+                const comments = await base44.asServiceRole.entities.TaskComment.filter({ task_id: task.id });
+                for (const comment of comments) {
+                  await base44.asServiceRole.entities.TaskComment.create({
+                    task_id: newTask.id,
+                    user_id: comment.user_id,
+                    user_email: comment.user_email,
+                    user_name: comment.user_name,
+                    comment_text: comment.comment_text
+                  });
+                }
+              } catch (e) { }
+            }
+            await updateJobProgress(base44, cloneJob.id, 'tasks', tasks.length, idMap);
+          } catch (e) {
+            // Tasks may not exist, skip silently
+          }
+        }
+
+        // PHASE 9: CURRENT STOCK (replicate stock levels)
+        if (options.copy_operational_data) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'currentStock');
+            const stocks = await base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: source_workspace_id });
+            for (const stock of stocks) {
+              await base44.asServiceRole.entities.CurrentStock.create({
+                tenant_id: newWs.id,
+                sku_id: idMap.skus?.[stock.sku_id] || stock.sku_id,
+                sku_code: stock.sku_code,
+                quantity_available: stock.quantity_available
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'currentStock', stocks.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 10: STOCK MOVEMENTS (audit trail)
+        if (options.copy_operational_data) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'stockMovements');
+            const movements = await base44.asServiceRole.entities.StockMovement.filter({ tenant_id: source_workspace_id });
+            for (const mov of movements) {
+              await base44.asServiceRole.entities.StockMovement.create({
+                tenant_id: newWs.id,
+                sku_id: idMap.skus?.[mov.sku_id] || mov.sku_id,
+                sku_code: mov.sku_code,
+                movement_type: mov.movement_type,
+                quantity: mov.quantity,
+                reference_type: mov.reference_type,
+                reference_id: mov.reference_id,
+                movement_date: mov.movement_date,
+                notes: mov.notes,
+                is_archived: mov.is_archived
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'stockMovements', movements.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 11: IMPORT BATCHES (if copy_logs enabled)
+        if (options.copy_logs) {
+          try {
+            await updateJobStep(base44, cloneJob.id, 'importBatches');
+            const batches = await base44.asServiceRole.entities.ImportBatch.filter({ tenant_id: source_workspace_id });
+            for (const batch of batches) {
+              await base44.asServiceRole.entities.ImportBatch.create({
+                tenant_id: newWs.id,
+                batch_type: batch.batch_type,
+                batch_name: batch.batch_name,
+                display_name: batch.display_name,
+                filename: batch.filename,
+                status: batch.status,
+                total_rows: batch.total_rows,
+                success_rows: batch.success_rows,
+                failed_rows: batch.failed_rows,
+                error_file_url: batch.error_file_url
+              });
+            }
+            await updateJobProgress(base44, cloneJob.id, 'importBatches', batches.length, idMap);
+          } catch (e) { }
+        }
+
+        // PHASE 12: MEMBERSHIPS (if enabled)
         if (options.copy_members) {
           await updateJobStep(base44, cloneJob.id, 'memberships');
           const memberships = await base44.asServiceRole.entities.Membership.filter({ tenant_id: source_workspace_id });
