@@ -350,46 +350,74 @@ export default function BackupManager({ tenantId }) {
       };
 
       // Helper: Bulk create in smaller batches with delays and retry logic
-      const bulkCreateWithDelay = async (entityName, items, batchSize = 50, retries = 3) => {
+      const bulkCreateWithDelay = async (entityName, items, batchSize = 20, retries = 5) => {
         const cleaned = stripBuiltins(items);
+        const totalBatches = Math.ceil(cleaned.length / batchSize);
+        
         for (let i = 0; i < cleaned.length; i += batchSize) {
           const batch = cleaned.slice(i, i + batchSize);
+          const batchNum = Math.floor(i / batchSize) + 1;
+          
+          setRestoreProgress({ 
+            current: 45 + (i / cleaned.length) * 50, 
+            total: 100, 
+            step: `${entityName}: batch ${batchNum}/${totalBatches} (${batch.length} records)` 
+          });
+          
           let attempt = 0;
-          while (attempt < retries) {
+          let success = false;
+          
+          while (attempt < retries && !success) {
             try {
               await base44.entities[entityName].bulkCreate(batch);
-              break; // Success, exit retry loop
+              success = true;
             } catch (error) {
               attempt++;
-              if (error.message?.includes('rate limit') && attempt < retries) {
-                const backoffDelay = 1000 * Math.pow(2, attempt); // Exponential backoff
+              const isRateLimit = error.message?.includes('rate limit') || 
+                                  error.message?.includes('429') ||
+                                  error.message?.includes('too many requests');
+              
+              if (isRateLimit && attempt < retries) {
+                const backoffDelay = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s, 32s
+                setRestoreProgress({ 
+                  current: 45 + (i / cleaned.length) * 50, 
+                  total: 100, 
+                  step: `Rate limit - waiting ${backoffDelay/1000}s... (attempt ${attempt}/${retries})` 
+                });
                 await delay(backoffDelay);
               } else {
-                throw error; // Re-throw if not rate limit or out of retries
+                throw new Error(`${entityName} batch ${batchNum}/${totalBatches} failed: ${error.message}`);
               }
             }
           }
-          if (i + batchSize < cleaned.length) await delay(800);
+          
+          if (!success) {
+            throw new Error(`${entityName} failed after ${retries} attempts - rate limit persists`);
+          }
+          
+          // Progressive delay: longer delays for SKUs and Orders
+          const baseDelay = entityName === 'SKU' || entityName === 'Order' || entityName === 'OrderLine' ? 2500 : 1500;
+          if (i + batchSize < cleaned.length) await delay(baseDelay);
         }
       };
 
       // Restore in dependency order (support both old and new backup formats)
       const entitiesToRestore = [
-        { name: 'Supplier', data: dataSource.suppliers, delay: 600, track: true },
-        { name: 'Store', data: dataSource.stores, delay: 600, track: true },
-        { name: 'SKU', data: dataSource.skus, delay: 1000, track: true },
-        { name: 'CurrentStock', data: dataSource.currentStock, delay: 700, track: true },
-        { name: 'StockMovement', data: dataSource.stockMovements, delay: 700, track: false },
-        { name: 'ImportBatch', data: dataSource.importBatches, delay: 500, track: false },
-        { name: 'ImportError', data: dataSource.importErrors, delay: 500, track: false },
-        { name: 'Order', data: dataSource.orders, delay: 800, track: true },
-        { name: 'OrderLine', data: dataSource.orderLines, delay: 800, track: true },
-        { name: 'Purchase', data: dataSource.purchases, delay: 700, track: true },
-        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 600, track: false },
-        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 500, track: false },
-        { name: 'Task', data: dataSource.tasks, delay: 500, track: true },
-        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 500, track: false },
-        { name: 'TaskComment', data: dataSource.comments, delay: 500, track: false }
+        { name: 'Supplier', data: dataSource.suppliers, delay: 1000, track: true },
+        { name: 'Store', data: dataSource.stores, delay: 1000, track: true },
+        { name: 'SKU', data: dataSource.skus, delay: 2000, track: true },
+        { name: 'CurrentStock', data: dataSource.currentStock, delay: 1500, track: true },
+        { name: 'StockMovement', data: dataSource.stockMovements, delay: 1500, track: false },
+        { name: 'ImportBatch', data: dataSource.importBatches, delay: 1000, track: false },
+        { name: 'ImportError', data: dataSource.importErrors, delay: 1000, track: false },
+        { name: 'Order', data: dataSource.orders, delay: 2000, track: true },
+        { name: 'OrderLine', data: dataSource.orderLines, delay: 2000, track: true },
+        { name: 'Purchase', data: dataSource.purchases, delay: 1500, track: true },
+        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 1200, track: false },
+        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 1000, track: false },
+        { name: 'Task', data: dataSource.tasks, delay: 1000, track: true },
+        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 1000, track: false },
+        { name: 'TaskComment', data: dataSource.comments, delay: 1000, track: false }
       ];
 
       for (const entity of entitiesToRestore) {
