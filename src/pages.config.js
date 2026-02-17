@@ -49,8 +49,10 @@
  */
 import Admin from './pages/Admin';
 import Dashboard from './pages/Dashboard';
+import EmergencyRestore from './pages/EmergencyRestore';
 import Orders from './pages/Orders';
 import Profile from './pages/Profile';
+import Profitability from './pages/Profitability';
 import PurchaseRequests from './pages/PurchaseRequests';
 import PurchaseRequestsPrint from './pages/PurchaseRequestsPrint';
 import Purchases from './pages/Purchases';
@@ -60,16 +62,16 @@ import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
-import EmergencyRestore from './pages/EmergencyRestore';
-import Profitability from './pages/Profitability';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
     "Admin": Admin,
     "Dashboard": Dashboard,
+    "EmergencyRestore": EmergencyRestore,
     "Orders": Orders,
     "Profile": Profile,
+    "Profitability": Profitability,
     "PurchaseRequests": PurchaseRequests,
     "PurchaseRequestsPrint": PurchaseRequestsPrint,
     "Purchases": Purchases,
@@ -79,8 +81,6 @@ export const PAGES = {
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
-    "EmergencyRestore": EmergencyRestore,
-    "Profitability": Profitability,
 }
 
 export const pagesConfig = {

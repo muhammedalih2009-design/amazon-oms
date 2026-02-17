@@ -542,7 +542,7 @@ export default function SKUsPage() {
 
     try {
       // Call atomic backend function
-      const response = await base44.functions.resetStockToZero({ tenantId });
+      const response = await base44.functions.invoke('resetStockToZero', { tenantId });
 
       toast({
         title: '✓ Stock reset complete',
