@@ -331,7 +331,6 @@ export default function BackupManager({ tenantId }) {
       };
 
       // Helper: Bulk create in smaller batches with delays
-      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
       const bulkCreateWithDelay = async (entityName, items, batchSize = 200) => {
         const cleaned = stripBuiltins(items);
         for (let i = 0; i < cleaned.length; i += batchSize) {
