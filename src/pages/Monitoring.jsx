@@ -520,7 +520,6 @@ export default function MonitoringPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      </Tabs>
     </div>
   );
 }
