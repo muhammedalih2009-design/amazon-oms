@@ -42,16 +42,16 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard' },
-  { name: 'Stores', icon: Store, page: 'Stores', pageKey: 'skus' },
-  { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus' },
-  { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders' },
-  { name: 'Profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders' },
-  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders' },
-  { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases' },
-  { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns' },
-  { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers' },
-  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks' },
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard', moduleKey: 'dashboard' },
+  { name: 'Stores', icon: Store, page: 'Stores', pageKey: 'skus', moduleKey: 'stores' },
+  { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus', moduleKey: 'skus_products' },
+  { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders', moduleKey: 'orders' },
+  { name: 'Profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders', moduleKey: 'profitability' },
+  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders', moduleKey: 'purchase_requests' },
+  { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases', moduleKey: 'purchases' },
+  { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns', moduleKey: 'returns' },
+  { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers', moduleKey: 'suppliers' },
+  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
 ];
 
 const adminNavItems = [
@@ -63,7 +63,7 @@ const adminNavItems = [
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled } = useTenant();
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -129,6 +129,11 @@ function LayoutContent({ children, currentPageName }) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             {navItems.map((item) => {
+              // Check module access first
+              if (item.moduleKey && !isModuleEnabled(item.moduleKey)) {
+                return null; // Hide disabled modules
+              }
+
               // Hide menu item if user doesn't have view permission (skip for owners)
               if (!isOwner && item.pageKey && !canViewPage(item.pageKey)) {
                 return null;
@@ -153,7 +158,7 @@ function LayoutContent({ children, currentPageName }) {
               );
             })}
 
-            {isOwner && (
+            {isOwner && isModuleEnabled('team') && (
               <Link
                 to={createPageUrl('Team')}
                 onClick={() => setSidebarOpen(false)}

@@ -245,4 +245,19 @@ export function useTenant() {
   return context;
 }
 
+// Module key mapping for pages
+export const PAGE_MODULE_MAP = {
+  'Dashboard': 'dashboard',
+  'Stores': 'stores',
+  'SKUs': 'skus_products',
+  'Orders': 'orders',
+  'Profitability': 'profitability',
+  'PurchaseRequests': 'purchase_requests',
+  'Purchases': 'purchases',
+  'Returns': 'returns',
+  'Suppliers': 'suppliers',
+  'Tasks': 'tasks',
+  'Team': 'team'
+};
+
 export default useTenant;

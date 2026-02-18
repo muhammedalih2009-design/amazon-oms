@@ -75,9 +75,9 @@ Deno.serve(async (req) => {
       case 'initialize': {
         // Initialize all modules as enabled
         const allModules = [
-          'dashboard', 'stores', 'skus', 'orders', 'profitability',
+          'dashboard', 'stores', 'skus_products', 'orders', 'profitability',
           'purchase_requests', 'purchases', 'returns', 'suppliers',
-          'tasks', 'team', 'stock_integrity', 'settlements'
+          'tasks', 'team'
         ];
 
         const existing = await base44.asServiceRole.entities.WorkspaceModule.filter({
