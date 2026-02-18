@@ -46,14 +46,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
   { nameKey: 'dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard', moduleKey: 'dashboard' },
-  { nameKey: 'stores', icon: Store, page: 'Stores', pageKey: 'skus', moduleKey: 'stores' },
   { nameKey: 'skus_products', icon: Package, page: 'SKUs', pageKey: 'skus', moduleKey: 'skus_products' },
   { nameKey: 'orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders', moduleKey: 'orders' },
   { nameKey: 'profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders', moduleKey: 'profitability' },
   { nameKey: 'purchase_requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders', moduleKey: 'purchase_requests' },
   { nameKey: 'purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases', moduleKey: 'purchases' },
   { nameKey: 'returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns', moduleKey: 'returns' },
-  { nameKey: 'suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers', moduleKey: 'suppliers' },
+  { nameKey: 'suppliers', icon: Users, page: 'SuppliersStores', pageKey: 'suppliers', moduleKey: 'suppliers' },
   { nameKey: 'tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
 ];
 
@@ -178,6 +177,23 @@ function LayoutContent({ children, currentPageName }) {
               >
                 <Users className="w-5 h-5" />
                 <span className="font-medium">{t('team')}</span>
+              </Link>
+            )}
+
+            {isModuleEnabled('stores') && (
+              <Link
+                to={createPageUrl('BackupData')}
+                onClick={() => setSidebarOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                  ${isRTL ? 'flex-row-reverse' : ''}
+                  ${currentPageName === 'BackupData'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
+                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                `}
+              >
+                <Store className="w-5 h-5" />
+                <span className="font-medium">{t('backup_data') || 'Backup & Data'}</span>
               </Link>
             )}
 

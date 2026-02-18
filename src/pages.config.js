@@ -66,6 +66,8 @@ import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
+import BackupData from './pages/BackupData';
+import SuppliersStores from './pages/SuppliersStores';
 import __Layout from './Layout.jsx';
 
 
@@ -89,6 +91,8 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
+    "BackupData": BackupData,
+    "SuppliersStores": SuppliersStores,
 }
 
 export const pagesConfig = {
