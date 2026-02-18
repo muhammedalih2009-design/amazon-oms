@@ -278,6 +278,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const handleFixSingleSku = async (skuCode) => {
     if (!skuCode) return;
 
+    console.log(`[UI] Starting fix for ${skuCode}`);
     setFixingSkus(prev => new Set(prev).add(skuCode));
 
     try {
@@ -286,26 +287,35 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         sku_code: skuCode
       });
 
+      console.log(`[UI] Fix response for ${skuCode}:`, data);
+
       if (data.ok) {
         toast({
           title: '✓ Fixed',
-          description: `${skuCode} has been fixed`,
-          duration: 2000
+          description: `${skuCode}: Stock ${data.before.stock} → ${data.after.stock}`,
+          duration: 3000
         });
 
+        // Wait longer before rechecking to ensure database has committed
         setTimeout(async () => {
+          console.log(`[UI] Rechecking integrity after fixing ${skuCode}`);
           const newResults = await runIntegrityCheckSilent();
           if (newResults) {
+            console.log(`[UI] New check results:`, {
+              total: newResults.total_issues,
+              has_sku: newResults.issues.some(i => i.sku_code === skuCode)
+            });
             setResults(newResults);
           }
-        }, 1500);
+        }, 2500);
       } else {
         throw new Error(data.error || 'Fix failed');
       }
     } catch (error) {
+      console.error(`[UI] Fix error for ${skuCode}:`, error);
       toast({
         title: 'Fix failed',
-        description: error.message || 'Unknown error',
+        description: `${skuCode}: ${error.message || 'Unknown error'}`,
         variant: 'destructive',
         duration: 5000
       });
@@ -316,7 +326,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
           next.delete(skuCode);
           return next;
         });
-      }, 2000);
+      }, 3000);
     }
   };
 

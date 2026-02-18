@@ -91,31 +91,43 @@ Deno.serve(async (req) => {
     // Recalculate stock after creating movements
     const allMovementsNow = await base44.asServiceRole.entities.StockMovement.filter({
       tenant_id: workspace_id,
-      sku_code,
+      sku_id: sku.id,
       is_archived: false
     });
     
     const expected_stock = Math.max(0, allMovementsNow.reduce((sum, m) => sum + (m.quantity || 0), 0));
 
+    console.log(`[Fix SKU] Expected stock calculated: ${expected_stock} from ${allMovementsNow.length} movements`);
+
     // Fix 2: Force current stock to match expected (clamp to 0)
     if (stock) {
-      if (stock.quantity_available !== expected_stock) {
-        await base44.asServiceRole.entities.CurrentStock.update(stock.id, {
-          quantity_available: expected_stock
-        });
-        fixedIssues.push('stock_mismatch');
-        console.log(`[Fix SKU] Updated stock: ${stock.quantity_available} → ${expected_stock}`);
-      }
+      await base44.asServiceRole.entities.CurrentStock.update(stock.id, {
+        quantity_available: expected_stock
+      });
+      fixedIssues.push('stock_mismatch');
+      console.log(`[Fix SKU] Updated stock record ${stock.id}: ${stock.quantity_available} → ${expected_stock}`);
     } else {
       // Create stock record if missing
-      await base44.asServiceRole.entities.CurrentStock.create({
+      const newStock = await base44.asServiceRole.entities.CurrentStock.create({
         tenant_id: workspace_id,
         sku_id: sku.id,
         sku_code: sku.sku_code,
         quantity_available: expected_stock
       });
       fixedIssues.push('missing_stock_record');
-      console.log(`[Fix SKU] Created stock record with quantity ${expected_stock}`);
+      console.log(`[Fix SKU] Created stock record ${newStock.id} with quantity ${expected_stock}`);
+    }
+
+    // Verify the update
+    const verifyStock = await base44.asServiceRole.entities.CurrentStock.filter({
+      tenant_id: workspace_id,
+      sku_id: sku.id
+    });
+    console.log(`[Fix SKU] Verification: stock after update = ${verifyStock[0]?.quantity_available}`);
+    
+    if (verifyStock[0]?.quantity_available !== expected_stock) {
+      console.error(`[Fix SKU] VERIFICATION FAILED: Expected ${expected_stock}, got ${verifyStock[0]?.quantity_available}`);
+      throw new Error('Stock update verification failed');
     }
 
     // Fix 3: Negative stock is already handled by clamping to 0
