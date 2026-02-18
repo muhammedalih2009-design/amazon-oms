@@ -36,6 +36,106 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [beforeAfterStats, setBeforeAfterStats] = useState(null);
   const { toast } = useToast();
 
+  const runIntegrityCheckSilent = async () => {
+    try {
+      // Fetch all data including tenant for last_stock_reset_at
+      const [orders, orderLines, movements, currentStock, skus, tenantData] = await Promise.all([
+        base44.entities.Order.filter({ tenant_id: tenantId }),
+        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
+        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
+        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
+        base44.entities.SKU.filter({ tenant_id: tenantId }),
+        base44.entities.Tenant.filter({ id: tenantId })
+      ]);
+
+      const tenant = tenantData[0];
+      const lastResetAt = tenant?.last_stock_reset_at ? new Date(tenant.last_stock_reset_at) : null;
+      const activeMovements = movements.filter(m => !m.is_archived);
+      const issues = [];
+
+      const fulfilledOrders = orders.filter(o => {
+        if (o.status !== 'fulfilled') return false;
+        if (lastResetAt) {
+          const orderDate = new Date(o.order_date || o.created_date);
+          return orderDate > lastResetAt;
+        }
+        return true;
+      });
+      
+      for (const order of fulfilledOrders) {
+        const lines = orderLines.filter(l => l.order_id === order.id && !l.is_returned);
+        for (const line of lines) {
+          const hasMovement = activeMovements.some(m => 
+            m.reference_type === 'order_line' && 
+            m.reference_id === line.id &&
+            m.movement_type === 'order_fulfillment'
+          );
+          if (!hasMovement) {
+            const sku = skus.find(s => s.id === line.sku_id);
+            issues.push({
+              type: 'missing_out_movement',
+              severity: 'high',
+              sku_code: line.sku_code || sku?.sku_code,
+              sku_id: line.sku_id,
+              order_id: order.amazon_order_id,
+              quantity: line.quantity,
+              description: `Order ${order.amazon_order_id} is fulfilled but missing OUT movement for ${line.quantity} units`
+            });
+          }
+        }
+      }
+
+      for (const stock of currentStock) {
+        const sku = skus.find(s => s.id === stock.sku_id);
+        const skuMovements = activeMovements.filter(m => m.sku_id === stock.sku_id);
+        const calculatedStock = skuMovements.reduce((sum, m) => sum + (m.quantity || 0), 0);
+        
+        if (calculatedStock !== stock.quantity_available) {
+          const difference = Math.abs(calculatedStock - stock.quantity_available);
+          issues.push({
+            type: 'stock_mismatch',
+            severity: difference > 10 ? 'high' : 'medium',
+            sku_code: stock.sku_code || sku?.sku_code,
+            sku_id: stock.sku_id,
+            current_stock: stock.quantity_available,
+            calculated_stock: calculatedStock,
+            difference: calculatedStock - stock.quantity_available,
+            description: `Stock mismatch: System shows ${stock.quantity_available}, history totals ${calculatedStock} (diff: ${calculatedStock - stock.quantity_available})`
+          });
+        }
+      }
+
+      for (const stock of currentStock) {
+        if (stock.quantity_available < 0) {
+          issues.push({
+            type: 'negative_stock',
+            severity: 'high',
+            sku_code: stock.sku_code,
+            sku_id: stock.sku_id,
+            current_stock: stock.quantity_available,
+            description: `Negative stock: ${stock.quantity_available} units (should never happen)`
+          });
+        }
+      }
+
+      const newResults = {
+        total_issues: issues.length,
+        high_severity: issues.filter(i => i.severity === 'high').length,
+        medium_severity: issues.filter(i => i.severity === 'medium').length,
+        issues: issues.sort((a, b) => {
+          const severityOrder = { high: 0, medium: 1, low: 2 };
+          return severityOrder[a.severity] - severityOrder[b.severity];
+        })
+      };
+
+      setResults(newResults);
+      return newResults;
+    } catch (error) {
+      console.error('Silent check failed:', error);
+      return null;
+    }
+  };
+
   const runIntegrityCheck = async () => {
     setChecking(true);
     try {
@@ -387,16 +487,17 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
       // Auto re-run integrity check and capture after state
       setTimeout(async () => {
-        await runIntegrityCheck();
-        // Update after stats
-        setBeforeAfterStats(prev => ({
-          ...prev,
-          after: {
-            total_issues: results?.total_issues || 0,
-            high_severity: results?.high_severity || 0,
-            medium_severity: results?.medium_severity || 0
-          }
-        }));
+        const newCheckResults = await runIntegrityCheckSilent();
+        if (newCheckResults) {
+          setBeforeAfterStats(prev => ({
+            ...prev,
+            after: {
+              total_issues: newCheckResults.total_issues || 0,
+              high_severity: newCheckResults.high_severity || 0,
+              medium_severity: newCheckResults.medium_severity || 0
+            }
+          }));
+        }
       }, 1500);
 
     } catch (error) {
