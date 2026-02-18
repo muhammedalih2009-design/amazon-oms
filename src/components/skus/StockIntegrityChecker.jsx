@@ -339,8 +339,16 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   };
 
   const handleFixFlaggedSkus = async (resumeFromIndex = 0) => {
-    if (!results || results.issues.length === 0) return;
+    if (!results || results.issues.length === 0) {
+      toast({
+        title: 'No issues to fix',
+        description: 'Run integrity check first to find issues',
+        variant: 'destructive'
+      });
+      return;
+    }
 
+    console.log('[Hard Reset] Starting fix process...', { resumeFromIndex, issuesCount: results.issues.length });
     setFixingFlagged(true);
 
     // Store before state
@@ -354,6 +362,11 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         after: null
       });
       setFixResults(null); // Clear previous results
+      console.log('[Hard Reset] Stored before state:', {
+        total_issues: results.total_issues,
+        high_severity: results.high_severity,
+        medium_severity: results.medium_severity
+      });
     }
 
     try {
@@ -500,24 +513,45 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       }
 
       // Auto re-run integrity check and capture after state
+      console.log('[Hard Reset] Scheduling integrity check in 3 seconds...');
       setTimeout(async () => {
         try {
+          console.log('[Hard Reset] Running post-fix integrity check...');
           const newCheckResults = await runIntegrityCheckSilent();
+          console.log('[Hard Reset] Post-fix check results:', newCheckResults);
+          
           if (newCheckResults) {
             setResults(newCheckResults);
+            const afterStats = {
+              total_issues: newCheckResults.total_issues || 0,
+              high_severity: newCheckResults.high_severity || 0,
+              medium_severity: newCheckResults.medium_severity || 0
+            };
+            
             setBeforeAfterStats(prev => ({
               ...prev,
-              after: {
-                total_issues: newCheckResults.total_issues || 0,
-                high_severity: newCheckResults.high_severity || 0,
-                medium_severity: newCheckResults.medium_severity || 0
-              }
+              after: afterStats
             }));
+            
+            console.log('[Hard Reset] Updated after stats:', afterStats);
+            
+            toast({
+              title: '✓ Check completed',
+              description: `Found ${afterStats.total_issues} remaining issues`,
+              duration: 5000
+            });
+          } else {
+            console.error('[Hard Reset] Silent check returned null');
           }
         } catch (error) {
-          console.error('Failed to re-run check after fix:', error);
+          console.error('[Hard Reset] Failed to re-run check after fix:', error);
+          toast({
+            title: 'Check failed',
+            description: 'Could not verify fix results. Please run check manually.',
+            variant: 'destructive'
+          });
         }
-      }, 2000);
+      }, 3000);
 
     } catch (error) {
       const errorMsg = error.message || 'Unknown error';
