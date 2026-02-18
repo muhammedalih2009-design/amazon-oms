@@ -136,26 +136,48 @@ export default function Settings() {
   };
 
   const handleTestTelegram = async () => {
+    // Validate before testing
+    if (!telegramBotToken || telegramBotToken === '************') {
+      toast({
+        title: t('telegram_error'),
+        description: 'Please enter a valid bot token first',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!telegramChatId) {
+      toast({
+        title: t('telegram_error'),
+        description: 'Please enter a chat ID first',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setTesting(true);
     try {
       const { data } = await base44.functions.invoke('testTelegram', {
-        workspace_id: tenantId
+        workspace_id: tenantId,
+        test_token: telegramBotToken,
+        test_chat_id: telegramChatId
       });
 
       if (data.success) {
         toast({
-          title: t('telegram_success')
+          title: 'Connection successful!',
+          description: 'Test message sent to Telegram'
         });
       } else {
         toast({
-          title: t('telegram_error'),
+          title: 'Connection failed',
           description: data.error,
           variant: 'destructive'
         });
       }
     } catch (error) {
       toast({
-        title: t('telegram_error'),
+        title: 'Failed to send test message',
         description: error.message,
         variant: 'destructive'
       });

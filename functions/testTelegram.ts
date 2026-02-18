@@ -9,25 +9,34 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id } = await req.json();
+    const { workspace_id, test_token, test_chat_id } = await req.json();
 
     if (!workspace_id) {
       return Response.json({ error: 'workspace_id required' }, { status: 400 });
     }
 
-    // Get workspace settings
-    const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
-      workspace_id
-    });
+    let telegram_bot_token, telegram_chat_id;
 
-    if (settings.length === 0 || !settings[0].telegram_bot_token || !settings[0].telegram_chat_id) {
-      return Response.json({
-        success: false,
-        error: 'Telegram not configured. Please set Bot Token and Chat ID first.'
-      }, { status: 400 });
+    // If test values provided, use them directly (for testing before save)
+    if (test_token && test_chat_id) {
+      telegram_bot_token = test_token;
+      telegram_chat_id = test_chat_id;
+    } else {
+      // Otherwise, get from workspace settings
+      const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+        workspace_id
+      });
+
+      if (settings.length === 0 || !settings[0].telegram_bot_token || !settings[0].telegram_chat_id) {
+        return Response.json({
+          success: false,
+          error: 'Telegram not configured. Please set Bot Token and Chat ID first.'
+        }, { status: 400 });
+      }
+
+      telegram_bot_token = settings[0].telegram_bot_token;
+      telegram_chat_id = settings[0].telegram_chat_id;
     }
-
-    const { telegram_bot_token, telegram_chat_id } = settings[0];
 
     // Send test message
     const message = `✅ Test message from Amazon OMS\nWorkspace: ${workspace_id}\nTime: ${new Date().toISOString()}`;
