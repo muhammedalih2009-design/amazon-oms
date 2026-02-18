@@ -60,12 +60,12 @@ import Purchases from './pages/Purchases';
 import RateLimitMonitor from './pages/RateLimitMonitor';
 import Returns from './pages/Returns';
 import SKUs from './pages/SKUs';
+import Settings from './pages/Settings';
 import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import Settings from './pages/Settings';
 import __Layout from './Layout.jsx';
 
 
@@ -83,12 +83,12 @@ export const PAGES = {
     "RateLimitMonitor": RateLimitMonitor,
     "Returns": Returns,
     "SKUs": SKUs,
+    "Settings": Settings,
     "Stores": Stores,
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
-    "Settings": Settings,
 }
 
 export const pagesConfig = {

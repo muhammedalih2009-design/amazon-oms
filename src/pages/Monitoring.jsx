@@ -2,10 +2,22 @@ import React, { useState } from 'react';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/components/utils/apiClient';
+import { base44 } from '@/api/base44Client';
+import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   AlertCircle, 
   Clock, 
@@ -13,12 +25,18 @@ import {
   TrendingUp,
   RefreshCw,
   CheckCircle,
-  XCircle
+  XCircle,
+  Pause,
+  Play,
+  StopCircle
 } from 'lucide-react';
 
 export default function MonitoringPage() {
   const { isPlatformAdmin } = useTenant();
+  const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [actioningJob, setActioningJob] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
 
   const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
     queryKey: ['error-logs'],
@@ -53,6 +71,56 @@ export default function MonitoringPage() {
       refetchJobs()
     ]);
     setRefreshing(false);
+  };
+
+  const handleJobAction = async (jobId, action) => {
+    setActioningJob(jobId);
+    try {
+      let result;
+      if (action === 'pause') {
+        result = await base44.functions.invoke('pauseJob', { job_id: jobId });
+      } else if (action === 'resume') {
+        result = await base44.functions.invoke('resumeJob', { job_id: jobId });
+      } else if (action === 'force_stop') {
+        result = await base44.functions.invoke('forceStopJob', { job_id: jobId });
+      }
+
+      if (result.data.success) {
+        toast({ title: result.data.message || 'Action completed' });
+        await refetchJobs();
+      } else {
+        toast({ 
+          title: 'Action failed', 
+          description: result.data.error,
+          variant: 'destructive' 
+        });
+      }
+    } catch (error) {
+      toast({ 
+        title: 'Action failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    } finally {
+      setActioningJob(null);
+      setConfirmAction(null);
+    }
+  };
+
+  const getJobStatusBadge = (status) => {
+    const variants = {
+      running: 'default',
+      pausing: 'secondary',
+      paused: 'outline',
+      resuming: 'secondary',
+      cancelling: 'secondary',
+      cancelled: 'destructive',
+      completed: 'outline',
+      failed: 'destructive',
+      queued: 'secondary',
+      throttled: 'secondary'
+    };
+    return variants[status] || 'secondary';
   };
 
   if (!isPlatformAdmin) {
@@ -304,33 +372,154 @@ export default function MonitoringPage() {
               <CardTitle>Background Jobs</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {jobs.map(job => (
-                  <div key={job.id} className="flex items-center justify-between py-2 px-3 border-b">
-                    <div>
-                      <Badge variant={
-                        job.status === 'running' ? 'default' :
-                        job.status === 'completed' ? 'outline' :
-                        job.status === 'failed' ? 'destructive' : 'secondary'
-                      }>
-                        {job.status}
-                      </Badge>
-                      <span className="ml-3 text-sm">{job.job_type}</span>
-                      {job.progress?.percent > 0 && (
-                        <span className="ml-2 text-xs text-slate-500">
-                          {job.progress.percent}%
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      {new Date(job.created_date).toLocaleString()}
-                    </span>
+              <div className="space-y-3">
+                {jobs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Activity className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>No background jobs</p>
                   </div>
-                ))}
+                ) : (
+                  jobs.map(job => (
+                    <div key={job.id} className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Badge variant={getJobStatusBadge(job.status)}>
+                              {job.status}
+                            </Badge>
+                            <span className="font-medium text-slate-900">{job.job_type}</span>
+                          </div>
+                          
+                          {job.progress_percent > 0 && (
+                            <div className="mb-2">
+                              <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                                <span>Progress</span>
+                                <span>{job.progress_percent}%</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2">
+                                <div 
+                                  className="bg-indigo-600 h-2 rounded-full transition-all"
+                                  style={{ width: `${job.progress_percent}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {job.processed_count !== undefined && (
+                            <p className="text-xs text-slate-500">
+                              Processed: {job.processed_count}
+                              {job.total_count && ` / ${job.total_count}`}
+                            </p>
+                          )}
+
+                          {job.status === 'paused' && job.progress_percent > 0 && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              ⏸ Paused at {job.progress_percent}%
+                            </p>
+                          )}
+
+                          {job.error_message && (
+                            <p className="text-xs text-red-600 mt-2">{job.error_message}</p>
+                          )}
+
+                          <p className="text-xs text-slate-400 mt-2">
+                            Started: {new Date(job.created_date).toLocaleString()}
+                          </p>
+                        </div>
+
+                        <div className="flex gap-2 ml-4">
+                          {/* Pause button */}
+                          {['running', 'throttled'].includes(job.status) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={actioningJob === job.id}
+                              onClick={() => setConfirmAction({ job, action: 'pause' })}
+                            >
+                              <Pause className="w-4 h-4 mr-1" />
+                              Pause
+                            </Button>
+                          )}
+
+                          {/* Resume button */}
+                          {job.status === 'paused' && job.can_resume !== false && (
+                            <Button
+                              size="sm"
+                              className="bg-indigo-600 hover:bg-indigo-700"
+                              disabled={actioningJob === job.id}
+                              onClick={() => handleJobAction(job.id, 'resume')}
+                            >
+                              <Play className="w-4 h-4 mr-1" />
+                              Resume
+                            </Button>
+                          )}
+
+                          {/* Force Stop button */}
+                          {['running', 'throttled', 'pausing', 'resuming'].includes(job.status) && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={actioningJob === job.id}
+                              onClick={() => setConfirmAction({ job, action: 'force_stop' })}
+                            >
+                              <StopCircle className="w-4 h-4 mr-1" />
+                              Force Stop
+                            </Button>
+                          )}
+
+                          {/* Status indicators for transitional states */}
+                          {job.status === 'pausing' && (
+                            <Badge variant="secondary">Pausing...</Badge>
+                          )}
+                          {job.status === 'cancelling' && (
+                            <Badge variant="secondary">Stopping...</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
+      </Tabs>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.action === 'pause' && 'Pause Job?'}
+              {confirmAction?.action === 'force_stop' && 'Force Stop Job?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.action === 'pause' && (
+                <>
+                  Pause will stop the job safely at the next batch boundary. 
+                  You can resume it later from where it stopped.
+                </>
+              )}
+              {confirmAction?.action === 'force_stop' && (
+                <>
+                  Force Stop will cancel this job permanently and you <strong>cannot resume it</strong>. 
+                  The job will stop at the next safe point.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleJobAction(confirmAction.job.id, confirmAction.action)}
+              className={confirmAction?.action === 'force_stop' ? 'bg-red-600 hover:bg-red-700' : ''}
+            >
+              {confirmAction?.action === 'pause' && 'Pause Job'}
+              {confirmAction?.action === 'force_stop' && 'Force Stop'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </Tabs>
     </div>
   );
