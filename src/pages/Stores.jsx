@@ -34,6 +34,7 @@ import DataTable from '@/components/shared/DataTable';
 import WorkspacePackageManager from '@/components/stores/WorkspacePackageManager';
 import BackupManager from '@/components/stores/BackupManager';
 import PaywallBanner from '@/components/ui/PaywallBanner';
+import CollapsibleSection from '@/components/shared/CollapsibleSection';
 
 export default function Stores() {
   const { tenantId, tenant, subscription } = useTenant();
@@ -255,19 +256,36 @@ export default function Stores() {
     <div className="space-y-6">
       <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
 
-      <WorkspacePackageManager 
-        tenantId={tenantId} 
-        tenantName={tenant?.name || 'Workspace'}
-        onComplete={() => loadData(true)}
-      />
+      <CollapsibleSection
+        title="Workspace Data Package"
+        defaultOpen={false}
+        storageKey={`workspace-package-${tenantId}`}
+      >
+        <WorkspacePackageManager 
+          tenantId={tenantId} 
+          tenantName={tenant?.name || 'Workspace'}
+          onComplete={() => loadData(true)}
+        />
+      </CollapsibleSection>
 
-      <BackupManager tenantId={tenantId} />
+      <CollapsibleSection
+        title="Backup & Restore"
+        defaultOpen={false}
+        storageKey={`backup-restore-${tenantId}`}
+      >
+        <BackupManager tenantId={tenantId} />
+      </CollapsibleSection>
 
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Stores & Sales Channels</h1>
-          <p className="text-slate-500">Manage your stores and track performance by channel</p>
-        </div>
+      <CollapsibleSection
+        title="Stores & Sales Channels"
+        defaultOpen={false}
+        storageKey={`stores-channels-${tenantId}`}
+      >
+        <div className="space-y-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <p className="text-slate-500">Manage your stores and track performance by channel</p>
+            </div>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -293,16 +311,18 @@ export default function Stores() {
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={stores}
-        loading={loading}
-        emptyIcon={Store}
-        emptyTitle="No stores yet"
-        emptyDescription="Add your first store to start tracking orders by channel"
-        emptyAction="Add Store"
-        onEmptyAction={() => setShowForm(true)}
-      />
+          <DataTable
+            columns={columns}
+            data={stores}
+            loading={loading}
+            emptyIcon={Store}
+            emptyTitle="No stores yet"
+            emptyDescription="Add your first store to start tracking orders by channel"
+            emptyAction="Add Store"
+            onEmptyAction={() => setShowForm(true)}
+          />
+        </div>
+      </CollapsibleSection>
 
       {/* Add/Edit Store Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
