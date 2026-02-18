@@ -48,6 +48,7 @@
  * The mainPage value must match a key in the PAGES object exactly.
  */
 import Admin from './pages/Admin';
+import BackupData from './pages/BackupData';
 import Dashboard from './pages/Dashboard';
 import EmergencyRestore from './pages/EmergencyRestore';
 import Monitoring from './pages/Monitoring';
@@ -63,16 +64,16 @@ import SKUs from './pages/SKUs';
 import Settings from './pages/Settings';
 import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
+import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import BackupData from './pages/BackupData';
-import SuppliersStores from './pages/SuppliersStores';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
     "Admin": Admin,
+    "BackupData": BackupData,
     "Dashboard": Dashboard,
     "EmergencyRestore": EmergencyRestore,
     "Monitoring": Monitoring,
@@ -88,11 +89,10 @@ export const PAGES = {
     "Settings": Settings,
     "Stores": Stores,
     "Suppliers": Suppliers,
+    "SuppliersStores": SuppliersStores,
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
-    "BackupData": BackupData,
-    "SuppliersStores": SuppliersStores,
 }
 
 export const pagesConfig = {
