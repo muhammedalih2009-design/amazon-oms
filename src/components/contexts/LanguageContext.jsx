@@ -18,6 +18,13 @@ const translations = {
     team: 'Team',
     settings: 'Settings',
     
+    // Admin navigation
+    platform_admin: 'Platform Admin',
+    emergency_restore: 'Emergency Restore',
+    rate_limit_monitor: 'Rate Limit Monitor',
+    system_monitoring: 'System Monitoring',
+    admin_tools: 'Admin Tools',
+    
     // Common buttons
     save: 'Save',
     cancel: 'Cancel',
@@ -31,6 +38,27 @@ const translations = {
     add_store: 'Add Store',
     download: 'Download',
     test_connection: 'Test Connection',
+    search: 'Search',
+    export_csv: 'Export CSV',
+    upload: 'Upload',
+    status: 'Status',
+    active: 'Active',
+    paused: 'Paused',
+    resume: 'Resume',
+    force_stop: 'Force Stop',
+    actions: 'Actions',
+    view: 'View',
+    filter: 'Filter',
+    apply: 'Apply',
+    reset: 'Reset',
+    confirm: 'Confirm',
+    close: 'Close',
+    loading: 'Loading...',
+    error: 'Error',
+    success: 'Success',
+    
+    // Auth
+    sign_out: 'Sign Out',
     
     // Settings page
     workspace_settings: 'Workspace Settings',
@@ -63,6 +91,13 @@ const translations = {
     team: 'الفريق',
     settings: 'الإعدادات',
     
+    // Admin navigation
+    platform_admin: 'إدارة المنصة',
+    emergency_restore: 'استعادة طارئة',
+    rate_limit_monitor: 'مراقبة حدود الطلبات',
+    system_monitoring: 'مراقبة النظام',
+    admin_tools: 'أدوات الإدارة',
+    
     // Common buttons
     save: 'حفظ',
     cancel: 'إلغاء',
@@ -76,6 +111,27 @@ const translations = {
     add_store: 'إضافة متجر',
     download: 'تحميل',
     test_connection: 'اختبار الاتصال',
+    search: 'بحث',
+    export_csv: 'تصدير CSV',
+    upload: 'رفع',
+    status: 'الحالة',
+    active: 'نشط',
+    paused: 'متوقف',
+    resume: 'استئناف',
+    force_stop: 'إيقاف قسري',
+    actions: 'الإجراءات',
+    view: 'عرض',
+    filter: 'تصفية',
+    apply: 'تطبيق',
+    reset: 'إعادة تعيين',
+    confirm: 'تأكيد',
+    close: 'إغلاق',
+    loading: 'جاري التحميل...',
+    error: 'خطأ',
+    success: 'نجح',
+    
+    // Auth
+    sign_out: 'تسجيل الخروج',
     
     // Settings page
     workspace_settings: 'إعدادات الورك سبيس',
@@ -97,26 +153,39 @@ const translations = {
 
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState(() => {
-    const saved = localStorage.getItem('ui:lang');
-    return saved || 'ar'; // Default to Arabic
+    // Initialize from localStorage before first render to avoid flash
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ui:lang');
+      if (saved === 'en' || saved === 'ar') return saved;
+    }
+    return 'en'; // Default to English
   });
 
   useEffect(() => {
+    // Update HTML lang and dir attributes immediately on mount and change
+    document.documentElement.setAttribute('lang', language);
+    document.documentElement.setAttribute('dir', language === 'ar' ? 'rtl' : 'ltr');
     localStorage.setItem('ui:lang', language);
-    document.documentElement.lang = language;
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
   }, [language]);
 
-  const t = (key) => {
-    return translations[language]?.[key] || key;
+  const setLang = (newLang) => {
+    if (newLang === 'en' || newLang === 'ar') {
+      setLanguage(newLang);
+    }
   };
 
   const toggleLanguage = () => {
     setLanguage(prev => prev === 'en' ? 'ar' : 'en');
   };
 
+  const t = (key) => {
+    return translations[language]?.[key] || key;
+  };
+
+  const isRTL = language === 'ar';
+
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, t, toggleLanguage, isRTL: language === 'ar' }}>
+    <LanguageContext.Provider value={{ language, lang: language, setLang, setLanguage, toggleLanguage, t, isRTL }}>
       {children}
     </LanguageContext.Provider>
   );
