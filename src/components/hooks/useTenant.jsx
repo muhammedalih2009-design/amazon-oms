@@ -12,6 +12,7 @@ export function TenantProvider({ children }) {
   const [user, setUser] = useState(null);
   const [allWorkspaces, setAllWorkspaces] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
+  const [workspaceModules, setWorkspaceModules] = useState([]);
 
   useEffect(() => {
     loadTenantData();
@@ -135,6 +136,19 @@ export function TenantProvider({ children }) {
 
       setTenant(activeTenant);
       setMembership(activeMembership);
+
+      // Load workspace modules
+      if (activeTenant) {
+        try {
+          const modules = await base44.entities.WorkspaceModule.filter({
+            workspace_id: activeTenant.id
+          });
+          setWorkspaceModules(modules);
+        } catch (error) {
+          console.error('Error loading workspace modules:', error);
+          setWorkspaceModules([]);
+        }
+      }
     } catch (error) {
       console.error('Error loading tenant data:', error);
     } finally {
@@ -209,6 +223,23 @@ export function TenantProvider({ children }) {
     return permissions[pageKey]?.edit === true;
   };
 
+  const isModuleEnabled = (moduleKey) => {
+    // Platform admin can see all modules
+    if (isPlatformAdmin) return true;
+    
+    // If no modules configured, assume all enabled
+    if (workspaceModules.length === 0) return true;
+    
+    const module = workspaceModules.find(m => m.module_key === moduleKey);
+    return module ? module.enabled : false;
+  };
+
+  const canAccessModule = (pageName) => {
+    const moduleKey = PAGE_MODULE_MAP[pageName];
+    if (!moduleKey) return true; // Unknown pages allowed by default
+    return isModuleEnabled(moduleKey);
+  };
+
   const value = {
     tenant,
     membership,
@@ -217,6 +248,7 @@ export function TenantProvider({ children }) {
     loading,
     allWorkspaces,
     userMemberships,
+    workspaceModules,
     switchWorkspace,
     isActive,
     isOwner,
@@ -227,6 +259,8 @@ export function TenantProvider({ children }) {
     permissions,
     canViewPage,
     canEditPage,
+    isModuleEnabled,
+    canAccessModule,
     refresh: loadTenantData
   };
 
