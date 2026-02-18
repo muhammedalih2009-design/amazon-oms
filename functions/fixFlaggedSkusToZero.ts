@@ -114,28 +114,53 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // STEP 4: Archive all movements for this SKU (faster than delete)
+        // STEP 4: Archive all movements for this SKU with retry
         step = 'archive_movements';
-        const movements = await db.entities.StockMovement.filter({ 
-          tenant_id: workspace_id, 
-          sku_id: sku.id,
-          is_archived: false
-        });
+        await sleep(150); // Pre-delay
+        
+        retries = 0;
+        let movements;
+        while (retries < 3) {
+          try {
+            movements = await db.entities.StockMovement.filter({ 
+              tenant_id: workspace_id, 
+              sku_id: sku.id,
+              is_archived: false
+            });
+            break;
+          } catch (err) {
+            if (err.message?.includes('rate limit') && retries < 2) {
+              retries++;
+              await sleep(1000 * retries);
+              continue;
+            }
+            throw err;
+          }
+        }
 
         console.log(`[fixFlaggedSkus] Archiving ${movements.length} movements for ${skuCode}`);
         
-        // Batch archive movements (much faster than individual deletes)
-        const MOVEMENT_BATCH_SIZE = 10;
+        // Batch archive movements with retry
+        const MOVEMENT_BATCH_SIZE = 5; // Smaller batch for rate limit
         for (let i = 0; i < movements.length; i += MOVEMENT_BATCH_SIZE) {
           const batch = movements.slice(i, i + MOVEMENT_BATCH_SIZE);
-          try {
-            await Promise.all(batch.map(movement => 
-              db.entities.StockMovement.update(movement.id, { is_archived: true })
-            ));
-            await sleep(50);
-          } catch (archiveError) {
-            console.error(`[fixFlaggedSkus] Failed to archive movement batch for ${skuCode}:`, archiveError.message);
-            // Continue with next batch
+          retries = 0;
+          while (retries < 3) {
+            try {
+              await Promise.all(batch.map(movement => 
+                db.entities.StockMovement.update(movement.id, { is_archived: true })
+              ));
+              await sleep(200); // Increased delay between batches
+              break;
+            } catch (archiveError) {
+              if (archiveError.message?.includes('rate limit') && retries < 2) {
+                retries++;
+                await sleep(1500 * retries);
+                continue;
+              }
+              console.error(`[fixFlaggedSkus] Failed to archive movement batch for ${skuCode}:`, archiveError.message);
+              break; // Continue with next batch
+            }
           }
         }
 
@@ -145,8 +170,8 @@ Deno.serve(async (req) => {
         const skuDuration = Date.now() - skuStartTime;
         console.log(`[fixFlaggedSkus] ✓ Completed ${skuCode} in ${skuDuration}ms`);
         
-        // Throttle between SKUs (increased for stability)
-        await sleep(100);
+        // Throttle between SKUs (increased significantly for rate limit)
+        await sleep(300);
         
       } catch (error) {
         const skuDuration = Date.now() - skuStartTime;
