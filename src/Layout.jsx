@@ -112,12 +112,12 @@ function LayoutContent({ children, currentPageName }) {
 
       {/* Sidebar */}
       <aside className={`
-        fixed top-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} h-full w-72 bg-white z-50 transform transition-transform duration-300
+        fixed top-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} h-full w-72 z-50 transform transition-transform duration-300
         lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : isRTL ? 'translate-x-full' : '-translate-x-full'}
-      `}>
+      `} style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="h-full flex flex-col">
           {/* Logo */}
-          <div className="h-16 flex items-center justify-between px-6 border-b">
+          <div className="h-16 flex items-center justify-between px-6" style={{ borderBottom: '1px solid var(--border)' }}>
             <span className="font-bold text-xl bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
               Amazon OMS
             </span>
@@ -127,7 +127,7 @@ function LayoutContent({ children, currentPageName }) {
           </div>
 
           {/* Workspace Switcher */}
-          <div className="px-4 py-4 border-b">
+          <div className="px-4 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
             <WorkspaceSwitcher />
           </div>
 
@@ -225,19 +225,27 @@ function LayoutContent({ children, currentPageName }) {
           </nav>
 
           {/* User Menu & Language Toggle */}
-          <div className="p-4 border-t space-y-3">
+          <div className="p-4 space-y-3" style={{ borderTop: '1px solid var(--border)' }}>
             {/* Theme & Language Toggles */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={toggleTheme}
-                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium"
+                style={{ 
+                  backgroundColor: 'var(--accent)', 
+                  color: 'var(--text-primary)'
+                }}
                 title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               >
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
               <button
                 onClick={toggleLanguage}
-                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium"
+                style={{ 
+                  backgroundColor: 'var(--accent)', 
+                  color: 'var(--text-primary)'
+                }}
               >
                 <Languages className="w-4 h-4" />
                 {language === 'ar' ? 'EN' : 'ع'}
@@ -246,7 +254,7 @@ function LayoutContent({ children, currentPageName }) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className={`w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <button className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${isRTL ? 'flex-row-reverse' : ''}`} style={{ backgroundColor: 'transparent' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--hover-bg)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                   <Avatar className="w-10 h-10 bg-gradient-to-r from-indigo-600 to-violet-600">
                     <AvatarFallback className="bg-transparent text-white font-semibold">
                       {getInitials(user?.full_name)}
@@ -271,11 +279,18 @@ function LayoutContent({ children, currentPageName }) {
       </aside>
 
       {/* Main Content */}
-      <main className={`${isRTL ? 'lg:mr-72' : 'lg:ml-72'} min-h-screen pt-16 lg:pt-0`}>
+      <main className={`${isRTL ? 'lg:mr-72' : 'lg:ml-72'} min-h-screen pt-16 lg:pt-0`} style={{ backgroundColor: 'var(--background)' }}>
         <div className="p-6 lg:p-8">
           {children}
         </div>
       </main>
+
+      {/* Debug indicator - visible to admins only */}
+      {isPlatformAdmin && (
+        <div className="theme-debug">
+          Theme: {theme}
+        </div>
+      )}
     </div>
   );
 }
