@@ -49,11 +49,67 @@ export default function BackupManager({ tenantId }) {
   const [validatingBackup, setValidatingBackup] = useState(null);
   const [validationReport, setValidationReport] = useState(null);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [activeRestoreJob, setActiveRestoreJob] = useState(null);
+  const [restoreJobPolling, setRestoreJobPolling] = useState(null);
+  const [showRestoreProgress, setShowRestoreProgress] = useState(false);
 
   useEffect(() => {
     loadBackups();
     loadJobHistory();
+    checkActiveRestoreJobs();
   }, [tenantId]);
+
+  // Poll for active restore job progress
+  useEffect(() => {
+    if (!restoreJobPolling) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await base44.entities.RestoreJob.get(restoreJobPolling.jobId);
+        if (!job) return;
+
+        setActiveRestoreJob(job);
+
+        // Update progress display
+        if (job.progress) {
+          const progress = job.progress;
+          const percent = progress.total_rows > 0 
+            ? Math.round((progress.processed_rows / progress.total_rows) * 100)
+            : 0;
+          
+          setRestoreProgress({
+            current: percent,
+            total: 100,
+            step: `${progress.current_entity || 'Processing'} (batch ${progress.current_batch || 0}/${progress.total_batches || 0})`
+          });
+        }
+
+        if (job.status === 'completed') {
+          setRestoreJobPolling(null);
+          setShowRestoreProgress(false);
+          setRestoring(false);
+          toast({
+            title: '✓ Restore complete',
+            description: `${job.counts_after_restore?.orders || 0} orders restored. Refreshing...`
+          });
+          setTimeout(() => window.location.reload(), 1500);
+        } else if (job.status === 'failed') {
+          setRestoreJobPolling(null);
+          setRestoring(false);
+          const lastError = job.error_log?.[job.error_log.length - 1];
+          toast({
+            title: 'Restore failed',
+            description: lastError?.error_message || 'Unknown error',
+            variant: 'destructive'
+          });
+        }
+      } catch (error) {
+        console.error('Restore job polling error:', error);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [restoreJobPolling]);
 
   const loadJobHistory = async () => {
     try {
@@ -61,6 +117,25 @@ export default function BackupManager({ tenantId }) {
       setAllJobs(jobs.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
     } catch (error) {
       console.error('Failed to load job history:', error);
+    }
+  };
+
+  const checkActiveRestoreJobs = async () => {
+    try {
+      const activeJobs = await base44.entities.RestoreJob.filter({
+        target_workspace_id: tenantId,
+        status: { $in: ['queued', 'processing'] }
+      });
+      
+      if (activeJobs.length > 0) {
+        const job = activeJobs[0];
+        setActiveRestoreJob(job);
+        setRestoreJobPolling({ jobId: job.id });
+        setShowRestoreProgress(true);
+        setRestoring(true);
+      }
+    } catch (error) {
+      console.error('Failed to check active restore jobs:', error);
     }
   };
 
@@ -216,296 +291,83 @@ export default function BackupManager({ tenantId }) {
     URL.revokeObjectURL(url);
   };
 
-  const restoreBackup = async (backup) => {
+  const restoreBackup = async (backup, resumeJobId = null) => {
     setRestoring(true);
-    setRestoreProgress({ current: 0, total: 100, step: 'Preparing restore...' });
-    const startTime = new Date().toISOString();
+    setShowRestoreProgress(true);
+    setRestoreProgress({ current: 0, total: 100, step: 'Starting restore job...' });
     
     try {
-      // CRITICAL: Log workspace IDs for debugging
-      console.log(`🔄 RESTORE STARTING - Target Workspace ID: ${tenantId}, Name: ${tenant?.name}`);
-      
-      let backupData = backup.data;
-      
-      // Extract source workspace info (handle uploaded backups without metadata)
-      const sourceWorkspaceId = backup.source_workspace_id || 
-        (backupData?.stores?.[0]?.tenant_id) || 
-        (backupData?.skus?.[0]?.tenant_id) ||
-        'unknown';
-      const sourceWorkspaceName = backup.source_workspace_name || 'Uploaded Backup';
-      
-      setRestoreProgress({ current: 5, total: 100, step: 'Creating restore log...' });
-      
-      // Create restore log
-      const restoreLog = await base44.entities.RestoreLog.create({
-        backup_job_id: backup.id || 'uploaded',
-        source_workspace_id: sourceWorkspaceId,
-        source_workspace_name: sourceWorkspaceName,
-        target_workspace_id: tenantId,
-        target_workspace_name: tenant?.name || 'Current Workspace',
-        status: 'in_progress',
-        restored_by: user?.email,
-        started_at: startTime
-      });
-
-      setRestoreProgress({ current: 10, total: 100, step: 'Loading existing data...' });
-
-      // Count existing data BEFORE purge
-      const [
-        orders, orderLines, skus, stores, purchases,
-        currentStock, suppliers, stockMovements, importBatches, importErrors,
-        profitabilityLines, profitabilityBatches, tasks, checklistItems, comments
-      ] = await Promise.all([
-        base44.entities.Order.filter({ tenant_id: tenantId }),
-        base44.entities.OrderLine.filter({ tenant_id: tenantId }),
-        base44.entities.SKU.filter({ tenant_id: tenantId }),
-        base44.entities.Store.filter({ tenant_id: tenantId }),
-        base44.entities.Purchase.filter({ tenant_id: tenantId }),
-        base44.entities.CurrentStock.filter({ tenant_id: tenantId }),
-        base44.entities.Supplier.filter({ tenant_id: tenantId }),
-        base44.entities.StockMovement.filter({ tenant_id: tenantId }),
-        base44.entities.ImportBatch.filter({ tenant_id: tenantId }),
-        base44.entities.ImportError.filter({ tenant_id: tenantId }),
-        base44.entities.ProfitabilityLine.filter({ tenant_id: tenantId }),
-        base44.entities.ProfitabilityImportBatch.filter({ tenant_id: tenantId }),
-        base44.entities.Task.filter({ tenant_id: tenantId }),
-        base44.entities.TaskChecklistItem.filter({ tenant_id: tenantId }),
-        base44.entities.TaskComment.filter({ tenant_id: tenantId })
-      ]);
-
-      const countsBefore = {
-        orders: orders.length,
-        orderLines: orderLines.length,
-        skus: skus.length,
-        stores: stores.length,
-        purchases: purchases.length,
-        currentStock: currentStock.length,
-        suppliers: suppliers.length,
-        stockMovements: stockMovements.length,
-        importBatches: importBatches.length,
-        importErrors: importErrors.length,
-        profitabilityLines: profitabilityLines.length,
-        profitabilityBatches: profitabilityBatches.length,
-        tasks: tasks.length,
-        checklistItems: checklistItems.length,
-        comments: comments.length
-      };
-
-      const totalToDelete = Object.values(countsBefore).reduce((sum, count) => sum + count, 0);
-
-      setRestoreProgress({ current: 20, total: 100, step: `Deleting ${totalToDelete} existing records...` });
-
-      // Helper: Delete with rate limit protection
-      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-      const deleteWithDelay = async (items, entityName, delayMs = 100) => {
-        for (let i = 0; i < items.length; i++) {
-          await base44.entities[entityName].delete(items[i].id);
-          deleted++;
-          if (deleted % 50 === 0) {
-            setRestoreProgress({ 
-              current: 20 + (deleted / totalToDelete) * 20, 
-              total: 100, 
-              step: `Deleting... ${deleted}/${totalToDelete}` 
-            });
-          }
-          if (i % 10 === 0 && i > 0) await delay(delayMs);
-        }
-      };
-
-      // PURGE: Delete all existing target workspace data (dependencies first)
-      let deleted = 0;
-      await deleteWithDelay(profitabilityLines, 'ProfitabilityLine', 100);
-      await deleteWithDelay(profitabilityBatches, 'ProfitabilityImportBatch', 80);
-      await deleteWithDelay(orderLines, 'OrderLine', 200);
-      await deleteWithDelay(orders, 'Order', 200);
-      await deleteWithDelay(purchases, 'Purchase', 100);
-      await deleteWithDelay(currentStock, 'CurrentStock', 100);
-      await deleteWithDelay(stockMovements, 'StockMovement', 100);
-      await deleteWithDelay(skus, 'SKU', 100);
-      await deleteWithDelay(suppliers, 'Supplier', 80);
-      await deleteWithDelay(stores, 'Store', 80);
-      await deleteWithDelay(importErrors, 'ImportError', 80);
-      await deleteWithDelay(importBatches, 'ImportBatch', 80);
-      await deleteWithDelay(checklistItems, 'TaskChecklistItem', 80);
-      await deleteWithDelay(comments, 'TaskComment', 80);
-      await deleteWithDelay(tasks, 'Task', 80);
-
-      setRestoreProgress({ current: 45, total: 100, step: 'Restoring backup data...' });
-
-      // IMPORT: Restore backup data into TARGET workspace (force tenant_id = current workspace)
-      const stripBuiltins = (items) => {
-        if (!Array.isArray(items)) return [];
-        return items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => {
-          // CRITICAL: Force tenant_id to TARGET workspace - never use source tenant_id
-          return { ...rest, tenant_id: tenantId };
+      // If resuming, trigger resume
+      if (resumeJobId) {
+        const response = await base44.functions.invoke('executeRestoreJob', {
+          restoreJobId: resumeJobId,
+          resumeFromCheckpoint: true
         });
-      };
-
-      // Support multiple backup formats: { data: {...} } or { tables: {...} } or direct {...}
-      let dataSource = backupData.data || backupData.tables || backupData;
-      
-      // Validation: Ensure we're not accidentally using source workspace ID
-      const firstItem = dataSource.stores?.[0] || dataSource.skus?.[0] || dataSource.orders?.[0];
-      if (firstItem?.tenant_id && firstItem.tenant_id !== tenantId) {
-        console.warn(`⚠️ Source tenant_id detected: ${firstItem.tenant_id}, will be replaced with target: ${tenantId}`);
-      }
-      const totalToRestore = Object.values(dataSource).reduce((sum, value) => {
-        if (Array.isArray(value)) return sum + value.length;
-        return sum;
-      }, 0);
-
-      let restored = 0;
-      const updateRestoreProgress = (count) => {
-        restored += count;
-        setRestoreProgress({ 
-          current: 45 + (restored / totalToRestore) * 50, 
-          total: 100, 
-          step: `Restoring... ${restored}/${totalToRestore}` 
+        
+        setRestoreJobPolling({ jobId: resumeJobId });
+        toast({
+          title: 'Restore resumed',
+          description: 'Continuing from last checkpoint...'
         });
-      };
-
-      // Helper: Bulk create in smaller batches with delays and retry logic
-      const bulkCreateWithDelay = async (entityName, items, batchSize = 20, retries = 5) => {
-        if (!items || !Array.isArray(items) || items.length === 0) return;
-        
-        const cleaned = stripBuiltins(items);
-        
-        // CRITICAL VALIDATION: Verify ALL records have correct tenant_id BEFORE creating
-        const wrongTenantRecords = cleaned.filter(item => item.tenant_id !== tenantId);
-        if (wrongTenantRecords.length > 0) {
-          throw new Error(`SECURITY: ${wrongTenantRecords.length} ${entityName} records have wrong tenant_id! Aborting restore.`);
-        }
-        
-        const totalBatches = Math.ceil(cleaned.length / batchSize);
-        
-        for (let i = 0; i < cleaned.length; i += batchSize) {
-          const batch = cleaned.slice(i, i + batchSize);
-          const batchNum = Math.floor(i / batchSize) + 1;
-          
-          setRestoreProgress({ 
-            current: 45 + (i / cleaned.length) * 50, 
-            total: 100, 
-            step: `${entityName}: batch ${batchNum}/${totalBatches} (${batch.length} records)` 
-          });
-          
-          let attempt = 0;
-          let success = false;
-          
-          while (attempt < retries && !success) {
-            try {
-              await base44.entities[entityName].bulkCreate(batch);
-              success = true;
-            } catch (error) {
-              attempt++;
-              const isRateLimit = error.message?.includes('rate limit') || 
-                                  error.message?.includes('429') ||
-                                  error.message?.includes('too many requests');
-              
-              if (isRateLimit && attempt < retries) {
-                const backoffDelay = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s, 32s
-                setRestoreProgress({ 
-                  current: 45 + (i / cleaned.length) * 50, 
-                  total: 100, 
-                  step: `Rate limit - waiting ${backoffDelay/1000}s... (attempt ${attempt}/${retries})` 
-                });
-                await delay(backoffDelay);
-              } else {
-                throw new Error(`${entityName} batch ${batchNum}/${totalBatches} failed: ${error.message}`);
-              }
-            }
-          }
-          
-          if (!success) {
-            throw new Error(`${entityName} failed after ${retries} attempts - rate limit persists`);
-          }
-          
-          // Progressive delay: longer delays for SKUs and Orders
-          const baseDelay = entityName === 'SKU' || entityName === 'Order' || entityName === 'OrderLine' ? 2500 : 1500;
-          if (i + batchSize < cleaned.length) await delay(baseDelay);
-        }
-      };
-
-      // Restore in dependency order (support both old and new backup formats)
-      const entitiesToRestore = [
-        { name: 'Supplier', data: dataSource.suppliers, delay: 1000, track: true },
-        { name: 'Store', data: dataSource.stores, delay: 1000, track: true },
-        { name: 'SKU', data: dataSource.skus, delay: 2000, track: true },
-        { name: 'CurrentStock', data: dataSource.currentStock, delay: 1500, track: true },
-        { name: 'StockMovement', data: dataSource.stockMovements, delay: 1500, track: false },
-        { name: 'ImportBatch', data: dataSource.importBatches, delay: 1000, track: false },
-        { name: 'ImportError', data: dataSource.importErrors, delay: 1000, track: false },
-        { name: 'Order', data: dataSource.orders, delay: 2000, track: true },
-        { name: 'OrderLine', data: dataSource.orderLines, delay: 2000, track: true },
-        { name: 'Purchase', data: dataSource.purchases, delay: 1500, track: true },
-        { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 1200, track: false },
-        { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 1000, track: false },
-        { name: 'Task', data: dataSource.tasks, delay: 1000, track: true },
-        { name: 'TaskChecklistItem', data: dataSource.checklistItems, delay: 1000, track: false },
-        { name: 'TaskComment', data: dataSource.comments, delay: 1000, track: false }
-      ];
-
-      for (const entity of entitiesToRestore) {
-        if (entity.data?.length > 0) {
-          await bulkCreateWithDelay(entity.name, entity.data);
-          if (entity.track) {
-            updateRestoreProgress(entity.data.length);
-          }
-          await delay(entity.delay);
-        }
+        return;
       }
 
-      setRestoreProgress({ current: 98, total: 100, step: 'Finalizing...' });
+      // Start new restore job
+      const response = await base44.functions.invoke('startRestoreJob', {
+        backupJobId: backup.id || 'uploaded',
+        backupData: backup.data ? backup : backup,
+        targetWorkspaceId: tenantId
+      });
+      if (!response.data.success) {
+        throw new Error('Failed to start restore job');
+      }
 
-      // Count AFTER restore
-      const countsAfter = {
-        orders: dataSource.orders?.length || 0,
-        orderLines: dataSource.orderLines?.length || 0,
-        skus: dataSource.skus?.length || 0,
-        stores: dataSource.stores?.length || 0,
-        purchases: dataSource.purchases?.length || 0,
-        currentStock: dataSource.currentStock?.length || 0,
-        suppliers: dataSource.suppliers?.length || 0,
-        stockMovements: dataSource.stockMovements?.length || 0,
-        importBatches: dataSource.importBatches?.length || 0,
-        importErrors: dataSource.importErrors?.length || 0,
-        profitabilityLines: dataSource.profitabilityLines?.length || 0,
-        profitabilityBatches: dataSource.profitabilityBatches?.length || 0,
-        tasks: dataSource.tasks?.length || 0,
-        checklistItems: dataSource.checklistItems?.length || 0,
-        comments: dataSource.comments?.length || 0
-      };
+      const restoreJobId = response.data.restoreJobId;
+      setRestoreJobPolling({ jobId: restoreJobId });
 
-      // Update restore log
-      await base44.entities.RestoreLog.update(restoreLog.id, {
-        status: 'completed',
-        counts_before_purge: countsBefore,
-        counts_after_restore: countsAfter,
-        validation_results: { success: true },
-        completed_at: new Date().toISOString()
+      toast({
+        title: 'Restore job started',
+        description: 'Processing in background. You can close this page and return later.'
       });
 
-      setRestoreProgress({ current: 100, total: 100, step: 'Complete!' });
-
-      setTimeout(() => {
-        setShowRestoreDialog(false);
-        setSelectedBackup(null);
-        setConfirmationText('');
-        setRestoreProgress({ current: 0, total: 0, step: '' });
-        toast({ 
-          title: '✓ Restore complete', 
-          description: `${countsAfter.orders} orders, ${countsAfter.skus} SKUs restored. Refreshing...` 
-        });
-        
-        setTimeout(() => window.location.reload(), 1500);
-      }, 500);
+      setShowRestoreDialog(false);
+      setSelectedBackup(null);
+      setConfirmationText('');
     } catch (error) {
       setRestoreProgress({ current: 0, total: 0, step: '' });
+      setShowRestoreProgress(false);
       toast({ 
-        title: 'Restore failed', 
+        title: 'Failed to start restore', 
         description: error.message, 
         variant: 'destructive' 
       });
       setRestoring(false);
+    }
+  };
+
+  const resumeRestore = async (jobId) => {
+    setRestoring(true);
+    setShowRestoreProgress(true);
+    setRestoreJobPolling({ jobId });
+    
+    try {
+      await base44.functions.invoke('executeRestoreJob', {
+        restoreJobId: jobId,
+        resumeFromCheckpoint: true
+      });
+      
+      toast({
+        title: 'Restore resumed',
+        description: 'Continuing from last checkpoint...'
+      });
+    } catch (error) {
+      setRestoring(false);
+      setShowRestoreProgress(false);
+      toast({
+        title: 'Failed to resume restore',
+        description: error.message,
+        variant: 'destructive'
+      });
     }
   };
 
@@ -775,6 +637,56 @@ export default function BackupManager({ tenantId }) {
           </Button>
         </div>
       </div>
+
+      {/* Active Restore Job Status */}
+      {activeRestoreJob && (
+        <Alert className="border-indigo-200 bg-indigo-50">
+          <AlertDescription>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-indigo-900">
+                  Restore in progress: {activeRestoreJob.current_phase}
+                </span>
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  activeRestoreJob.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                  activeRestoreJob.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {activeRestoreJob.status}
+                </span>
+              </div>
+              {activeRestoreJob.progress && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-indigo-700">
+                    <span>{activeRestoreJob.progress.current_entity || 'Starting...'}</span>
+                    <span>{activeRestoreJob.progress.processed_rows || 0} / {activeRestoreJob.progress.total_rows || 0}</span>
+                  </div>
+                  <div className="w-full bg-indigo-200 rounded-full h-2">
+                    <div 
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${activeRestoreJob.progress.total_rows > 0 
+                          ? Math.round((activeRestoreJob.progress.processed_rows / activeRestoreJob.progress.total_rows) * 100)
+                          : 0}%` 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {activeRestoreJob.status === 'failed' && (
+                <Button
+                  size="sm"
+                  onClick={() => resumeRestore(activeRestoreJob.id)}
+                  className="mt-2 bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Resume Restore
+                </Button>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Backup Job History */}
       <div className="mt-8 pt-6 border-t">
@@ -1148,6 +1060,36 @@ export default function BackupManager({ tenantId }) {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore Progress Modal */}
+      <Dialog open={showRestoreProgress} onOpenChange={setShowRestoreProgress}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Restore in Progress</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">{restoreProgress.step}</span>
+                <span className="font-medium">{restoreProgress.current}%</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2">
+                <div 
+                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${restoreProgress.current}%` }}
+                />
+              </div>
+            </div>
+            <Alert className="border-blue-200 bg-blue-50">
+              <AlertDescription className="text-xs text-blue-800">
+                ✓ This runs in the background. You can close this page and return later.
+                <br />
+                ✓ If interrupted (502, network drop), the restore will resume from the last checkpoint.
+              </AlertDescription>
+            </Alert>
+          </div>
         </DialogContent>
       </Dialog>
 
