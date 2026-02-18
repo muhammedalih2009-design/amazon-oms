@@ -353,6 +353,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
         },
         after: null
       });
+      setFixResults(null); // Clear previous results
     }
 
     try {
@@ -369,11 +370,11 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       });
 
       const BATCH_SIZE = 15;
-      const REQUEST_TIMEOUT = 25000; // 25 second timeout
+      const REQUEST_TIMEOUT = 30000; // 30 second timeout
       const MAX_RETRIES = 3;
       
       let currentIndex = resumeFromIndex;
-      let totalProcessed = resumeFromIndex;
+      let totalProcessed = 0;
       let totalFailed = 0;
       let allFailedSkus = [];
 
@@ -409,8 +410,17 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               totalProcessed += data.processedCount || 0;
               totalFailed += data.failedCount || 0;
               
-              if (data.failed && data.failed.length > 0) {
+              // CRITICAL: Capture failed SKUs immediately
+              if (data.failed && Array.isArray(data.failed) && data.failed.length > 0) {
                 allFailedSkus.push(...data.failed);
+                console.log(`[Frontend] Batch failed SKUs:`, data.failed.length);
+                
+                // Update results in real-time so user sees progress
+                setFixResults({
+                  totalProcessed,
+                  totalFailed,
+                  failedSkus: allFailedSkus
+                });
               }
               
               currentIndex = data.nextIndex;
@@ -462,27 +472,31 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       // All done
       setFixProgress({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
 
-      // Store results for display and export
-      setFixResults({
+      // Final results update
+      const finalResults = {
         totalProcessed,
         totalFailed,
         failedSkus: allFailedSkus
-      });
+      };
+      
+      setFixResults(finalResults);
+      
+      console.log('[Frontend] Final results:', finalResults);
 
       if (totalFailed === 0) {
         toast({
           title: '✓ Fixed all flagged SKUs',
-          description: `Successfully reset ${totalProcessed} SKUs to 0 and cleared their history`,
+          description: `Successfully reset ${totalProcessed} SKUs to 0 and archived their history`,
           duration: 6000
         });
       } else {
         toast({
-          title: 'Completed with failures',
-          description: `Fixed ${totalProcessed} SKUs, ${totalFailed} failed. See details below.`,
+          title: '⚠ Completed with failures',
+          description: `Fixed: ${totalProcessed}, Failed: ${totalFailed}. Scroll down for detailed error report.`,
           variant: 'destructive',
-          duration: 8000
+          duration: 10000
         });
-        console.error('Failed SKUs:', allFailedSkus);
+        console.error('[Frontend] Failed SKUs details:', allFailedSkus);
       }
 
       // Auto re-run integrity check and capture after state
@@ -953,12 +967,12 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               )}
 
               {fixResults && fixResults.failedSkus && fixResults.failedSkus.length > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-semibold text-red-900">Failed SKUs Report</h4>
-                      <p className="text-sm text-red-700">
-                        {fixResults.totalFailed} SKU(s) failed to fix. Review details below.
+                      <h4 className="font-bold text-red-900 text-lg">❌ Failed SKUs Report</h4>
+                      <p className="text-sm text-red-700 font-semibold">
+                        {fixResults.failedSkus.length} SKU(s) failed to fix. Review details below.
                       </p>
                     </div>
                     <Button 
@@ -971,19 +985,25 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                       Export Failed SKUs
                     </Button>
                   </div>
-                  <div className="max-h-48 overflow-y-auto space-y-2">
+                  <div className="max-h-64 overflow-y-auto space-y-2 border-t-2 border-red-200 pt-3">
                     {fixResults.failedSkus.map((failed, idx) => (
-                      <div key={idx} className="bg-white rounded border border-red-200 p-3 text-sm">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-red-900">{failed.sku_code}</span>
-                          <span className="px-2 py-0.5 text-xs bg-red-200 text-red-800 rounded">
+                      <div key={idx} className="bg-white rounded border-2 border-red-300 p-3 text-sm">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-bold text-red-900 text-base">{failed.sku_code}</span>
+                          <span className="px-2 py-1 text-xs font-bold bg-red-200 text-red-900 rounded">
                             {failed.error_code}
                           </span>
                         </div>
-                        <p className="text-red-700">{failed.reason}</p>
-                        <p className="text-xs text-red-600 mt-1">Step: {failed.step} | {failed.details}</p>
+                        <p className="text-red-800 font-medium mb-1">{failed.reason}</p>
+                        <p className="text-xs text-red-700 bg-red-50 p-2 rounded">
+                          <strong>Step:</strong> {failed.step} | <strong>Details:</strong> {failed.details}
+                        </p>
                       </div>
                     ))}
+                  </div>
+                  <div className="bg-red-100 border border-red-300 rounded p-3 text-sm text-red-900">
+                    <strong>💡 Troubleshooting:</strong> Most failures are due to rate limits or database timeouts. 
+                    Try using "Resume Fix" button or run the fix during off-peak hours.
                   </div>
                 </div>
               )}
