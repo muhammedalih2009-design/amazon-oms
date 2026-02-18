@@ -282,7 +282,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     setFixingSkus(prev => new Set(prev).add(skuCode));
 
     try {
-      const { data } = await base44.functions.invoke('fixStockIssuesForSku', {
+      const data = await apiClient.invokeFunction('fixStockIssuesForSku', {
         workspace_id: tenantId,
         sku_code: skuCode
       });
