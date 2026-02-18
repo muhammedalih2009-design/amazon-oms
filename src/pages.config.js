@@ -63,6 +63,7 @@ import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import RateLimitMonitor from './pages/RateLimitMonitor';
+import WorkspaceDetails from './pages/WorkspaceDetails';
 import __Layout from './Layout.jsx';
 
 
@@ -83,6 +84,7 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "RateLimitMonitor": RateLimitMonitor,
+    "WorkspaceDetails": WorkspaceDetails,
 }
 
 export const pagesConfig = {
