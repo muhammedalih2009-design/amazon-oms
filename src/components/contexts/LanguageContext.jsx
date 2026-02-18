@@ -60,6 +60,9 @@ const translations = {
     // Auth
     sign_out: 'Sign Out',
     
+    // Navigation
+    backup_data: 'Backup & Data',
+    
     // Settings page
     workspace_settings: 'Workspace Settings',
     currency: 'Currency',
@@ -132,6 +135,9 @@ const translations = {
     
     // Auth
     sign_out: 'تسجيل الخروج',
+    
+    // Navigation
+    backup_data: 'النسخ الاحتياطي والبيانات',
     
     // Settings page
     workspace_settings: 'إعدادات الورك سبيس',
