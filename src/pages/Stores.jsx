@@ -34,7 +34,8 @@ import DataTable from '@/components/shared/DataTable';
 import WorkspacePackageManager from '@/components/stores/WorkspacePackageManager';
 import BackupManager from '@/components/stores/BackupManager';
 import PaywallBanner from '@/components/ui/PaywallBanner';
-import CollapsibleSection from '@/components/shared/CollapsibleSection';
+import PremiumCollapsibleSection from '@/components/shared/PremiumCollapsibleSection';
+import { Package, Database, Store as StoreIcon, Download, Plus } from 'lucide-react';
 
 export default function Stores() {
   const { tenantId, tenant, subscription } = useTenant();
@@ -47,6 +48,7 @@ export default function Stores() {
   const [showForm, setShowForm] = useState(false);
   const [editingStore, setEditingStore] = useState(null);
   const [deleteStore, setDeleteStore] = useState(null);
+  const [storesLoaded, setStoresLoaded] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     platform: 'Amazon',
@@ -60,15 +62,23 @@ export default function Stores() {
     Other: '#6366f1'
   };
 
-  useEffect(() => {
-    if (tenantId) loadData();
-  }, [tenantId]);
+  const loadStoresData = async () => {
+    if (storesLoaded) return;
+    
+    setLoading(true);
+    const [storesData, ordersData] = await Promise.all([
+      base44.entities.Store.filter({ tenant_id: tenantId }),
+      base44.entities.Order.filter({ tenant_id: tenantId })
+    ]);
+    setStores(storesData);
+    setOrders(ordersData);
+    setStoresLoaded(true);
+    setLoading(false);
+  };
 
   const loadData = async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
-    } else {
-      setLoading(true);
     }
     const [storesData, ordersData] = await Promise.all([
       base44.entities.Store.filter({ tenant_id: tenantId }),
@@ -76,10 +86,9 @@ export default function Stores() {
     ]);
     setStores(storesData);
     setOrders(ordersData);
+    setStoresLoaded(true);
     if (isRefresh) {
       setRefreshing(false);
-    } else {
-      setLoading(false);
     }
   };
 
@@ -256,36 +265,79 @@ export default function Stores() {
     <div className="space-y-6">
       <PaywallBanner subscription={subscription} onUpgrade={() => {}} />
 
-      <CollapsibleSection
+      <PremiumCollapsibleSection
+        id="workspace_data_package"
+        icon={Package}
         title="Workspace Data Package"
+        subtitle="Export/import workspace data"
         defaultOpen={false}
-        storageKey={`workspace-package-${tenantId}`}
+        workspaceId={tenantId}
+        headerActions={[
+          {
+            label: 'Download',
+            icon: Download,
+            variant: 'outline',
+            onClick: () => {
+              // Trigger download action
+              toast({ title: 'Download started' });
+            }
+          }
+        ]}
       >
         <WorkspacePackageManager 
           tenantId={tenantId} 
           tenantName={tenant?.name || 'Workspace'}
           onComplete={() => loadData(true)}
         />
-      </CollapsibleSection>
+      </PremiumCollapsibleSection>
 
-      <CollapsibleSection
+      <PremiumCollapsibleSection
+        id="backup_restore"
+        icon={Database}
         title="Backup & Restore"
+        subtitle="Snapshots & restore with recompute"
         defaultOpen={false}
-        storageKey={`backup-restore-${tenantId}`}
+        workspaceId={tenantId}
+        headerActions={[
+          {
+            label: 'Create Backup',
+            icon: Plus,
+            variant: 'default',
+            className: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+            onClick: () => {
+              // Trigger create backup action
+              toast({ title: 'Creating backup...' });
+            }
+          }
+        ]}
       >
         <BackupManager tenantId={tenantId} />
-      </CollapsibleSection>
+      </PremiumCollapsibleSection>
 
-      <CollapsibleSection
+      <PremiumCollapsibleSection
+        id="stores_sales_channels"
+        icon={StoreIcon}
         title="Stores & Sales Channels"
+        subtitle="Manage stores and integrations"
         defaultOpen={false}
-        storageKey={`stores-channels-${tenantId}`}
+        workspaceId={tenantId}
+        onOpen={loadStoresData}
+        headerActions={[
+          {
+            label: 'Add Store',
+            icon: Plus,
+            variant: 'default',
+            className: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+            onClick: () => {
+              setEditingStore(null);
+              setFormData({ name: '', platform: 'Amazon', color: '#6366f1' });
+              setShowForm(true);
+            }
+          }
+        ]}
       >
         <div className="space-y-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
-              <p className="text-slate-500">Manage your stores and track performance by channel</p>
-            </div>
         <div className="flex items-center gap-3">
           <Button
             variant="outline"

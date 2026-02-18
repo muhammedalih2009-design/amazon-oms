@@ -50,21 +50,21 @@
 import Admin from './pages/Admin';
 import Dashboard from './pages/Dashboard';
 import EmergencyRestore from './pages/EmergencyRestore';
+import Monitoring from './pages/Monitoring';
 import Orders from './pages/Orders';
 import Profile from './pages/Profile';
 import Profitability from './pages/Profitability';
 import PurchaseRequests from './pages/PurchaseRequests';
 import PurchaseRequestsPrint from './pages/PurchaseRequestsPrint';
 import Purchases from './pages/Purchases';
+import RateLimitMonitor from './pages/RateLimitMonitor';
 import Returns from './pages/Returns';
 import SKUs from './pages/SKUs';
 import Stores from './pages/Stores';
 import Suppliers from './pages/Suppliers';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
-import RateLimitMonitor from './pages/RateLimitMonitor';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import Monitoring from './pages/Monitoring';
 import __Layout from './Layout.jsx';
 
 
@@ -72,21 +72,21 @@ export const PAGES = {
     "Admin": Admin,
     "Dashboard": Dashboard,
     "EmergencyRestore": EmergencyRestore,
+    "Monitoring": Monitoring,
     "Orders": Orders,
     "Profile": Profile,
     "Profitability": Profitability,
     "PurchaseRequests": PurchaseRequests,
     "PurchaseRequestsPrint": PurchaseRequestsPrint,
     "Purchases": Purchases,
+    "RateLimitMonitor": RateLimitMonitor,
     "Returns": Returns,
     "SKUs": SKUs,
     "Stores": Stores,
     "Suppliers": Suppliers,
     "Tasks": Tasks,
     "Team": Team,
-    "RateLimitMonitor": RateLimitMonitor,
     "WorkspaceDetails": WorkspaceDetails,
-    "Monitoring": Monitoring,
 }
 
 export const pagesConfig = {
