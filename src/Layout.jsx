@@ -58,6 +58,7 @@ const adminNavItems = [
   { name: 'Platform Admin', icon: Shield, page: 'Admin' },
   { name: 'Emergency Restore', icon: Shield, page: 'EmergencyRestore' },
   { name: 'Rate Limit Monitor', icon: Activity, page: 'RateLimitMonitor' },
+  { name: 'System Monitoring', icon: Activity, page: 'Monitoring' },
 ];
 
 function LayoutContent({ children, currentPageName }) {
