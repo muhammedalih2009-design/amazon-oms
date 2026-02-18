@@ -54,12 +54,29 @@ Deno.serve(async (req) => {
       try {
         console.log(`[fixFlaggedSkus] Processing SKU: ${skuCode}`);
         
-        // STEP 1: Find the SKU
+        // STEP 1: Find the SKU with rate limit retry
         step = 'read_sku_record';
-        const skus = await db.entities.SKU.filter({ 
-          tenant_id: workspace_id, 
-          sku_code: skuCode 
-        });
+        await sleep(200); // Pre-delay
+        
+        let skus;
+        let retries = 0;
+        while (retries < 3) {
+          try {
+            skus = await db.entities.SKU.filter({ 
+              tenant_id: workspace_id, 
+              sku_code: skuCode 
+            });
+            break;
+          } catch (err) {
+            if (err.message?.toLowerCase().includes('rate limit') && retries < 2) {
+              retries++;
+              console.log(`[fixFlaggedSkus] Rate limit hit on SKU read, retry ${retries}/3`);
+              await sleep(2000 * retries); // 2s, 4s backoff
+              continue;
+            }
+            throw err;
+          }
+        }
 
         if (skus.length === 0) {
           console.warn(`[fixFlaggedSkus] SKU not found: ${skuCode}`);
@@ -77,46 +94,79 @@ Deno.serve(async (req) => {
         const sku = skus[0];
         console.log(`[fixFlaggedSkus] Found SKU ID: ${sku.id}`);
 
-        // STEP 2: Get current stock record
+        // STEP 2: Get current stock record with rate limit retry
         step = 'read_stock_record';
-        const stockRecords = await db.entities.CurrentStock.filter({ 
-          tenant_id: workspace_id, 
-          sku_id: sku.id 
-        });
-
-        // STEP 3: Reset stock to 0
-        step = 'update_stock';
-        try {
-          if (stockRecords.length > 0) {
-            console.log(`[fixFlaggedSkus] Updating stock to 0 for ${skuCode}`);
-            await db.entities.CurrentStock.update(stockRecords[0].id, { 
-              quantity_available: 0 
+        await sleep(200); // Pre-delay
+        
+        let stockRecords;
+        retries = 0;
+        while (retries < 3) {
+          try {
+            stockRecords = await db.entities.CurrentStock.filter({ 
+              tenant_id: workspace_id, 
+              sku_id: sku.id 
             });
-          } else {
-            console.log(`[fixFlaggedSkus] Creating stock record at 0 for ${skuCode}`);
-            await db.entities.CurrentStock.create({
-              tenant_id: workspace_id,
-              sku_id: sku.id,
-              sku_code: skuCode,
-              quantity_available: 0
-            });
+            break;
+          } catch (err) {
+            if (err.message?.toLowerCase().includes('rate limit') && retries < 2) {
+              retries++;
+              console.log(`[fixFlaggedSkus] Rate limit hit on stock read, retry ${retries}/3`);
+              await sleep(2000 * retries); // 2s, 4s backoff
+              continue;
+            }
+            throw err;
           }
-        } catch (stockError) {
-          console.error(`[fixFlaggedSkus] Stock update failed for ${skuCode}:`, stockError.message);
-          failedCount++;
-          failedSkuCodes.push({ 
-            sku_code: skuCode, 
-            error_code: 'DB_WRITE_FAILED',
-            reason: 'Failed to update stock record',
-            details: stockError.message,
-            step: 'update_stock'
-          });
-          continue;
         }
+
+        // STEP 3: Reset stock to 0 with rate limit retry
+        step = 'update_stock';
+        await sleep(200); // Pre-delay
+        
+        retries = 0;
+        let updateSuccess = false;
+        while (retries < 3) {
+          try {
+            if (stockRecords.length > 0) {
+              console.log(`[fixFlaggedSkus] Updating stock to 0 for ${skuCode}`);
+              await db.entities.CurrentStock.update(stockRecords[0].id, { 
+                quantity_available: 0 
+              });
+            } else {
+              console.log(`[fixFlaggedSkus] Creating stock record at 0 for ${skuCode}`);
+              await db.entities.CurrentStock.create({
+                tenant_id: workspace_id,
+                sku_id: sku.id,
+                sku_code: skuCode,
+                quantity_available: 0
+              });
+            }
+            updateSuccess = true;
+            break;
+          } catch (stockError) {
+            if (stockError.message?.toLowerCase().includes('rate limit') && retries < 2) {
+              retries++;
+              console.log(`[fixFlaggedSkus] Rate limit hit on stock update, retry ${retries}/3`);
+              await sleep(2000 * retries); // 2s, 4s backoff
+              continue;
+            }
+            console.error(`[fixFlaggedSkus] Stock update failed for ${skuCode}:`, stockError.message);
+            failedCount++;
+            failedSkuCodes.push({ 
+              sku_code: skuCode, 
+              error_code: 'DB_WRITE_FAILED',
+              reason: 'Failed to update stock record',
+              details: stockError.message,
+              step: 'update_stock'
+            });
+            break;
+          }
+        }
+        
+        if (!updateSuccess) continue;
 
         // STEP 4: Archive all movements for this SKU with retry
         step = 'archive_movements';
-        await sleep(150); // Pre-delay
+        await sleep(200); // Pre-delay
         
         retries = 0;
         let movements;
@@ -129,9 +179,10 @@ Deno.serve(async (req) => {
             });
             break;
           } catch (err) {
-            if (err.message?.includes('rate limit') && retries < 2) {
+            if (err.message?.toLowerCase().includes('rate limit') && retries < 2) {
               retries++;
-              await sleep(1000 * retries);
+              console.log(`[fixFlaggedSkus] Rate limit hit on movements read, retry ${retries}/3`);
+              await sleep(2000 * retries);
               continue;
             }
             throw err;
@@ -140,8 +191,8 @@ Deno.serve(async (req) => {
 
         console.log(`[fixFlaggedSkus] Archiving ${movements.length} movements for ${skuCode}`);
         
-        // Batch archive movements with retry
-        const MOVEMENT_BATCH_SIZE = 5; // Smaller batch for rate limit
+        // Batch archive movements with aggressive retry
+        const MOVEMENT_BATCH_SIZE = 3; // Even smaller batch
         for (let i = 0; i < movements.length; i += MOVEMENT_BATCH_SIZE) {
           const batch = movements.slice(i, i + MOVEMENT_BATCH_SIZE);
           retries = 0;
@@ -150,12 +201,13 @@ Deno.serve(async (req) => {
               await Promise.all(batch.map(movement => 
                 db.entities.StockMovement.update(movement.id, { is_archived: true })
               ));
-              await sleep(200); // Increased delay between batches
+              await sleep(300); // Longer delay between batches
               break;
             } catch (archiveError) {
-              if (archiveError.message?.includes('rate limit') && retries < 2) {
+              if (archiveError.message?.toLowerCase().includes('rate limit') && retries < 2) {
                 retries++;
-                await sleep(1500 * retries);
+                console.log(`[fixFlaggedSkus] Rate limit hit on archive, retry ${retries}/3`);
+                await sleep(2500 * retries); // 2.5s, 5s backoff
                 continue;
               }
               console.error(`[fixFlaggedSkus] Failed to archive movement batch for ${skuCode}:`, archiveError.message);
@@ -170,8 +222,8 @@ Deno.serve(async (req) => {
         const skuDuration = Date.now() - skuStartTime;
         console.log(`[fixFlaggedSkus] ✓ Completed ${skuCode} in ${skuDuration}ms`);
         
-        // Throttle between SKUs (increased significantly for rate limit)
-        await sleep(300);
+        // Throttle between SKUs (aggressive delay to avoid rate limits)
+        await sleep(500);
         
       } catch (error) {
         const skuDuration = Date.now() - skuStartTime;

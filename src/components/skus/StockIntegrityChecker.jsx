@@ -366,10 +366,10 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
       toast({
         title: 'Fixing flagged SKUs...',
-        description: `Processing ${skuCodes.length} SKUs in batches of 10 (slower but safer)`,
+        description: `Processing ${skuCodes.length} SKUs in batches of 5 (slow but reliable)`,
       });
 
-      const BATCH_SIZE = 10;
+      const BATCH_SIZE = 5;
       const REQUEST_TIMEOUT = 30000; // 30 second timeout
       const MAX_RETRIES = 3;
       
