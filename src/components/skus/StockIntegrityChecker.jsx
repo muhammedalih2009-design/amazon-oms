@@ -487,18 +487,23 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
       // Auto re-run integrity check and capture after state
       setTimeout(async () => {
-        const newCheckResults = await runIntegrityCheckSilent();
-        if (newCheckResults) {
-          setBeforeAfterStats(prev => ({
-            ...prev,
-            after: {
-              total_issues: newCheckResults.total_issues || 0,
-              high_severity: newCheckResults.high_severity || 0,
-              medium_severity: newCheckResults.medium_severity || 0
-            }
-          }));
+        try {
+          const newCheckResults = await runIntegrityCheckSilent();
+          if (newCheckResults) {
+            setResults(newCheckResults);
+            setBeforeAfterStats(prev => ({
+              ...prev,
+              after: {
+                total_issues: newCheckResults.total_issues || 0,
+                high_severity: newCheckResults.high_severity || 0,
+                medium_severity: newCheckResults.medium_severity || 0
+              }
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to re-run check after fix:', error);
         }
-      }, 1500);
+      }, 2000);
 
     } catch (error) {
       const errorMsg = error.message || 'Unknown error';
