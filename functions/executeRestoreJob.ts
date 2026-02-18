@@ -48,12 +48,13 @@ Deno.serve(async (req) => {
       await updateJob({ error_log: [...currentLog, errorEntry] });
     };
 
-    // Helper: Strip built-in fields and force tenant_id
-    const prepareRecords = (items) => {
+    // Helper: Preserve IDs and force tenant_id
+    const prepareRecords = (items, preserveIds = true) => {
       if (!Array.isArray(items) || items.length === 0) return [];
-      return items.map(({ id, created_date, updated_date, created_by, tenant_id, ...rest }) => ({
+      return items.map(({ created_date, updated_date, created_by, tenant_id, ...rest }) => ({
         ...rest,
         tenant_id: targetWorkspaceId
+        // ID is preserved by including it in ...rest
       }));
     };
 
@@ -202,6 +203,7 @@ Deno.serve(async (req) => {
         { name: 'Order', data: dataSource.orders, delay: 2000 },
         { name: 'OrderLine', data: dataSource.orderLines, delay: 2000 },
         { name: 'Purchase', data: dataSource.purchases, delay: 1500 },
+        { name: 'PurchaseCart', data: dataSource.purchaseRequests, delay: 1200 },
         { name: 'ProfitabilityLine', data: dataSource.profitabilityLines, delay: 1200 },
         { name: 'ProfitabilityImportBatch', data: dataSource.profitabilityBatches, delay: 1000 },
         { name: 'Task', data: dataSource.tasks, delay: 1000 },
@@ -277,6 +279,7 @@ Deno.serve(async (req) => {
         skus: dataSource.skus?.length || 0,
         stores: dataSource.stores?.length || 0,
         purchases: dataSource.purchases?.length || 0,
+        purchaseRequests: dataSource.purchaseRequests?.length || 0,
         currentStock: dataSource.currentStock?.length || 0,
         suppliers: dataSource.suppliers?.length || 0,
         stockMovements: dataSource.stockMovements?.length || 0,
@@ -289,8 +292,21 @@ Deno.serve(async (req) => {
         comments: dataSource.comments?.length || 0
       };
 
+      // PHASE 4: RECOMPUTE DERIVED DATA
+      console.log('🔄 PHASE 4: Recomputing workspace...');
+      await updateJob({ current_phase: 'recomputing' });
+
+      try {
+        const recomputeResult = await base44.asServiceRole.functions.invoke('recomputeWorkspace', {
+          workspaceId: targetWorkspaceId
+        });
+        console.log('✓ Recompute completed:', recomputeResult.data);
+      } catch (recomputeError) {
+        console.warn('⚠️ Recompute failed (non-fatal):', recomputeError.message);
+      }
+
       // FINALIZE
-      console.log('✨ PHASE 4: Finalizing...');
+      console.log('✨ PHASE 5: Finalizing...');
       await updateJob({
         status: 'completed',
         current_phase: 'finalizing',

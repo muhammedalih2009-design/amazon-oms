@@ -575,31 +575,32 @@ export default function BackupManager({ tenantId }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Backup & Restore</h2>
-          <p className="text-sm text-slate-500">Create and restore complete workspace data backups with integrity validation</p>
+          <p className="text-sm text-slate-500">Create and restore complete workspace data backups with ID preservation and auto-recompute</p>
           
           {/* Package Contents Info */}
           <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs font-semibold text-blue-900 mb-2">✓ 100% Parity Backup - All Workspace Data Included:</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-blue-800">
-              <span>• Stores (all fields + metadata)</span>
-              <span>• Suppliers (all fields)</span>
-              <span>• SKUs/Products (all fields + supplier refs)</span>
-              <span>• Current Stock (quantities)</span>
-              <span>• Stock Movements (complete history)</span>
-              <span>• Orders (all fields + store refs)</span>
-              <span>• Order Lines (all links + SKU refs)</span>
-              <span>• Purchases (all fields + costs)</span>
+          <p className="text-xs font-semibold text-blue-900 mb-2">✓ 100% Parity Backup - All Workspace Data Included:</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-blue-800">
+            <span>• Stores (all fields + metadata)</span>
+            <span>• Suppliers (all fields)</span>
+            <span>• SKUs/Products (all fields + supplier refs)</span>
+            <span>• Current Stock (quantities)</span>
+            <span>• Stock Movements (complete history)</span>
+            <span>• Orders (all fields + store refs)</span>
+            <span>• Order Lines (all links + SKU refs)</span>
+            <span>• Purchases (all fields + costs)</span>
+            <span>• Purchase Requests (cart items)</span>
 
-              <span>• Profitability Lines (order details)</span>
-              <span>• Profitability Batches (import history)</span>
-              <span>• Import Batches (upload history)</span>
-              <span>• Import Errors (error logs)</span>
+            <span>• Profitability Lines (order details)</span>
+            <span>• Profitability Batches (import history)</span>
+            <span>• Import Batches (upload history)</span>
+            <span>• Import Errors (error logs)</span>
 
-              <span>• Tasks + Checklist + Comments</span>
-            </div>
-            <p className="text-xs text-blue-700 mt-2 font-medium">
-              ✓ All relationships preserved • ✓ Full drill-down details • ✓ No silent exclusions
-            </p>
+            <span>• Tasks + Checklist + Comments</span>
+          </div>
+          <p className="text-xs text-blue-700 mt-2 font-medium">
+            ✓ Original IDs preserved • ✓ All relationships intact • ✓ Auto-recompute after restore
+          </p>
           </div>
         </div>
         <div className="flex gap-2">

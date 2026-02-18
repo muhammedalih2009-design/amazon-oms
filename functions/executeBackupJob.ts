@@ -44,7 +44,8 @@ Deno.serve(async (req) => {
       profitabilityBatchesResult,
       tasksResult,
       checklistResult,
-      commentsResult
+      commentsResult,
+      purchaseCartResult
     ] = await Promise.all([
       fetchEntity('Order', { tenant_id: tenantId }),
       fetchEntity('OrderLine', { tenant_id: tenantId }),
@@ -60,7 +61,8 @@ Deno.serve(async (req) => {
       fetchEntity('ProfitabilityImportBatch', { tenant_id: tenantId }),
       fetchEntity('Task', { tenant_id: tenantId }),
       fetchEntity('TaskChecklistItem', { tenant_id: tenantId }),
-      fetchEntity('TaskComment', { tenant_id: tenantId })
+      fetchEntity('TaskComment', { tenant_id: tenantId }),
+      fetchEntity('PurchaseCart', { tenant_id: tenantId })
     ]);
 
     const orders = ordersResult.data;
@@ -78,6 +80,7 @@ Deno.serve(async (req) => {
     const tasks = tasksResult.data;
     const checklistItems = checklistResult.data;
     const comments = commentsResult.data;
+    const purchaseCart = purchaseCartResult.data;
 
     // Track errors for diagnostics
     const entityErrors = Object.entries({
@@ -95,7 +98,8 @@ Deno.serve(async (req) => {
       ProfitabilityImportBatch: profitabilityBatchesResult.error,
       Task: tasksResult.error,
       TaskChecklistItem: checklistResult.error,
-      TaskComment: commentsResult.error
+      TaskComment: commentsResult.error,
+      PurchaseCart: purchaseCartResult.error
     }).filter(([_, err]) => err !== null);
 
     // Build backup payload with complete manifest
@@ -115,6 +119,7 @@ Deno.serve(async (req) => {
         orders,
         orderLines,
         purchases,
+        purchaseRequests: purchaseCart,
         profitabilityLines,
         profitabilityBatches,
         importBatches,
@@ -132,6 +137,7 @@ Deno.serve(async (req) => {
         orders: orders.length,
         orderLines: orderLines.length,
         purchases: purchases.length,
+        purchaseRequests: purchaseCart.length,
         profitabilityLines: profitabilityLines.length,
         profitabilityBatches: profitabilityBatches.length,
         importBatches: importBatches.length,
@@ -141,9 +147,10 @@ Deno.serve(async (req) => {
         comments: comments.length
       },
       manifest: {
+        backup_version: '2.0',
         entities_included: [
           'Store', 'Supplier', 'SKU', 'CurrentStock', 'StockMovement',
-          'Order', 'OrderLine', 'Purchase',
+          'Order', 'OrderLine', 'Purchase', 'PurchaseCart',
           'ProfitabilityLine', 'ProfitabilityImportBatch',
           'ImportBatch', 'ImportError', 'Task', 'TaskChecklistItem', 'TaskComment'
         ],
@@ -166,13 +173,29 @@ Deno.serve(async (req) => {
       warnings: entityErrors.length > 0 ? entityErrors.map(([name, err]) => `${name}: ${err}`) : []
     };
 
-    // Validation: if workspace has SKUs/orders/purchases but backup shows zero, fail
+    // CRITICAL VALIDATION: Detect incomplete backups
     const hasData = (orders.length + skus.length + purchases.length) > 0;
     const backupHasData = (backupData.stats.orders + backupData.stats.skus + backupData.stats.purchases) > 0;
     
     if (hasData && !backupHasData) {
-      throw new Error(`Backup validation failed: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
+      throw new Error(`INCOMPLETE BACKUP: workspace has data but backup counts are zero. Orders: ${orders.length}, SKUs: ${skus.length}, Purchases: ${purchases.length}`);
     }
+
+    // Check for critical missing relationships
+    if (orderLines.length > 0 && orders.length === 0) {
+      throw new Error(`INCOMPLETE BACKUP: ${orderLines.length} order lines exist but no orders found`);
+    }
+    
+    if (purchases.length > 0 && skus.length === 0) {
+      throw new Error(`INCOMPLETE BACKUP: ${purchases.length} purchases exist but no SKUs found`);
+    }
+
+    // Warn if purchase requests missing when orders exist
+    if (orders.length > 0 && purchaseCart.length === 0) {
+      console.warn(`⚠️ No purchase requests found - this may be expected if workspace doesn't use this feature`);
+    }
+
+    backupData.validation_status = 'COMPLETE';
 
     // Convert to JSON and store backup data directly in the entity
     const jsonString = JSON.stringify(backupData, null, 2);

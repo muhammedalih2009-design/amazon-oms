@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { Store, Plus, Edit, Trash2, Package } from 'lucide-react';
+import { Store, Plus, Edit, Trash2, Package, RefreshCw } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +42,7 @@ export default function Stores() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingStore, setEditingStore] = useState(null);
   const [deleteStore, setDeleteStore] = useState(null);
@@ -130,6 +131,31 @@ export default function Stores() {
     setDeleteStore(null);
     loadData();
     toast({ title: 'Store deleted successfully' });
+  };
+
+  const handleRecompute = async () => {
+    setRecomputing(true);
+    try {
+      const response = await base44.functions.invoke('recomputeWorkspace', {
+        workspaceId: tenantId
+      });
+      
+      toast({
+        title: '✓ Workspace recomputed',
+        description: `${response.data.results.orders_recomputed} orders updated`
+      });
+      
+      // Reload data to reflect changes
+      await loadData(true);
+    } catch (error) {
+      toast({
+        title: 'Recompute failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setRecomputing(false);
+    }
   };
 
   const getStoreStats = (storeId) => {
@@ -243,6 +269,15 @@ export default function Stores() {
           <p className="text-slate-500">Manage your stores and track performance by channel</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={handleRecompute}
+            disabled={recomputing}
+            title="Recompute all store stats, order costs, and profitability"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${recomputing ? 'animate-spin' : ''}`} />
+            {recomputing ? 'Recomputing...' : 'Recompute'}
+          </Button>
           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
           <Button 
             onClick={() => {
