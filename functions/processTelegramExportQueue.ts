@@ -1,8 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
-const TELEGRAM_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID');
-
 const DELAY_BETWEEN_MESSAGES_MS = 600;
 const PAUSE_EVERY_N_ITEMS = 25;
 const PAUSE_DURATION_MS = 2000;
@@ -11,13 +8,13 @@ const MIN_IMAGE_SIZE_BYTES = 1024; // 1KB minimum
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB max
 
-async function sendTelegramMessage(text) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+async function sendTelegramMessage(text, botToken, chatId) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
+      chat_id: chatId,
       text,
       parse_mode: 'HTML'
     })
@@ -231,14 +228,14 @@ async function resolvePublicImageBytes(imageUrl, base44, sku, debugMode = false)
   }
 }
 
-async function sendTelegramPhotoByUrl(imageUrl, caption) {
-  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+async function sendTelegramPhotoByUrl(imageUrl, caption, botToken, chatId) {
+  const telegramUrl = `https://api.telegram.org/bot${botToken}/sendPhoto`;
   
   const response = await fetch(telegramUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
+      chat_id: chatId,
       photo: imageUrl,
       caption,
       parse_mode: 'HTML'
@@ -257,13 +254,13 @@ async function sendTelegramPhotoByUrl(imageUrl, caption) {
   return response.json();
 }
 
-async function sendTelegramPhotoByBytes(imageBytes, mime, filename, caption) {
-  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+async function sendTelegramPhotoByBytes(imageBytes, mime, filename, caption, botToken, chatId) {
+  const telegramUrl = `https://api.telegram.org/bot${botToken}/sendPhoto`;
   
   const blob = new Blob([imageBytes], { type: mime });
   
   const formData = new FormData();
-  formData.append('chat_id', TELEGRAM_CHAT_ID);
+  formData.append('chat_id', chatId);
   formData.append('photo', blob, filename);
   formData.append('caption', caption);
   formData.append('parse_mode', 'HTML');
@@ -311,6 +308,23 @@ Deno.serve(async (req) => {
       return Response.json({ success: true, message: 'Job already completed' });
     }
 
+    // Get workspace settings for Telegram configuration
+    const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+      workspace_id: job.tenant_id
+    });
+
+    if (settings.length === 0 || !settings[0].telegram_bot_token || !settings[0].telegram_chat_id) {
+      await base44.asServiceRole.entities.TelegramExportJob.update(jobId, {
+        status: 'failed'
+      });
+      return Response.json({ 
+        error: 'Telegram غير مُعدّ داخل إعدادات الورك سبيس. Please configure Telegram in Workspace Settings.' 
+      }, { status: 400 });
+    }
+
+    const TELEGRAM_BOT_TOKEN = settings[0].telegram_bot_token;
+    const TELEGRAM_CHAT_ID = settings[0].telegram_chat_id;
+
     // Update to processing
     await base44.asServiceRole.entities.TelegramExportJob.update(jobId, {
       status: 'processing'
@@ -355,7 +369,7 @@ Deno.serve(async (req) => {
       try {
         const supplierTotal = items.reduce((sum, item) => sum + (item.toBuy * item.unitCost), 0);
         const headerText = `<b>📦 ${supplierName}</b>\n${items.length} SKUs | ${items.reduce((s, i) => s + i.toBuy, 0)} items | $${supplierTotal.toFixed(2)}`;
-        await sendTelegramMessage(headerText);
+        await sendTelegramMessage(headerText, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
         await sleep(DELAY_BETWEEN_MESSAGES_MS);
       } catch (error) {
         console.error('Failed to send supplier header:', error);
@@ -397,7 +411,7 @@ Deno.serve(async (req) => {
                                      rawValue.length < 5 ? 'Too short' : 
                                      'Invalid format';
                 
-                await sendTelegramMessage(`${fullCaption}\n\n<i>(Invalid image URL: ${invalidReason})</i>`);
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Invalid image URL: ${invalidReason})</i>`, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
                 success = true;
                 sentCount++;
                 textFallbackCount++;
@@ -418,7 +432,7 @@ Deno.serve(async (req) => {
 
               // ATTEMPT A: Send photo by URL (Telegram fetches)
               try {
-                await sendTelegramPhotoByUrl(normalized, fullCaption);
+                await sendTelegramPhotoByUrl(normalized, fullCaption, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
                 success = true;
                 sentCount++;
                 photoSentCount++;
@@ -453,7 +467,9 @@ Deno.serve(async (req) => {
                     imageResult.buffer,
                     imageResult.mime,
                     imageResult.filename,
-                    fullCaption
+                    fullCaption,
+                    TELEGRAM_BOT_TOKEN,
+                    TELEGRAM_CHAT_ID
                   );
                   success = true;
                   sentCount++;
@@ -469,7 +485,7 @@ Deno.serve(async (req) => {
                   
                   // ATTEMPT C: Text fallback with specific reason
                   const fallbackReason = `Direct URL: ${urlError.message} | Fetch: ${imageResult.reason}`;
-                  await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${imageResult.reason})</i>`);
+                  await sendTelegramMessage(`${fullCaption}\n\n<i>(Image unavailable: ${imageResult.reason})</i>`, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
                   success = true;
                   sentCount++;
                   textFallbackCount++;
@@ -494,7 +510,7 @@ Deno.serve(async (req) => {
               }
             } else {
               // No image URL provided at all
-              await sendTelegramMessage(`${fullCaption}\n\n<i>(No image URL provided)</i>`);
+              await sendTelegramMessage(`${fullCaption}\n\n<i>(No image URL provided)</i>`, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
               success = true;
               sentCount++;
               textFallbackCount++;
@@ -539,7 +555,7 @@ Deno.serve(async (req) => {
             // Hard failure after max retries
             if (retryCount === maxRetries) {
               try {
-                await sendTelegramMessage(`${fullCaption}\n\n<i>(Send failed)</i>`);
+                await sendTelegramMessage(`${fullCaption}\n\n<i>(Send failed)</i>`, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID);
                 success = true;
                 sentCount++;
                 textFallbackCount++;
