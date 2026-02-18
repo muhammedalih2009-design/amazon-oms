@@ -1011,15 +1011,18 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               <Button 
                 variant="outline" 
                 onClick={() => {
+                  console.log('[Run Check Again] Clicked - clearing state and running fresh check');
                   setResults(null);
                   setFixResults(null);
                   setBeforeAfterStats(null);
+                  setFixProgress({ current: 0, total: 0, canResume: false, resumeIndex: 0 });
                   runIntegrityCheck();
                 }}
+                disabled={checking || reconciling || fixingFlagged}
                 className="w-full"
               >
-                <Search className="w-4 h-4 mr-2" />
-                Run Check Again
+                <Search className={`w-4 h-4 mr-2 ${checking ? 'animate-spin' : ''}`} />
+                {checking ? 'Checking...' : 'Run Check Again'}
               </Button>
             </>
           )}
