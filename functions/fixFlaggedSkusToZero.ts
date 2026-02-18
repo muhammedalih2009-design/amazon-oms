@@ -114,29 +114,29 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // STEP 4: Delete all movements for this SKU
-        step = 'delete_movements';
+        // STEP 4: Archive all movements for this SKU (faster than delete)
+        step = 'archive_movements';
         const movements = await db.entities.StockMovement.filter({ 
           tenant_id: workspace_id, 
-          sku_id: sku.id 
+          sku_id: sku.id,
+          is_archived: false
         });
 
-        console.log(`[fixFlaggedSkus] Deleting ${movements.length} movements for ${skuCode}`);
+        console.log(`[fixFlaggedSkus] Archiving ${movements.length} movements for ${skuCode}`);
         
-        let movementDeleteFailed = false;
-        for (const movement of movements) {
+        // Batch archive movements (much faster than individual deletes)
+        const MOVEMENT_BATCH_SIZE = 10;
+        for (let i = 0; i < movements.length; i += MOVEMENT_BATCH_SIZE) {
+          const batch = movements.slice(i, i + MOVEMENT_BATCH_SIZE);
           try {
-            await db.entities.StockMovement.delete(movement.id);
-            await sleep(10);
-          } catch (movementError) {
-            console.error(`[fixFlaggedSkus] Failed to delete movement ${movement.id} for ${skuCode}:`, movementError.message);
-            movementDeleteFailed = true;
-            // Continue trying other movements
+            await Promise.all(batch.map(movement => 
+              db.entities.StockMovement.update(movement.id, { is_archived: true })
+            ));
+            await sleep(50);
+          } catch (archiveError) {
+            console.error(`[fixFlaggedSkus] Failed to archive movement batch for ${skuCode}:`, archiveError.message);
+            // Continue with next batch
           }
-        }
-
-        if (movementDeleteFailed) {
-          console.warn(`[fixFlaggedSkus] Some movements failed to delete for ${skuCode}, but stock was reset to 0`);
         }
 
         processedCount++;
@@ -145,8 +145,8 @@ Deno.serve(async (req) => {
         const skuDuration = Date.now() - skuStartTime;
         console.log(`[fixFlaggedSkus] ✓ Completed ${skuCode} in ${skuDuration}ms`);
         
-        // Throttle between SKUs
-        await sleep(30);
+        // Throttle between SKUs (increased for stability)
+        await sleep(100);
         
       } catch (error) {
         const skuDuration = Date.now() - skuStartTime;
@@ -162,8 +162,8 @@ Deno.serve(async (req) => {
           errorCode = 'SKU_READ_FAILED';
         } else if (step === 'update_stock') {
           errorCode = 'DB_WRITE_FAILED';
-        } else if (step === 'delete_movements') {
-          errorCode = 'MOVEMENT_DELETE_FAILED';
+        } else if (step === 'archive_movements') {
+          errorCode = 'MOVEMENT_ARCHIVE_FAILED';
         }
         
         failedCount++;
