@@ -4,6 +4,7 @@ import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
 import { TaskManagerProvider } from '@/components/hooks/useTaskManager';
+import { LanguageProvider, useLanguage } from '@/components/contexts/LanguageContext';
 import TaskTray from '@/components/shared/TaskTray';
 import BackgroundJobManager from '@/components/shared/BackgroundJobManager';
 import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
@@ -28,7 +29,8 @@ import {
   CheckSquare,
   Store,
   TrendingUp,
-  Activity
+  Activity,
+  Languages
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,16 +44,16 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard', moduleKey: 'dashboard' },
-  { name: 'Stores', icon: Store, page: 'Stores', pageKey: 'skus', moduleKey: 'stores' },
-  { name: 'SKUs / Products', icon: Package, page: 'SKUs', pageKey: 'skus', moduleKey: 'skus_products' },
-  { name: 'Orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders', moduleKey: 'orders' },
-  { name: 'Profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders', moduleKey: 'profitability' },
-  { name: 'Purchase Requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders', moduleKey: 'purchase_requests' },
-  { name: 'Purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases', moduleKey: 'purchases' },
-  { name: 'Returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns', moduleKey: 'returns' },
-  { name: 'Suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers', moduleKey: 'suppliers' },
-  { name: 'Tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
+  { nameKey: 'dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard', moduleKey: 'dashboard' },
+  { nameKey: 'stores', icon: Store, page: 'Stores', pageKey: 'skus', moduleKey: 'stores' },
+  { nameKey: 'skus_products', icon: Package, page: 'SKUs', pageKey: 'skus', moduleKey: 'skus_products' },
+  { nameKey: 'orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders', moduleKey: 'orders' },
+  { nameKey: 'profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders', moduleKey: 'profitability' },
+  { nameKey: 'purchase_requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders', moduleKey: 'purchase_requests' },
+  { nameKey: 'purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases', moduleKey: 'purchases' },
+  { nameKey: 'returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns', moduleKey: 'returns' },
+  { nameKey: 'suppliers', icon: Users, page: 'Suppliers', pageKey: 'suppliers', moduleKey: 'suppliers' },
+  { nameKey: 'tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
 ];
 
 const adminNavItems = [
@@ -65,6 +67,7 @@ function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled } = useTenant();
+  const { t, language, toggleLanguage, isRTL } = useLanguage();
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -108,8 +111,8 @@ function LayoutContent({ children, currentPageName }) {
 
       {/* Sidebar */}
       <aside className={`
-        fixed top-0 left-0 h-full w-72 bg-white border-r z-50 transform transition-transform duration-300
-        lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        fixed top-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} h-full w-72 bg-white z-50 transform transition-transform duration-300
+        lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : isRTL ? 'translate-x-full' : '-translate-x-full'}
       `}>
         <div className="h-full flex flex-col">
           {/* Logo */}
@@ -148,13 +151,14 @@ function LayoutContent({ children, currentPageName }) {
                   onClick={() => setSidebarOpen(false)}
                   className={`
                     flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                    ${isRTL ? 'flex-row-reverse' : ''}
                     ${isActive 
                       ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200' 
                       : 'text-slate-600 hover:bg-slate-100'}
                   `}
                 >
                   <item.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="font-medium">{item.name}</span>
+                  <span className="font-medium">{t(item.nameKey)}</span>
                 </Link>
               );
             })}
@@ -165,13 +169,31 @@ function LayoutContent({ children, currentPageName }) {
                 onClick={() => setSidebarOpen(false)}
                 className={`
                   flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mt-4
+                  ${isRTL ? 'flex-row-reverse' : ''}
                   ${currentPageName === 'Team'
                     ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
                     : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
                 `}
               >
                 <Users className="w-5 h-5" />
-                <span className="font-medium">Team</span>
+                <span className="font-medium">{t('team')}</span>
+              </Link>
+            )}
+
+            {isModuleEnabled('settings') && (
+              <Link
+                to={createPageUrl('Settings')}
+                onClick={() => setSidebarOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                  ${isRTL ? 'flex-row-reverse' : ''}
+                  ${currentPageName === 'Settings'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
+                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                `}
+              >
+                <Settings className="w-5 h-5" />
+                <span className="font-medium">{t('settings')}</span>
               </Link>
             )}
 
@@ -201,17 +223,26 @@ function LayoutContent({ children, currentPageName }) {
             )}
           </nav>
 
-          {/* User Menu */}
-          <div className="p-4 border-t">
+          {/* User Menu & Language Toggle */}
+          <div className="p-4 border-t space-y-3">
+            {/* Language Toggle */}
+            <button
+              onClick={toggleLanguage}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+            >
+              <Languages className="w-4 h-4" />
+              {language === 'ar' ? 'English' : 'العربية'}
+            </button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors">
+                <button className={`w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}>
                   <Avatar className="w-10 h-10 bg-gradient-to-r from-indigo-600 to-violet-600">
                     <AvatarFallback className="bg-transparent text-white font-semibold">
                       {getInitials(user?.full_name)}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 text-left">
+                  <div className={`flex-1 ${isRTL ? 'text-right' : 'text-left'}`}>
                     <p className="font-medium text-slate-900 text-sm truncate">{user?.full_name}</p>
                     <p className="text-xs text-slate-500 truncate">{user?.email}</p>
                   </div>
@@ -235,7 +266,7 @@ function LayoutContent({ children, currentPageName }) {
       </aside>
 
       {/* Main Content */}
-      <main className="lg:ml-72 min-h-screen pt-16 lg:pt-0">
+      <main className={`${isRTL ? 'lg:mr-72' : 'lg:ml-72'} min-h-screen pt-16 lg:pt-0`}>
         <div className="p-6 lg:p-8">
           {children}
         </div>
@@ -246,17 +277,19 @@ function LayoutContent({ children, currentPageName }) {
 
 export default function Layout({ children, currentPageName }) {
   return (
-    <TenantProvider>
-      <TaskManagerProvider>
-        <WorkspaceAccessGuard>
-          <LayoutContent currentPageName={currentPageName}>
-            {children}
-          </LayoutContent>
-        </WorkspaceAccessGuard>
-        <TaskTray />
-        <BackgroundJobManager />
-        <Toaster />
-      </TaskManagerProvider>
-    </TenantProvider>
+    <LanguageProvider>
+      <TenantProvider>
+        <TaskManagerProvider>
+          <WorkspaceAccessGuard>
+            <LayoutContent currentPageName={currentPageName}>
+              {children}
+            </LayoutContent>
+          </WorkspaceAccessGuard>
+          <TaskTray />
+          <BackgroundJobManager />
+          <Toaster />
+        </TaskManagerProvider>
+      </TenantProvider>
+    </LanguageProvider>
   );
 }
