@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light Theme */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-soft: #eef2ff;
+  --success: #10b981;
+  --success-soft: #d1fae5;
+  --warning: #f59e0b;
+  --warning-soft: #fef3c7;
+  --danger: #ef4444;
+  --danger-soft: #fee2e2;
+  --ring: #6366f1;
+  --shadow: rgba(0, 0, 0, 0.1);
+  --shadow-lg: rgba(0, 0, 0, 0.15);
+  --hover-bg: #f1f5f9;
+  --skeleton: #e2e8f0;
+}
+
+[data-theme="dark"] {
+  /* Dark Theme */
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --primary: #818cf8;
+  --primary-hover: #a5b4fc;
+  --primary-soft: #312e81;
+  --success: #34d399;
+  --success-soft: #064e3b;
+  --warning: #fbbf24;
+  --warning-soft: #78350f;
+  --danger: #f87171;
+  --danger-soft: #7f1d1d;
+  --ring: #818cf8;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --shadow-lg: rgba(0, 0, 0, 0.5);
+  --hover-bg: #334155;
+  --skeleton: #334155;
+}
+
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* Override Tailwind defaults with theme variables */
+.bg-slate-50 { background-color: var(--bg) !important; }
+.bg-white { background-color: var(--surface) !important; }
+.bg-slate-100 { background-color: var(--surface-2) !important; }
+.bg-slate-200 { background-color: var(--hover-bg) !important; }
+
+.text-slate-900 { color: var(--text) !important; }
+.text-slate-800 { color: var(--text) !important; }
+.text-slate-700 { color: var(--text) !important; }
+.text-slate-600 { color: var(--text-muted) !important; }
+.text-slate-500 { color: var(--text-muted) !important; }
+.text-slate-400 { color: var(--text-muted) !important; }
+
+.border-slate-200 { border-color: var(--border) !important; }
+.border-slate-300 { border-color: var(--border) !important; }
+
+.bg-indigo-600 { background-color: var(--primary) !important; }
+.bg-indigo-700 { background-color: var(--primary-hover) !important; }
+.text-indigo-600 { color: var(--primary) !important; }
+.text-indigo-700 { color: var(--primary) !important; }
+.border-indigo-500 { border-color: var(--primary) !important; }
+
+.bg-emerald-600 { background-color: var(--success) !important; }
+.text-emerald-600 { color: var(--success) !important; }
+.bg-emerald-50 { background-color: var(--success-soft) !important; }
+
+.bg-red-600 { background-color: var(--danger) !important; }
+.bg-red-700 { background-color: var(--danger-hover) !important; }
+.text-red-600 { color: var(--danger) !important; }
+.bg-red-50 { background-color: var(--danger-soft) !important; }
+
+.bg-amber-50 { background-color: var(--warning-soft) !important; }
+.text-amber-800 { color: var(--warning) !important; }
+.border-amber-200 { border-color: var(--warning) !important; }
+
+.hover\:bg-slate-50:hover { background-color: var(--hover-bg) !important; }
+.hover\:bg-slate-100:hover { background-color: var(--hover-bg) !important; }
+.hover\:bg-slate-200:hover { background-color: var(--surface-2) !important; }
+
+.hover\:bg-indigo-700:hover { background-color: var(--primary-hover) !important; }
+
+.shadow-sm { box-shadow: 0 1px 2px 0 var(--shadow) !important; }
+.shadow { box-shadow: 0 1px 3px 0 var(--shadow), 0 1px 2px -1px var(--shadow) !important; }
+.shadow-md { box-shadow: 0 4px 6px -1px var(--shadow), 0 2px 4px -2px var(--shadow) !important; }
+.shadow-lg { box-shadow: 0 10px 15px -3px var(--shadow-lg), 0 4px 6px -4px var(--shadow) !important; }
+
+.ring-indigo-500 { --tw-ring-color: var(--ring) !important; }
+.focus\:ring-indigo-500:focus { --tw-ring-color: var(--ring) !important; }
+
+/* Skeleton loaders */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  background-color: var(--skeleton) !important;
+}
+
+/* Scrollbar styling for dark mode */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Chart styles for dark mode */
+[data-theme="dark"] .recharts-wrapper {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+
+[data-theme="dark"] .recharts-text {
+  fill: var(--text-muted);
+}

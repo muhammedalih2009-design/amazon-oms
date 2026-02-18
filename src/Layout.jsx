@@ -5,6 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
 import { TaskManagerProvider } from '@/components/hooks/useTaskManager';
 import { LanguageProvider, useLanguage } from '@/components/contexts/LanguageContext';
+import { ThemeProvider, useTheme } from '@/components/contexts/ThemeContext';
 import TaskTray from '@/components/shared/TaskTray';
 import BackgroundJobManager from '@/components/shared/BackgroundJobManager';
 import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
@@ -65,9 +66,9 @@ const adminNavItems = [
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled } = useTenant();
   const { t, language, toggleLanguage, isRTL } = useLanguage();
+  const { theme, toggleTheme, isDark } = useTheme();
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -90,7 +91,7 @@ function LayoutContent({ children, currentPageName }) {
   }
 
   return (
-    <div className={`min-h-screen bg-slate-50 ${darkMode ? 'dark' : ''}`}>
+    <div className="min-h-screen bg-slate-50">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b z-50 flex items-center px-4">
         <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
@@ -225,14 +226,23 @@ function LayoutContent({ children, currentPageName }) {
 
           {/* User Menu & Language Toggle */}
           <div className="p-4 border-t space-y-3">
-            {/* Language Toggle */}
-            <button
-              onClick={toggleLanguage}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
-            >
-              <Languages className="w-4 h-4" />
-              {language === 'ar' ? 'English' : 'العربية'}
-            </button>
+            {/* Theme & Language Toggles */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={toggleTheme}
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+                title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              >
+                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={toggleLanguage}
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+              >
+                <Languages className="w-4 h-4" />
+                {language === 'ar' ? 'EN' : 'ع'}
+              </button>
+            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -250,11 +260,6 @@ function LayoutContent({ children, currentPageName }) {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => setDarkMode(!darkMode)}>
-                  {darkMode ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
-                  {darkMode ? 'Light Mode' : 'Dark Mode'}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                   <LogOut className="w-4 h-4 mr-2" />
                   Sign Out
@@ -277,19 +282,21 @@ function LayoutContent({ children, currentPageName }) {
 
 export default function Layout({ children, currentPageName }) {
   return (
-    <LanguageProvider>
-      <TenantProvider>
-        <TaskManagerProvider>
-          <WorkspaceAccessGuard>
-            <LayoutContent currentPageName={currentPageName}>
-              {children}
-            </LayoutContent>
-          </WorkspaceAccessGuard>
-          <TaskTray />
-          <BackgroundJobManager />
-          <Toaster />
-        </TaskManagerProvider>
-      </TenantProvider>
-    </LanguageProvider>
+    <ThemeProvider>
+      <LanguageProvider>
+        <TenantProvider>
+          <TaskManagerProvider>
+            <WorkspaceAccessGuard>
+              <LayoutContent currentPageName={currentPageName}>
+                {children}
+              </LayoutContent>
+            </WorkspaceAccessGuard>
+            <TaskTray />
+            <BackgroundJobManager />
+            <Toaster />
+          </TaskManagerProvider>
+        </TenantProvider>
+      </LanguageProvider>
+    </ThemeProvider>
   );
 }
