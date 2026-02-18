@@ -5,6 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { TenantProvider, useTenant } from '@/components/hooks/useTenant';
 import { TaskManagerProvider } from '@/components/hooks/useTaskManager';
 import TaskTray from '@/components/shared/TaskTray';
+import BackgroundJobManager from '@/components/shared/BackgroundJobManager';
 import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
 import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
 import { Toaster } from '@/components/ui/toaster';
@@ -247,6 +248,7 @@ export default function Layout({ children, currentPageName }) {
           </LayoutContent>
         </WorkspaceAccessGuard>
         <TaskTray />
+        <BackgroundJobManager />
         <Toaster />
       </TaskManagerProvider>
     </TenantProvider>
