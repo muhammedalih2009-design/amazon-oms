@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
+import { apiClient } from '@/components/utils/apiClient';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useDebounce } from '@/components/hooks/useDebounce';
 import { 
@@ -971,7 +972,34 @@ export default function SKUsPage() {
           </Button>
           <Button 
             variant="destructive"
-            onClick={() => setShowDeleteDialog(true)}
+            onClick={async () => {
+              if (selectAllPages && filteredSkus.length === skus.length) {
+                // Delete ALL SKUs using background job
+                try {
+                  const data = await apiClient.invokeFunction('startDeleteAllSkus', {
+                    workspace_id: tenantId
+                  });
+                  
+                  if (data.ok) {
+                    toast({
+                      title: 'Background job started',
+                      description: `Deleting ${data.total_items} SKUs in background. You can continue working.`,
+                      duration: 5000
+                    });
+                    setSelectedRows([]);
+                    setSelectAllPages(false);
+                  }
+                } catch (error) {
+                  toast({
+                    title: 'Failed to start job',
+                    description: error.message,
+                    variant: 'destructive'
+                  });
+                }
+              } else {
+                setShowDeleteDialog(true);
+              }
+            }}
             disabled={selectedRows.length === 0 || !canEdit}
           >
             <Trash2 className="w-4 h-4 mr-2" />
