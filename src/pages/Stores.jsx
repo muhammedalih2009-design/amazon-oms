@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { Store, Plus, Edit, Trash2, Package, RefreshCw } from 'lucide-react';
+import { Store, Plus, Edit, Trash2, Package, RefreshCw, Database, Download } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +35,6 @@ import WorkspacePackageManager from '@/components/stores/WorkspacePackageManager
 import BackupManager from '@/components/stores/BackupManager';
 import PaywallBanner from '@/components/ui/PaywallBanner';
 import PremiumCollapsibleSection from '@/components/shared/PremiumCollapsibleSection';
-import { Package, Database, Store as StoreIcon, Download, Plus } from 'lucide-react';
 
 export default function Stores() {
   const { tenantId, tenant, subscription } = useTenant();
@@ -316,7 +315,7 @@ export default function Stores() {
 
       <PremiumCollapsibleSection
         id="stores_sales_channels"
-        icon={StoreIcon}
+        icon={Store}
         title="Stores & Sales Channels"
         subtitle="Manage stores and integrations"
         defaultOpen={false}
@@ -374,7 +373,7 @@ export default function Stores() {
             onEmptyAction={() => setShowForm(true)}
           />
         </div>
-      </CollapsibleSection>
+      </PremiumCollapsibleSection>
 
       {/* Add/Edit Store Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
