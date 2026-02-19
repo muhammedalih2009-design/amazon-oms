@@ -26,10 +26,12 @@ import {
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { formatCurrency } from '@/components/utils/formatCurrency';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 
 export default function ProfitabilityPage() {
   const { tenant, currency, locale } = useTenant();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
   const [stores, setStores] = useState([]);
@@ -229,14 +231,14 @@ export default function ProfitabilityPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Profitability</h1>
-          <p className="text-slate-600 mt-1">Line-level profit analysis for fulfilled orders</p>
+          <h1 className="text-3xl font-bold text-slate-900">{t('profitability.title')}</h1>
+          <p className="text-slate-600 mt-1">{t('profitability.subtitle')}</p>
         </div>
         <label htmlFor="revenue-upload">
           <Button asChild disabled={uploading}>
             <span>
               <Upload className="w-4 h-4 mr-2" />
-              {uploading ? 'Uploading...' : 'Upload Revenue'}
+              {uploading ? t('profitability.uploading') : t('profitability.uploadRevenue')}
             </span>
           </Button>
           <input
@@ -254,7 +256,7 @@ export default function ProfitabilityPage() {
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Total Revenue</p>
+              <p className="text-sm text-slate-600">{t('profitability.totalRevenue')}</p>
               <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalRevenue, currency, locale)}</p>
             </div>
             <DollarSign className="w-10 h-10 text-green-500 opacity-20" />
@@ -263,7 +265,7 @@ export default function ProfitabilityPage() {
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Total Cost</p>
+              <p className="text-sm text-slate-600">{t('profitability.totalCost')}</p>
               <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCost, currency, locale)}</p>
             </div>
             <Package className="w-10 h-10 text-orange-500 opacity-20" />
@@ -272,7 +274,7 @@ export default function ProfitabilityPage() {
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Net Profit</p>
+              <p className="text-sm text-slate-600">{t('profitability.netProfit')}</p>
               <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {formatCurrency(totalProfit, currency, locale)}
               </p>
@@ -283,7 +285,7 @@ export default function ProfitabilityPage() {
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Avg Margin</p>
+              <p className="text-sm text-slate-600">{t('profitability.avgMargin')}</p>
               <p className={`text-2xl font-bold ${avgMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {avgMargin.toFixed(1)}%
               </p>

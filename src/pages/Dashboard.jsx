@@ -287,35 +287,35 @@ export default function Dashboard() {
           iconColor="text-emerald-600"
         />
         <KPICard
-          title="Stock Value"
+          title={t('dashboard.stockValue')}
           value={formatCurrency(kpis.stockValue, currency, locale)}
           icon={Package}
           iconBg="bg-violet-100"
           iconColor="text-violet-600"
         />
         <KPICard
-          title="Purchased Stock Cost (Suppliers)"
+          title={t('dashboard.purchasedCostSuppliers')}
           value={formatCurrency(kpis.purchasedCostSuppliers, currency, locale)}
           icon={Package}
           iconBg="bg-blue-100"
           iconColor="text-blue-600"
         />
         <KPICard
-          title="Purchased Stock Cost (Warehouse)"
+          title={t('dashboard.purchasedCostWarehouse')}
           value={formatCurrency(kpis.purchasedCostWarehouse, currency, locale)}
           icon={Package}
           iconBg="bg-slate-100"
           iconColor="text-slate-600"
         />
         <KPICard
-          title="Monthly Revenue"
+          title={t('dashboard.monthlyRevenue')}
           value={formatCurrency(kpis.revenue, currency, locale)}
           icon={DollarSign}
           iconBg="bg-emerald-100"
           iconColor="text-emerald-600"
         />
         <KPICard
-          title="Monthly Profit"
+          title={t('dashboard.monthlyProfit')}
           value={formatCurrency(kpis.profit, currency, locale)}
           icon={TrendingUp}
           iconBg="bg-blue-100"

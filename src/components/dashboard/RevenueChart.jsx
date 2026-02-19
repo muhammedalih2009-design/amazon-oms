@@ -2,11 +2,14 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { formatCurrency } from '@/components/utils/formatCurrency';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 
 export default function RevenueChart({ data = [], currency = 'USD', locale = 'en-US' }) {
+  const { t } = useLanguage();
+  
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6">
-      <h3 className="text-lg font-semibold text-slate-900 mb-6">Revenue vs Cost vs Profit</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-6">{t('dashboard.revenueVsCostProfit')}</h3>
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>

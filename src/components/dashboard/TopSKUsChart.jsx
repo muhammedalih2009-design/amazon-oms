@@ -1,10 +1,13 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 
 export default function TopSKUsChart({ data = [] }) {
+  const { t } = useLanguage();
+  
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6">
-      <h3 className="text-lg font-semibold text-slate-900 mb-6">Top 10 SKUs by Quantity</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-6">{t('dashboard.topSKUs')}</h3>
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart 

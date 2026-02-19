@@ -6,15 +6,18 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { Eye, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/components/utils/formatCurrency';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 
 export default function RecentOrdersTable({ orders = [], currency = 'USD', locale = 'en-US' }) {
+  const { t } = useLanguage();
+  
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-slate-900">Recent Orders</h3>
+        <h3 className="text-lg font-semibold text-slate-900">{t('dashboard.recentOrders')}</h3>
         <Link to={createPageUrl('Orders')}>
           <Button variant="ghost" size="sm" className="text-indigo-600 hover:text-indigo-700">
-            View All <ArrowRight className="w-4 h-4 ml-1" />
+            {t('dashboard.viewAll')} <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
         </Link>
       </div>
@@ -23,11 +26,11 @@ export default function RecentOrdersTable({ orders = [], currency = 'USD', local
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Order ID</th>
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Revenue</th>
-              <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Profit</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('dashboard.orderId')}</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('dashboard.date')}</th>
+              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('dashboard.status')}</th>
+              <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('dashboard.revenue')}</th>
+              <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('dashboard.profit')}</th>
             </tr>
           </thead>
           <tbody>
