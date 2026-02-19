@@ -42,10 +42,11 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    // Update to cancelling and mark as non-resumable
+    // P0 FIX: Update to cancelling with timestamp
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'cancelling',
-      can_resume: false
+      can_resume: false,
+      cancel_requested_at: new Date().toISOString()
     });
 
     // Audit log
