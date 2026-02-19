@@ -81,60 +81,9 @@ export default function TeamPage() {
     }
   };
 
-  const handleInviteUser = async (email, role, permissions) => {
-    try {
-      // Invite user to the app
-      await base44.users.inviteUser(email, 'user');
-      
-      // Check if user already exists
-      const existingUsers = await base44.entities.User.filter({ email });
-      let userId = existingUsers[0]?.id;
-      
-      if (!userId) {
-        // If user doesn't exist yet, create a placeholder membership
-        // The actual user will be linked when they accept the invitation
-        await base44.entities.Membership.create({
-          tenant_id: tenantId,
-          user_id: 'pending',
-          user_email: email,
-          role,
-          permissions
-        });
-      } else {
-        // Check if membership already exists
-        const existing = members.find(m => m.user_email === email);
-        if (existing) {
-          toast({
-            title: 'User already in workspace',
-            description: `${email} is already a member of this workspace`,
-            variant: 'destructive'
-          });
-          return;
-        }
-        
-        await base44.entities.Membership.create({
-          tenant_id: tenantId,
-          user_id: userId,
-          user_email: email,
-          role,
-          permissions
-        });
-      }
-      
-      toast({
-        title: 'User invited',
-        description: `Invitation sent to ${email}`
-      });
-      
-      loadData();
-      setShowInviteModal(false);
-    } catch (error) {
-      toast({
-        title: 'Error inviting user',
-        description: error.message,
-        variant: 'destructive'
-      });
-    }
+  const handleInviteUser = async () => {
+    // Reload data after invite/add
+    await loadData();
   };
 
   const handleUpdatePermissions = async (memberId, permissions) => {
