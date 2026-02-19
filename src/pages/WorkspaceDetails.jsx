@@ -293,21 +293,7 @@ export default function WorkspaceDetails() {
             </div>
           )}
         </CardContent>
-      </Card> </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {modules.map(module => (
-              <div key={module.id} className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="font-medium text-slate-900 capitalize">
-                    {module.module_key.replace(/_/g, ' ')}
-                  </p>
-                  <p className="text-xs text-slate-500">{module.module_key}</p>
-                </div>
-                <Switch
-                  checked={module.enabled}
-                  onCheckedChange={() => handleToggleModule(module.module_key, module.enabled)}
+      </Card>
                 />
               </div>
             ))}
