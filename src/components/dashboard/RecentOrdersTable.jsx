@@ -5,8 +5,9 @@ import { createPageUrl } from '@/utils';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Eye, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 
-export default function RecentOrdersTable({ orders = [] }) {
+export default function RecentOrdersTable({ orders = [], currency = 'USD', locale = 'en-US' }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6">
       <div className="flex items-center justify-between mb-6">
@@ -42,11 +43,11 @@ export default function RecentOrdersTable({ orders = [] }) {
                   <StatusBadge status={order.status} />
                 </td>
                 <td className="py-4 px-4 text-right font-medium text-slate-900">
-                  ${(order.net_revenue || 0).toFixed(2)}
+                  {formatCurrency(order.net_revenue, currency, locale)}
                 </td>
                 <td className="py-4 px-4 text-right">
                   <span className={`font-medium ${(order.profit_loss || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    ${(order.profit_loss || 0).toFixed(2)}
+                    {formatCurrency(order.profit_loss, currency, locale)}
                   </span>
                 </td>
               </tr>

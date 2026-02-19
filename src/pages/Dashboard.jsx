@@ -338,7 +338,7 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <TopSKUsChart data={topSKUsData} />
-          <RecentOrdersTable orders={orders.sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))} />
+          <RecentOrdersTable orders={orders.sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))} currency={currency} locale={locale} />
           <PendingTasksWidget tenantId={tenantId} userId={user?.id} />
         </div>
       </div>
