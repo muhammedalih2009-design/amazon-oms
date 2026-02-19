@@ -165,11 +165,11 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
                 </Button>
               </div>
             ),
-            duration: 10000,
+            duration: 15000,
           });
         } else {
           toast({
-            title: data.mode === 'member_added' ? 'Member Added' : 'Invite Sent',
+            title: data.mode === 'member_added' ? 'Member Added' : 'Invite Created',
             description: data.message,
           });
         }
@@ -194,6 +194,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
       });
     } finally {
       setLoading(false);
+      setSubmitting(false);
     }
   };
 
