@@ -80,8 +80,10 @@ export function LanguageProvider({ children }) {
       fallback = fallback?.[k];
     }
     
-    // Use fallback if translation not found
-    let result = translation || fallback || key;
+    // Use fallback if translation not found or is an object
+    let result = (typeof translation === 'string' ? translation : null) 
+                 || (typeof fallback === 'string' ? fallback : null) 
+                 || key;
     
     // Simple parameter replacement
     if (typeof result === 'string') {
