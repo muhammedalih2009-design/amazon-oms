@@ -27,7 +27,7 @@ import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 
 export default function ProfitabilityPage() {
-  const { tenant } = useTenant();
+  const { tenant, currency, locale } = useTenant();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
