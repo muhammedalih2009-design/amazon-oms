@@ -138,10 +138,37 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
       });
 
       if (data.ok) {
-        toast({
-          title: data.mode === 'member_added' ? 'Member Added' : 'Invite Sent',
-          description: data.message,
-        });
+        if (data.mode === 'invite_created' && data.invite_link) {
+          // Show invite link in dialog
+          toast({
+            title: 'Invite Created',
+            description: (
+              <div className="space-y-2">
+                <p>{data.message}</p>
+                <div className="bg-slate-100 p-2 rounded text-xs font-mono break-all">
+                  {data.invite_link}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(data.invite_link);
+                    toast({ title: 'Link copied!' });
+                  }}
+                  className="w-full mt-2"
+                >
+                  Copy Invite Link
+                </Button>
+              </div>
+            ),
+            duration: 10000,
+          });
+        } else {
+          toast({
+            title: data.mode === 'member_added' ? 'Member Added' : 'Invite Sent',
+            description: data.message,
+          });
+        }
 
         setEmail('');
         setRole('member');

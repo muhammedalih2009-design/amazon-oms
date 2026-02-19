@@ -125,10 +125,17 @@ Deno.serve(async (req) => {
         }
       });
 
+      // Generate in-app invite link (not raw function URL)
+      const appOrigin = Deno.env.get('DENO_ENV') === 'production' 
+        ? 'https://app.amazon-oms.com' 
+        : new URL(req.url).origin;
+      const inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
+
       return Response.json({
         ok: true,
         mode: 'invite_created',
         token,
+        invite_link: inviteLink,
         message: `Invite sent to ${normalizedEmail}`
       });
     }
