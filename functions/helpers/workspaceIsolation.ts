@@ -6,8 +6,9 @@
 const PLATFORM_ADMIN_EMAIL = 'muhammedalih.2009@gmail.com';
 
 /**
- * Get workspace ID from context
+ * P0 SECURITY: Get workspace ID from context with strict validation
  * Priority: 1) Request payload 2) User's active workspace
+ * CRITICAL: Always verifies membership
  */
 export async function getContextWorkspaceId(base44, req) {
   try {
@@ -23,6 +24,7 @@ export async function getContextWorkspaceId(base44, req) {
   const user = await base44.auth.me();
   if (!user) return null;
   
+  // P0 SECURITY: Only return workspace user is actually a member of
   const memberships = await base44.asServiceRole.entities.Membership.filter({
     user_email: user.email
   });
@@ -46,7 +48,7 @@ export function enforceWorkspaceScope(query, workspace_id) {
 }
 
 /**
- * Require user to be member of workspace
+ * P0 SECURITY: Require user to be member of workspace
  * @throws {Error} 403 if not a member
  */
 export async function requireWorkspaceMember(base44, workspace_id, user) {
@@ -54,17 +56,33 @@ export async function requireWorkspaceMember(base44, workspace_id, user) {
     throw new Error('Authentication required');
   }
   
-  // Platform admin bypass
-  if (user.email === PLATFORM_ADMIN_EMAIL) {
+  if (!workspace_id) {
+    throw new Error('workspace_id required');
+  }
+  
+  // App owner bypass
+  if (user.email.toLowerCase() === PLATFORM_ADMIN_EMAIL.toLowerCase()) {
     return true;
   }
   
+  // P0 SECURITY: STRICT membership check
   const memberships = await base44.asServiceRole.entities.Membership.filter({
     tenant_id: workspace_id,
     user_email: user.email
   });
   
   if (memberships.length === 0) {
+    // Log access denial
+    await logAudit(base44, {
+      workspace_id,
+      user_id: user.id,
+      user_email: user.email,
+      action: 'workspace_access_denied',
+      entity_type: 'workspace',
+      entity_id: workspace_id,
+      metadata: { reason: 'no_membership', function: 'requireWorkspaceMember' }
+    });
+    
     throw new Error('Access denied: not a member of this workspace');
   }
   
