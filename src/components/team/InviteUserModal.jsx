@@ -129,6 +129,9 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return; // Prevent double-submit
+    
+    setSubmitting(true);
     setLoading(true);
 
     try {
@@ -140,12 +143,12 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
 
       if (data.ok) {
         if (data.mode === 'invite_created' && data.invite_link) {
-          // Show invite link in dialog
+          // Show invite link with copy button
           toast({
             title: 'Invite Created',
             description: (
               <div className="space-y-2">
-                <p>{data.message}</p>
+                <p className="text-sm font-medium">Share this link with {email}:</p>
                 <div className="bg-slate-100 p-2 rounded text-xs font-mono break-all">
                   {data.invite_link}
                 </div>
