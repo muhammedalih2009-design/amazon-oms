@@ -70,6 +70,7 @@ import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
+import SecurityAudit from './pages/SecurityAudit';
 import __Layout from './Layout.jsx';
 
 
@@ -97,6 +98,7 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
+    "SecurityAudit": SecurityAudit,
 }
 
 export const pagesConfig = {

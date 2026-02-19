@@ -31,13 +31,13 @@ export function TenantProvider({ children }) {
       const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });
       setUserMemberships(memberships);
 
-      // Load workspaces based on role
+      // P0 SECURITY: STRICT workspace list - only show workspaces with membership
       let workspaces = [];
       if (isSuperAdmin) {
-        // Super admin sees ALL workspaces
+        // App owner sees ALL workspaces
         workspaces = await base44.entities.Tenant.filter({});
       } else if (memberships.length > 0) {
-        // Regular user sees only their workspaces
+        // CRITICAL: Regular users see ONLY workspaces they're members of
         const tenantIds = memberships.map(m => m.tenant_id);
         workspaces = await base44.entities.Tenant.filter({
           id: { $in: tenantIds }
@@ -50,12 +50,18 @@ export function TenantProvider({ children }) {
       let activeTenant = null;
       let activeMembership = null;
 
-      // Validate stored workspace
+      // P0 SECURITY: Validate stored workspace has membership
       if (activeWorkspaceId && workspaces.length > 0) {
         activeTenant = workspaces.find(t => t.id === activeWorkspaceId);
+        
+        // CRITICAL: If stored workspace not in authorized list, clear it
+        if (!activeTenant) {
+          localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+          activeWorkspaceId = null;
+        }
       }
 
-      // Fallback to first workspace
+      // Fallback to first authorized workspace
       if (!activeTenant && workspaces.length > 0) {
         activeTenant = workspaces[0];
         localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
@@ -100,10 +106,10 @@ export function TenantProvider({ children }) {
         setUserMemberships([newMembership]);
         localStorage.setItem(ACTIVE_WORKSPACE_KEY, newTenant.id);
       } else {
-        // Load membership and subscription for active workspace
+        // P0 SECURITY: Load membership for active workspace
         activeMembership = memberships.find(m => m.tenant_id === activeTenant.id);
         
-        // SAFETY: If super admin and no membership exists, auto-create it
+        // P0 SECURITY: If app owner and no membership, auto-create (safe exception)
         if (isSuperAdmin && !activeMembership) {
           try {
             activeMembership = await base44.entities.Membership.create({
@@ -122,11 +128,21 @@ export function TenantProvider({ children }) {
                 suppliers: { view: true, edit: true }
               }
             });
-            // Update local state
             setUserMemberships([...memberships, activeMembership]);
           } catch (error) {
-            console.error('Failed to auto-create super admin membership:', error);
+            console.error('Failed to auto-create app owner membership:', error);
           }
+        }
+        
+        // P0 SECURITY: If regular user has no membership, they shouldn't access this workspace
+        if (!isSuperAdmin && !activeMembership) {
+          console.error('SECURITY: User attempted to access workspace without membership');
+          localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+          setTenant(null);
+          setMembership(null);
+          setSubscription(null);
+          setLoading(false);
+          return;
         }
         
         const subs = await base44.entities.Subscription.filter({ tenant_id: activeTenant.id });
@@ -170,17 +186,21 @@ export function TenantProvider({ children }) {
 
   const switchWorkspace = async (workspaceId) => {
     try {
+      // P0 SECURITY: Verify workspace is in authorized list
       const newTenant = allWorkspaces.find(t => t.id === workspaceId);
-      if (!newTenant) return;
+      if (!newTenant) {
+        console.error('SECURITY: Attempted to switch to unauthorized workspace');
+        return;
+      }
 
       setTenant(newTenant);
       localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
 
       let newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
       
-      // SAFETY: If super admin and no membership exists, auto-create it before switching
+      // P0 SECURITY: Only app owner can auto-create membership
       const currentUser = user;
-      const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.email === 'admin@amazonoms.com';
+      const isSuperAdmin = currentUser?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
       
       if (isSuperAdmin && !newMembership) {
         try {
@@ -201,8 +221,14 @@ export function TenantProvider({ children }) {
             }
           });
         } catch (error) {
-          console.error('Failed to auto-create membership during switch:', error);
+          console.error('Failed to auto-create app owner membership:', error);
         }
+      }
+      
+      // P0 SECURITY: Regular users MUST have membership
+      if (!isSuperAdmin && !newMembership) {
+        console.error('SECURITY: Regular user cannot switch to workspace without membership');
+        return;
       }
       
       setMembership(newMembership);
