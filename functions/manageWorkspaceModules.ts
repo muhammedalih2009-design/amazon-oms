@@ -69,6 +69,19 @@ Deno.serve(async (req) => {
           });
         }
 
+        // Log audit
+        await base44.asServiceRole.entities.AuditLog.create({
+          workspace_id,
+          user_id: user.id,
+          user_email: user.email,
+          action: enabled ? 'module_enabled' : 'module_disabled',
+          entity_type: 'WorkspaceModule',
+          metadata: {
+            module_key,
+            enabled
+          }
+        });
+
         return Response.json({ ok: true, message: 'Module updated' });
       }
 
@@ -77,7 +90,7 @@ Deno.serve(async (req) => {
         const allModules = [
           'dashboard', 'stores', 'skus_products', 'orders', 'profitability',
           'purchase_requests', 'purchases', 'returns', 'suppliers',
-          'tasks', 'team'
+          'tasks', 'team', 'settings'
         ];
 
         const existing = await base44.asServiceRole.entities.WorkspaceModule.filter({
@@ -97,7 +110,75 @@ Deno.serve(async (req) => {
           await base44.asServiceRole.entities.WorkspaceModule.bulkCreate(toCreate);
         }
 
+        // Log audit
+        await base44.asServiceRole.entities.AuditLog.create({
+          workspace_id,
+          user_id: user.id,
+          user_email: user.email,
+          action: 'module_change',
+          entity_type: 'WorkspaceModule',
+          metadata: {
+            action: 'initialize',
+            modules_created: toCreate.length
+          }
+        });
+
         return Response.json({ ok: true, initialized: toCreate.length });
+      }
+      
+      case 'bulk_update': {
+        const { modules_to_enable } = await req.json();
+        if (!Array.isArray(modules_to_enable)) {
+          return Response.json({ ok: false, error: 'modules_to_enable must be array' }, { status: 400 });
+        }
+
+        // Get all existing modules for this workspace
+        const existing = await base44.asServiceRole.entities.WorkspaceModule.filter({
+          workspace_id
+        });
+        
+        const existingMap = new Map(existing.map(m => [m.module_key, m]));
+        const allModules = [
+          'dashboard', 'stores', 'skus_products', 'orders', 'profitability',
+          'purchase_requests', 'purchases', 'returns', 'suppliers',
+          'tasks', 'team', 'settings'
+        ];
+
+        for (const moduleKey of allModules) {
+          const shouldBeEnabled = modules_to_enable.includes(moduleKey);
+          const existingModule = existingMap.get(moduleKey);
+
+          if (existingModule) {
+            // Update existing
+            if (existingModule.enabled !== shouldBeEnabled) {
+              await base44.asServiceRole.entities.WorkspaceModule.update(existingModule.id, {
+                enabled: shouldBeEnabled
+              });
+            }
+          } else {
+            // Create new
+            await base44.asServiceRole.entities.WorkspaceModule.create({
+              workspace_id,
+              module_key: moduleKey,
+              enabled: shouldBeEnabled
+            });
+          }
+        }
+
+        // Log audit
+        await base44.asServiceRole.entities.AuditLog.create({
+          workspace_id,
+          user_id: user.id,
+          user_email: user.email,
+          action: 'module_change',
+          entity_type: 'WorkspaceModule',
+          metadata: {
+            action: 'bulk_update',
+            enabled_count: modules_to_enable.length
+          }
+        });
+
+        return Response.json({ ok: true, updated: allModules.length });
       }
 
       default:

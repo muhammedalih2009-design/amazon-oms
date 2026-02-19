@@ -654,49 +654,63 @@ export default function AdminPage() {
 
       {/* Create Workspace Dialog */}
       <Dialog open={showCreateWorkspace} onOpenChange={setShowCreateWorkspace}>
-        <DialogContent>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Workspace</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleCreateWorkspace} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Workspace Name *</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="My Company"
-                required
+          <form onSubmit={handleCreateWorkspace} className="space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Workspace Name *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="My Company"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Slug (URL-friendly)</Label>
+                <Input
+                  value={formData.slug}
+                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                  placeholder="my-company"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Plan</Label>
+                <Select
+                  value={formData.plan}
+                  onValueChange={(value) => setFormData({ ...formData, plan: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Free</SelectItem>
+                    <SelectItem value="trial">Trial</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="border-t pt-6">
+              <ModuleSelector
+                selectedModules={selectedModules}
+                onChange={setSelectedModules}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Slug (URL-friendly)</Label>
-              <Input
-                value={formData.slug}
-                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                placeholder="my-company"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Plan</Label>
-              <Select
-                value={formData.plan}
-                onValueChange={(value) => setFormData({ ...formData, plan: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="free">Free</SelectItem>
-                  <SelectItem value="trial">Trial</SelectItem>
-                  <SelectItem value="pro">Pro</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex justify-end gap-3 pt-4">
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => setShowCreateWorkspace(false)}>
                 Cancel
               </Button>
-              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">
+              <Button 
+                type="submit" 
+                className="bg-indigo-600 hover:bg-indigo-700"
+                disabled={selectedModules.length === 0}
+              >
                 Create Workspace
               </Button>
             </div>

@@ -1,6 +1,9 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-const PLATFORM_ADMIN_EMAIL = 'muhammedalih.2009@gmail.com';
+/**
+ * Server-side module access enforcement
+ * Call this at the start of any backend function that needs workspace-specific module access
+ */
 
 const PAGE_MODULE_MAP = {
   'Dashboard': 'dashboard',
@@ -13,7 +16,9 @@ const PAGE_MODULE_MAP = {
   'Returns': 'returns',
   'Suppliers': 'suppliers',
   'Tasks': 'tasks',
-  'Team': 'team'
+  'Team': 'team',
+  'Settings': 'settings',
+  'BackupData': 'stores'
 };
 
 Deno.serve(async (req) => {
@@ -22,51 +27,80 @@ Deno.serve(async (req) => {
   try {
     const user = await base44.auth.me();
     if (!user) {
-      return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { workspace_id, page_name } = await req.json();
-
-    if (!workspace_id || !page_name) {
       return Response.json({ 
         ok: false, 
-        error: 'workspace_id and page_name required' 
+        error: 'Unauthorized' 
+      }, { status: 401 });
+    }
+
+    const { workspace_id, module_key, page_name } = await req.json();
+
+    if (!workspace_id) {
+      return Response.json({ 
+        ok: false, 
+        error: 'workspace_id required' 
       }, { status: 400 });
     }
 
-    // Platform admin bypass
-    if (user.email === PLATFORM_ADMIN_EMAIL) {
-      return Response.json({ ok: true, access: 'granted' });
+    // Determine module key from page name if provided
+    let checkModuleKey = module_key;
+    if (!checkModuleKey && page_name) {
+      checkModuleKey = PAGE_MODULE_MAP[page_name];
     }
 
-    // Get module key for page
-    const moduleKey = PAGE_MODULE_MAP[page_name];
-    if (!moduleKey) {
-      // Unknown page, allow by default
-      return Response.json({ ok: true, access: 'granted' });
-    }
-
-    // Check module status
-    const modules = await base44.asServiceRole.entities.WorkspaceModule.filter({
-      workspace_id,
-      module_key: moduleKey
-    });
-
-    // If no modules configured, assume enabled
-    if (modules.length === 0) {
-      return Response.json({ ok: true, access: 'granted' });
-    }
-
-    const module = modules[0];
-    if (!module.enabled) {
+    if (!checkModuleKey) {
       return Response.json({ 
         ok: false, 
-        access: 'denied',
-        reason: 'Module not enabled for this workspace'
+        error: 'module_key or page_name required' 
+      }, { status: 400 });
+    }
+
+    // Check workspace membership
+    const memberships = await base44.asServiceRole.entities.Membership.filter({
+      tenant_id: workspace_id,
+      user_email: user.email
+    });
+
+    if (memberships.length === 0) {
+      return Response.json({ 
+        ok: false, 
+        error: 'Not a member of this workspace',
+        access_denied: true
       }, { status: 403 });
     }
 
-    return Response.json({ ok: true, access: 'granted' });
+    // Check if module is enabled for workspace
+    const modules = await base44.asServiceRole.entities.WorkspaceModule.filter({
+      workspace_id,
+      module_key: checkModuleKey
+    });
+
+    if (modules.length === 0) {
+      // No module config = allow (legacy workspaces)
+      return Response.json({ 
+        ok: true, 
+        access_granted: true,
+        reason: 'legacy_workspace' 
+      });
+    }
+
+    const module = modules[0];
+    
+    if (!module.enabled) {
+      return Response.json({ 
+        ok: false, 
+        error: `Module '${checkModuleKey}' is not enabled for this workspace`,
+        access_denied: true,
+        module_key: checkModuleKey
+      }, { status: 403 });
+    }
+
+    return Response.json({ 
+      ok: true, 
+      access_granted: true,
+      module_key: checkModuleKey,
+      workspace_id
+    });
 
   } catch (error) {
     console.error('[Module Access Check] Error:', error);
