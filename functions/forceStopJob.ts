@@ -42,11 +42,18 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    // Update to cancelling and mark as non-resumable
+    // CRITICAL: Set to cancelling with timestamp for true cancellation
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'cancelling',
-      can_resume: false
+      can_resume: false,
+      params: {
+        ...job.params,
+        cancel_requested_at: new Date().toISOString(),
+        cancelled_by: user.email
+      }
     });
+
+    console.log(`[Force Stop] Job ${job_id} set to cancelling - worker will stop within seconds`);
 
     // Audit log
     await base44.asServiceRole.entities.AuditLog.create({
@@ -64,7 +71,7 @@ Deno.serve(async (req) => {
 
     return Response.json({
       success: true,
-      message: 'Job force stop requested'
+      message: 'Job cancellation requested - will stop within seconds'
     });
   } catch (error) {
     console.error('Error force stopping job:', error);

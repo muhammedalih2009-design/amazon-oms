@@ -42,8 +42,29 @@ Deno.serve(async (req) => {
     let currentDelay = BASE_DELAY;
 
     while (true) {
-      // Check job status (might have been paused/cancelled)
+      // CRITICAL: Check job status BEFORE processing batch (true cancellation support)
       const currentJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
+      
+      if (currentJob.status === 'cancelling') {
+        console.log(`[Execute Delete All SKUs] Job ${job_id} cancelling, stopping immediately`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          progress: {
+            current: processedCount,
+            total: job.params.total_skus,
+            percent: Math.round((processedCount / job.params.total_skus) * 100),
+            phase: 'cancelled',
+            message: `Job cancelled after deleting ${deletedCount} SKUs`
+          },
+          result: {
+            deleted_skus: deletedCount,
+            errors: errorCount,
+            cancelled: true
+          }
+        });
+        return Response.json({ ok: true, message: 'Job cancelled', deleted_skus: deletedCount });
+      }
       
       if (currentJob.status === 'paused') {
         console.log(`[Execute Delete All SKUs] Job ${job_id} paused, exiting`);
@@ -51,15 +72,15 @@ Deno.serve(async (req) => {
       }
       
       if (currentJob.status === 'cancelled') {
-        console.log(`[Execute Delete All SKUs] Job ${job_id} cancelled, exiting`);
+        console.log(`[Execute Delete All SKUs] Job ${job_id} already cancelled, exiting`);
         return Response.json({ ok: true, message: 'Job cancelled' });
       }
 
-      // Fetch next batch of SKUs
+      // Fetch next batch of SKUs (smaller batch for faster cancellation response)
       const skus = await base44.asServiceRole.entities.SKU.filter(
         { tenant_id: workspace_id },
         null,
-        BATCH_SIZE
+        50  // Reduced from BATCH_SIZE for faster cancellation
       );
 
       if (skus.length === 0) {
@@ -90,7 +111,7 @@ Deno.serve(async (req) => {
         processedCount++;
       }
 
-      // Update progress
+      // Update progress after each batch
       const percent = Math.round((processedCount / job.params.total_skus) * 100);
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         status: currentDelay === THROTTLED_DELAY ? 'throttled' : 'running',
@@ -100,7 +121,8 @@ Deno.serve(async (req) => {
           percent,
           phase: 'deleting',
           message: `Deleted ${deletedCount} of ${job.params.total_skus} SKUs`
-        }
+        },
+        last_heartbeat_at: new Date().toISOString()
       });
 
       // Delay between batches
@@ -110,6 +132,23 @@ Deno.serve(async (req) => {
       if (currentDelay === THROTTLED_DELAY) {
         currentDelay = BASE_DELAY;
       }
+    }
+
+    // Check for cancellation before cleanup phase
+    const finalCheck = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
+    if (finalCheck.status === 'cancelling') {
+      console.log(`[Execute Delete All SKUs] Job ${job_id} cancelled before cleanup`);
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        result: {
+          deleted_skus: deletedCount,
+          errors: errorCount,
+          cancelled: true,
+          phase: 'cancelled_before_cleanup'
+        }
+      });
+      return Response.json({ ok: true, message: 'Job cancelled', deleted_skus: deletedCount });
     }
 
     // Job completed - now clean up related data
@@ -125,25 +164,76 @@ Deno.serve(async (req) => {
       }
     });
 
-    // Delete related entities
+    // Delete related entities in batches with cancellation checks
     const [movements, stocks] = await Promise.all([
       base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id }),
       base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id })
     ]);
 
+    let movementDeleted = 0;
     for (const movement of movements) {
+      // Check for cancellation during cleanup
+      const cleanupCheck = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
+      if (cleanupCheck.status === 'cancelling') {
+        console.log(`[Execute Delete All SKUs] Job cancelled during cleanup`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          result: {
+            deleted_skus: deletedCount,
+            errors: errorCount,
+            deleted_movements: movementDeleted,
+            cancelled: true,
+            phase: 'cancelled_during_cleanup'
+          }
+        });
+        return Response.json({ ok: true, message: 'Job cancelled during cleanup' });
+      }
+      
       try {
         await base44.asServiceRole.entities.StockMovement.delete(movement.id);
+        movementDeleted++;
       } catch (error) {
         console.error(`[Execute Delete All SKUs] Failed to delete movement:`, error.message);
       }
+      
+      // Small delay every 10 movements to check cancellation more frequently
+      if (movementDeleted % 10 === 0) {
+        await sleep(100);
+      }
     }
 
+    let stockDeleted = 0;
     for (const stock of stocks) {
+      // Check for cancellation during stock cleanup
+      const stockCheck = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
+      if (stockCheck.status === 'cancelling') {
+        console.log(`[Execute Delete All SKUs] Job cancelled during stock cleanup`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          result: {
+            deleted_skus: deletedCount,
+            errors: errorCount,
+            deleted_movements: movementDeleted,
+            deleted_stocks: stockDeleted,
+            cancelled: true,
+            phase: 'cancelled_during_stock_cleanup'
+          }
+        });
+        return Response.json({ ok: true, message: 'Job cancelled during stock cleanup' });
+      }
+      
       try {
         await base44.asServiceRole.entities.CurrentStock.delete(stock.id);
+        stockDeleted++;
       } catch (error) {
         console.error(`[Execute Delete All SKUs] Failed to delete stock:`, error.message);
+      }
+      
+      // Small delay every 10 stocks
+      if (stockDeleted % 10 === 0) {
+        await sleep(100);
       }
     }
 
