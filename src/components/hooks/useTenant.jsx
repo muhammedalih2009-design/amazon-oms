@@ -24,40 +24,24 @@ export function TenantProvider({ children }) {
       const currentUser = await base44.auth.me();
       setUser(currentUser);
 
-      // P0 SECURITY: Check if user is allowed to access the app
-      const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
-      const isOwner = currentUser.email.toLowerCase() === APP_OWNER_EMAIL.toLowerCase();
-
-      if (!isOwner) {
-        // Non-owner must be in AllowedUser table with active status
-        const accessValidation = await base44.functions.invoke('validateUserAccess', {});
-        if (!accessValidation.data.allowed) {
-          // Block access
-          setLoading(false);
-          setAllWorkspaces([]);
-          setUserMemberships([]);
-          alert(accessValidation.data.reason || 'Access denied. Contact the owner.');
-          return;
-        }
-      }
+      // Check if super admin (strict check)
+      const isSuperAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@amazonoms.com';
 
       // Load user's memberships
       const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });
       setUserMemberships(memberships);
 
-      // P0 SECURITY: Load workspaces based on strict isolation
+      // Load workspaces based on role
       let workspaces = [];
-      if (isOwner) {
-        // Owner sees ALL non-deleted workspaces
-        const allTenants = await base44.entities.Tenant.filter({});
-        workspaces = allTenants.filter(t => !t.deleted_at);
+      if (isSuperAdmin) {
+        // Super admin sees ALL workspaces
+        workspaces = await base44.entities.Tenant.filter({});
       } else if (memberships.length > 0) {
-        // Regular user sees ONLY workspaces they have membership for (non-deleted)
+        // Regular user sees only their workspaces
         const tenantIds = memberships.map(m => m.tenant_id);
-        const allTenants = await base44.entities.Tenant.filter({
+        workspaces = await base44.entities.Tenant.filter({
           id: { $in: tenantIds }
         });
-        workspaces = allTenants.filter(t => !t.deleted_at);
       }
       setAllWorkspaces(workspaces);
 
@@ -77,21 +61,72 @@ export function TenantProvider({ children }) {
         localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
       }
 
-      // P0 SECURITY: NO AUTO-WORKSPACE CREATION
-      // If no workspaces, show empty state (owner must create via Platform Admin)
+      // If no workspaces, create one
       if (!activeTenant) {
-        setLoading(false);
-        return;
+        const newTenant = await base44.entities.Tenant.create({
+          name: `${currentUser.full_name || currentUser.email}'s Workspace`,
+          slug: currentUser.email.split('@')[0] + '-' + Date.now()
+        });
+
+        const newMembership = await base44.entities.Membership.create({
+          tenant_id: newTenant.id,
+          user_id: currentUser.id,
+          user_email: currentUser.email,
+          role: 'owner',
+          permissions: {
+            dashboard: { view: true, edit: true },
+            tasks: { view: true, edit: true },
+            skus: { view: true, edit: true },
+            orders: { view: true, edit: true },
+            purchases: { view: true, edit: true },
+            returns: { view: true, edit: true },
+            suppliers: { view: true, edit: true }
+          }
+        });
+
+        const trialEnd = new Date();
+        trialEnd.setDate(trialEnd.getDate() + 14);
+        const newSubscription = await base44.entities.Subscription.create({
+          tenant_id: newTenant.id,
+          plan: 'trial',
+          status: 'active',
+          current_period_end: trialEnd.toISOString().split('T')[0]
+        });
+
+        activeTenant = newTenant;
+        activeMembership = newMembership;
+        setSubscription(newSubscription);
+        setAllWorkspaces([newTenant]);
+        setUserMemberships([newMembership]);
+        localStorage.setItem(ACTIVE_WORKSPACE_KEY, newTenant.id);
       } else {
-        // P0 SECURITY: Load membership for active workspace - NO AUTO-CREATE
+        // Load membership and subscription for active workspace
         activeMembership = memberships.find(m => m.tenant_id === activeTenant.id);
         
-        // If no membership, block access (even for owner - must repair via button)
-        if (!activeMembership && !isOwner) {
-          console.error('No membership for workspace', activeTenant.id);
-          setLoading(false);
-          setAllWorkspaces([]);
-          return;
+        // SAFETY: If super admin and no membership exists, auto-create it
+        if (isSuperAdmin && !activeMembership) {
+          try {
+            activeMembership = await base44.entities.Membership.create({
+              tenant_id: activeTenant.id,
+              user_id: currentUser.id,
+              user_email: currentUser.email,
+              role: 'owner',
+              permissions: {
+                dashboard: { view: true, edit: true },
+                tasks: { view: true, edit: true },
+                skus: { view: true, edit: true },
+                orders: { view: true, edit: true },
+                purchases: { view: true, edit: true },
+                returns: { view: true, edit: true },
+                settlement: { view: true, edit: true },
+                suppliers: { view: true, edit: true }
+              }
+            });
+            // Update local state
+            setUserMemberships([...memberships, activeMembership]);
+          } catch (error) {
+            console.error('Failed to auto-create super admin membership:', error);
+          }
         }
         
         const subs = await base44.entities.Subscription.filter({ tenant_id: activeTenant.id });
@@ -141,14 +176,32 @@ export function TenantProvider({ children }) {
       setTenant(newTenant);
       localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
 
-      // P0 SECURITY: NO AUTO-CREATE - user must have membership
-      const newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
+      let newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
       
-      if (!newMembership) {
-        const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
-        if (user?.email.toLowerCase() !== APP_OWNER_EMAIL.toLowerCase()) {
-          alert('You do not have access to this workspace');
-          return;
+      // SAFETY: If super admin and no membership exists, auto-create it before switching
+      const currentUser = user;
+      const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.email === 'admin@amazonoms.com';
+      
+      if (isSuperAdmin && !newMembership) {
+        try {
+          newMembership = await base44.entities.Membership.create({
+            tenant_id: workspaceId,
+            user_id: currentUser.id,
+            user_email: currentUser.email,
+            role: 'owner',
+            permissions: {
+              dashboard: { view: true, edit: true },
+              tasks: { view: true, edit: true },
+              skus: { view: true, edit: true },
+              orders: { view: true, edit: true },
+              purchases: { view: true, edit: true },
+              returns: { view: true, edit: true },
+              settlement: { view: true, edit: true },
+              suppliers: { view: true, edit: true }
+            }
+          });
+        } catch (error) {
+          console.error('Failed to auto-create membership during switch:', error);
         }
       }
       
@@ -164,12 +217,11 @@ export function TenantProvider({ children }) {
     }
   };
 
-  const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
   const isActive = subscription?.status === 'active';
   const isOwner = membership?.role === 'owner';
   const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
-  const isPlatformOwner = user?.email.toLowerCase() === APP_OWNER_EMAIL.toLowerCase();
-  const isPlatformAdmin = isPlatformOwner;
+  const isSuperAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
+  const isPlatformAdmin = isSuperAdmin;
 
   const permissions = membership?.permissions || {};
 
