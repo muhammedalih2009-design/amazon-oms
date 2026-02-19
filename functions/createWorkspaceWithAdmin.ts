@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
     // 5. Handle admin assignment
     const normalizedEmail = admin_email.toLowerCase().trim();
     let mode = 'invite_created';
-    let inviteLink = null;
+    let inviteToken = null;
 
     // Check if user exists
     const existingUsers = await base44.asServiceRole.entities.User.filter({ email: normalizedEmail });
@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
       });
     } else {
       // User does NOT exist - create invite
-      const token = crypto.randomUUID();
+      let inviteToken;
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
@@ -125,22 +125,20 @@ Deno.serve(async (req) => {
 
       if (existingInvites.length > 0) {
         // Reuse existing invite token
-        token = existingInvites[0].token;
+        inviteToken = existingInvites[0].token;
       } else {
         // Create new invite
+        inviteToken = crypto.randomUUID();
         await base44.asServiceRole.entities.WorkspaceInvite.create({
           workspace_id: newTenant.id,
           invited_email: normalizedEmail,
           role: admin_role,
-          token: token,
+          token: inviteToken,
           status: 'pending',
           invited_by: currentUser.email,
           expires_at: expiresAt.toISOString()
         });
       }
-
-      // CRITICAL: Return token only, frontend will build the link with correct domain
-      inviteToken = token;
 
       // Audit log
       await base44.asServiceRole.entities.AuditLog.create({
