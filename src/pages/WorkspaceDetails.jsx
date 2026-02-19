@@ -256,13 +256,44 @@ export default function WorkspaceDetails() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Modules</CardTitle>
+            <CardTitle>Enabled Modules</CardTitle>
             {modules.length === 0 && (
               <Button onClick={handleInitializeModules} size="sm">
                 Initialize All Modules
               </Button>
             )}
           </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-slate-600 mb-4">
+            Control which pages and features are available in this workspace
+          </p>
+          
+          {modules.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-slate-500 mb-4">No modules configured yet</p>
+              <Button onClick={handleInitializeModules} variant="outline">
+                Enable All Modules
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {modules.map(module => (
+                <div 
+                  key={module.id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
+                >
+                  <span className="font-medium text-slate-700">{module.module_key}</span>
+                  <Switch
+                    checked={module.enabled}
+                    onCheckedChange={() => handleToggleModule(module.module_key, module.enabled)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card> </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -43,6 +43,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Clone workspace modules
+    const sourceModules = await base44.asServiceRole.entities.WorkspaceModule.filter({
+      workspace_id: source_workspace_id
+    });
+
+    for (const module of sourceModules) {
+      await base44.asServiceRole.entities.WorkspaceModule.create({
+        workspace_id: newWs.id,
+        module_key: module.module_key,
+        enabled: module.enabled
+      });
+    }
+
     // Create CloneJob for tracking
     const cloneJob = await base44.asServiceRole.entities.CloneJob.create({
       source_workspace_id,
