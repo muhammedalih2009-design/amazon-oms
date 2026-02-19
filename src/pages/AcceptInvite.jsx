@@ -17,9 +17,16 @@ export default function AcceptInvite() {
 
   const acceptInvite = async () => {
     try {
-      // Get token from URL
+      // Get token from URL or localStorage (after login redirect)
       const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
+      let token = params.get('token');
+
+      if (!token) {
+        token = localStorage.getItem('pending_invite_token');
+        if (token) {
+          localStorage.removeItem('pending_invite_token');
+        }
+      }
 
       if (!token) {
         setStatus('error');
@@ -31,9 +38,9 @@ export default function AcceptInvite() {
       const isAuthenticated = await base44.auth.isAuthenticated();
       
       if (!isAuthenticated) {
-        // Redirect to login with return URL
-        const returnUrl = `/accept-invite?token=${token}`;
-        base44.auth.redirectToLogin(returnUrl);
+        // Store token and redirect to login
+        localStorage.setItem('pending_invite_token', token);
+        base44.auth.redirectToLogin(window.location.pathname + window.location.search);
         return;
       }
 

@@ -126,7 +126,11 @@ Deno.serve(async (req) => {
         expires_at: expiresAt.toISOString()
       });
 
-      inviteLink = `${new URL(req.url).origin}/AcceptInvite?token=${token}`;
+      // Generate in-app invite link (not raw function URL)
+      const appOrigin = Deno.env.get('DENO_ENV') === 'production' 
+        ? 'https://app.amazon-oms.com' 
+        : new URL(req.url).origin;
+      inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
 
       // Audit log
       await base44.asServiceRole.entities.AuditLog.create({

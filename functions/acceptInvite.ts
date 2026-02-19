@@ -81,12 +81,14 @@ Deno.serve(async (req) => {
       user_id: user.id,
       user_email: user.email,
       action: 'create',
-      entity_type: 'membership',
-      entity_id: invite.id,
+      entity_type: 'Membership',
+      after_data: JSON.stringify({
+        user_email: user.email,
+        role: invite.role
+      }),
       metadata: {
         accepted_invite: true,
-        role: invite.role,
-        invited_by: invite.invited_by_email
+        invited_by: invite.invited_by
       }
     });
 
