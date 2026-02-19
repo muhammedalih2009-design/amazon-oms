@@ -405,12 +405,12 @@ export default function ProfitabilityPage() {
                         {format(new Date(order.order_date), 'MMM d, yyyy')}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-slate-900">{order.lines.length}</td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-900">${order.orderCost.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm text-slate-900">{formatCurrency(order.orderCost, currency, locale)}</td>
                       <td className="px-4 py-3 text-right text-sm font-medium text-slate-900">
-                        ${order.orderRevenue.toFixed(2)}
+                        {formatCurrency(order.orderRevenue, currency, locale)}
                       </td>
                       <td className={`px-4 py-3 text-right text-sm font-medium ${order.orderProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ${order.orderProfit.toFixed(2)}
+                        {formatCurrency(order.orderProfit, currency, locale)}
                       </td>
                       <td className={`px-4 py-3 text-right text-sm font-medium ${order.orderMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {order.orderMargin.toFixed(1)}%
@@ -446,13 +446,13 @@ export default function ProfitabilityPage() {
                                   <tr key={idx} className="border-b last:border-0">
                                     <td className="px-3 py-2 text-sm text-slate-900">{line.sku_code}</td>
                                     <td className="px-3 py-2 text-right text-sm text-slate-900">{line.quantity}</td>
-                                    <td className="px-3 py-2 text-right text-sm text-slate-900">${line.unitCost.toFixed(2)}</td>
-                                    <td className="px-3 py-2 text-right text-sm text-slate-900">${line.totalCost.toFixed(2)}</td>
+                                    <td className="px-3 py-2 text-right text-sm text-slate-900">{formatCurrency(line.unitCost, currency, locale)}</td>
+                                    <td className="px-3 py-2 text-right text-sm text-slate-900">{formatCurrency(line.totalCost, currency, locale)}</td>
                                     <td className="px-3 py-2 text-right text-sm font-medium text-slate-900">
-                                      {line.revenue > 0 ? `$${line.revenue.toFixed(2)}` : '-'}
+                                      {line.revenue > 0 ? formatCurrency(line.revenue, currency, locale) : '-'}
                                     </td>
                                     <td className={`px-3 py-2 text-right text-sm font-medium ${line.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      {line.revenue > 0 ? `$${line.profit.toFixed(2)}` : '-'}
+                                      {line.revenue > 0 ? formatCurrency(line.profit, currency, locale) : '-'}
                                     </td>
                                     <td className={`px-3 py-2 text-right text-sm font-medium ${line.marginPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                       {line.revenue > 0 ? `${line.marginPercent.toFixed(1)}%` : '-'}
