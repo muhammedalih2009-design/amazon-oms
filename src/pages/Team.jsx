@@ -358,6 +358,7 @@ export default function TeamPage() {
         open={showInviteModal}
         onClose={() => setShowInviteModal(false)}
         onInvite={handleInviteUser}
+        workspaceId={tenantId}
       />
 
       <PermissionsModal

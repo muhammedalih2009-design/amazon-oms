@@ -10,6 +10,7 @@ import TaskTray from '@/components/shared/TaskTray';
 import BackgroundJobManager from '@/components/shared/BackgroundJobManager';
 import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
 import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
+import PendingInvitesChecker from '@/components/shared/PendingInvitesChecker';
 import { Toaster } from '@/components/ui/toaster';
 import {
   LayoutDashboard,
@@ -338,6 +339,7 @@ export default function Layout({ children, currentPageName }) {
                 {children}
               </LayoutContent>
             </WorkspaceAccessGuard>
+            <PendingInvitesChecker />
             <TaskTray />
             <BackgroundJobManager />
             <Toaster />

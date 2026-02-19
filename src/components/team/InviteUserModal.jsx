@@ -349,10 +349,12 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit">Send Invitation</Button>
+            <Button type="submit" disabled={loading} className="bg-indigo-600 hover:bg-indigo-700">
+              {loading ? 'Processing...' : 'Add / Invite Member'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
