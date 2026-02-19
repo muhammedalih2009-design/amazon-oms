@@ -13,6 +13,7 @@ export function TenantProvider({ children }) {
   const [allWorkspaces, setAllWorkspaces] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [workspaceModules, setWorkspaceModules] = useState([]);
+  const [workspaceSettings, setWorkspaceSettings] = useState(null);
 
   useEffect(() => {
     loadTenantData();
@@ -137,7 +138,7 @@ export function TenantProvider({ children }) {
       setTenant(activeTenant);
       setMembership(activeMembership);
 
-      // Load workspace modules
+      // Load workspace modules and settings
       if (activeTenant) {
         try {
           const modules = await base44.entities.WorkspaceModule.filter({
@@ -147,6 +148,17 @@ export function TenantProvider({ children }) {
         } catch (error) {
           console.error('Error loading workspace modules:', error);
           setWorkspaceModules([]);
+        }
+
+        // Load workspace settings for currency
+        try {
+          const settings = await base44.entities.WorkspaceSettings.filter({
+            workspace_id: activeTenant.id
+          });
+          setWorkspaceSettings(settings.length > 0 ? settings[0] : null);
+        } catch (error) {
+          console.error('Error loading workspace settings:', error);
+          setWorkspaceSettings(null);
         }
       }
     } catch (error) {
@@ -240,6 +252,10 @@ export function TenantProvider({ children }) {
     return isModuleEnabled(moduleKey);
   };
 
+  // Get currency from workspace settings or default to SAR
+  const currency = workspaceSettings?.currency_code || 'SAR';
+  const locale = user?.language === 'ar' ? 'ar-SA' : 'en-US';
+
   const value = {
     tenant,
     membership,
@@ -249,6 +265,9 @@ export function TenantProvider({ children }) {
     allWorkspaces,
     userMemberships,
     workspaceModules,
+    workspaceSettings,
+    currency,
+    locale,
     switchWorkspace,
     isActive,
     isOwner,
