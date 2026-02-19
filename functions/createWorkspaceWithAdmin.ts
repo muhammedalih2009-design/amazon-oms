@@ -178,7 +178,8 @@ Deno.serve(async (req) => {
       workspace_id: newTenant.id,
       workspace_name: workspace_name,
       mode: mode,
-      invite_link: inviteLink
+      invite_token: inviteToken,
+      admin_email: normalizedEmail
     });
 
   } catch (error) {
