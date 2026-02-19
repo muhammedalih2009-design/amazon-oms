@@ -64,9 +64,12 @@ export default function AdminPage() {
     name: '',
     slug: '',
     plan: 'trial',
-    status: 'active'
+    status: 'active',
+    admin_email: '',
+    admin_role: 'owner'
   });
   const [selectedModules, setSelectedModules] = useState([]);
+  const [inviteLink, setInviteLink] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -121,77 +124,50 @@ export default function AdminPage() {
       });
       return;
     }
+
+    if (!formData.admin_email) {
+      toast({
+        title: 'Admin email required',
+        description: 'Please specify a primary workspace admin',
+        variant: 'destructive'
+      });
+      return;
+    }
     
     setCreatingWorkspace(true);
     
     try {
-      const newTenant = await base44.entities.Tenant.create({
-        name: formData.name,
+      const response = await base44.functions.invoke('createWorkspaceWithAdmin', {
+        workspace_name: formData.name,
         slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, '-'),
-        settings: {}
-      });
-
-      await base44.entities.Subscription.create({
-        tenant_id: newTenant.id,
         plan: formData.plan,
-        status: 'active',
-        current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        enabled_modules: selectedModules,
+        admin_email: formData.admin_email,
+        admin_role: formData.admin_role
       });
 
-      // Create workspace modules
-      const modulesToCreate = selectedModules.map(moduleKey => ({
-        workspace_id: newTenant.id,
-        module_key: moduleKey,
-        enabled: true
-      }));
-      
-      await base44.entities.WorkspaceModule.bulkCreate(modulesToCreate);
+      if (response.data.ok) {
+        const { mode, invite_link } = response.data;
 
-      // CRITICAL: Auto-create membership for creator (super admin) - ALWAYS
-      try {
-        await base44.entities.Membership.create({
-          tenant_id: newTenant.id,
-          user_id: user.id,
-          user_email: user.email,
-          role: 'owner',
-          permissions: {
-            dashboard: { view: true, edit: true },
-            tasks: { view: true, edit: true },
-            skus: { view: true, edit: true },
-            orders: { view: true, edit: true },
-            purchases: { view: true, edit: true },
-            returns: { view: true, edit: true },
-            suppliers: { view: true, edit: true }
-          }
-        });
-      } catch (membershipError) {
-        console.error('Failed to create super admin membership:', membershipError);
-        // Continue anyway - useTenant will auto-repair
+        if (mode === 'invite_created' && invite_link) {
+          setInviteLink(invite_link);
+          toast({
+            title: 'Workspace created with invite',
+            description: `Invite link generated for ${formData.admin_email}`
+          });
+        } else {
+          toast({
+            title: 'Workspace created',
+            description: `Admin ${formData.admin_email} added successfully`
+          });
+          setShowCreateWorkspace(false);
+          setFormData({ name: '', slug: '', plan: 'trial', status: 'active', admin_email: '', admin_role: 'owner' });
+          setSelectedModules([]);
+          loadData(true);
+        }
+      } else {
+        throw new Error(response.data.error || 'Creation failed');
       }
-
-      // Audit log
-      await base44.entities.AuditLog.create({
-        workspace_id: newTenant.id,
-        user_id: user.id,
-        user_email: user.email,
-        action: 'create',
-        entity_type: 'Workspace',
-        after_data: JSON.stringify({
-          name: formData.name,
-          modules: selectedModules
-        }),
-        metadata: { modules_enabled: selectedModules.length }
-      });
-
-      toast({
-        title: 'Workspace created',
-        description: `${formData.name} with ${selectedModules.length} modules`
-      });
-
-      setShowCreateWorkspace(false);
-      setFormData({ name: '', slug: '', plan: 'trial', status: 'active' });
-      setSelectedModules([]);
-      loadData(true);
     } catch (error) {
       toast({
         title: 'Failed to create workspace',
@@ -201,6 +177,14 @@ export default function AdminPage() {
     } finally {
       setCreatingWorkspace(false);
     }
+  };
+
+  const handleCloseCreateDialog = () => {
+    setShowCreateWorkspace(false);
+    setInviteLink(null);
+    setFormData({ name: '', slug: '', plan: 'trial', status: 'active', admin_email: '', admin_role: 'owner' });
+    setSelectedModules([]);
+    loadData(true);
   };
 
   const handleUpdateWorkspace = async (workspace, updates) => {
@@ -659,74 +643,147 @@ export default function AdminPage() {
       </Tabs>
 
       {/* Create Workspace Dialog */}
-      <Dialog open={showCreateWorkspace} onOpenChange={setShowCreateWorkspace}>
+      <Dialog open={showCreateWorkspace} onOpenChange={(open) => !open && handleCloseCreateDialog()}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Workspace</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleCreateWorkspace} className="space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Workspace Name *</Label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="My Company"
-                  required
+
+          {inviteLink ? (
+            <div className="space-y-6 py-4">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6">
+                <h3 className="font-semibold text-emerald-900 mb-2">✓ Workspace Created Successfully</h3>
+                <p className="text-sm text-emerald-700 mb-4">
+                  The user <strong>{formData.admin_email}</strong> doesn't have an account yet. 
+                  Share this invite link with them:
+                </p>
+                <div className="bg-white border border-emerald-300 rounded p-3 font-mono text-sm break-all">
+                  {inviteLink}
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(inviteLink);
+                      toast({ title: 'Copied to clipboard' });
+                    }}
+                  >
+                    Copy Link
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleCloseCreateDialog}
+                  >
+                    Done
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleCreateWorkspace} className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Workspace Name *</Label>
+                  <Input
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="My Company"
+                    required
+                    disabled={creatingWorkspace}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Slug (URL-friendly)</Label>
+                  <Input
+                    value={formData.slug}
+                    onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                    placeholder="my-company"
+                    disabled={creatingWorkspace}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Plan</Label>
+                  <Select
+                    value={formData.plan}
+                    onValueChange={(value) => setFormData({ ...formData, plan: value })}
+                    disabled={creatingWorkspace}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="free">Free</SelectItem>
+                      <SelectItem value="trial">Trial</SelectItem>
+                      <SelectItem value="pro">Pro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">Workspace Admin (Primary Owner)</h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  This person will become the workspace owner/admin. If they don't have an account, an invite link will be generated.
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Admin Email *</Label>
+                    <Input
+                      type="email"
+                      value={formData.admin_email}
+                      onChange={(e) => setFormData({ ...formData, admin_email: e.target.value })}
+                      placeholder="admin@example.com"
+                      required
+                      disabled={creatingWorkspace}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Admin Role</Label>
+                    <Select
+                      value={formData.admin_role}
+                      onValueChange={(value) => setFormData({ ...formData, admin_role: value })}
+                      disabled={creatingWorkspace}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="owner">Owner (Recommended)</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-6">
+                <ModuleSelector
+                  selectedModules={selectedModules}
+                  onChange={setSelectedModules}
+                  disabled={creatingWorkspace}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Slug (URL-friendly)</Label>
-                <Input
-                  value={formData.slug}
-                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                  placeholder="my-company"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Plan</Label>
-                <Select
-                  value={formData.plan}
-                  onValueChange={(value) => setFormData({ ...formData, plan: value })}
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseCreateDialog}
+                  disabled={creatingWorkspace}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="free">Free</SelectItem>
-                    <SelectItem value="trial">Trial</SelectItem>
-                    <SelectItem value="pro">Pro</SelectItem>
-                  </SelectContent>
-                </Select>
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                  disabled={selectedModules.length === 0 || !formData.admin_email || creatingWorkspace}
+                >
+                  {creatingWorkspace ? 'Creating...' : 'Create Workspace'}
+                </Button>
               </div>
-            </div>
-
-            <div className="border-t pt-6">
-              <ModuleSelector
-                selectedModules={selectedModules}
-                onChange={setSelectedModules}
-                disabled={creatingWorkspace}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => setShowCreateWorkspace(false)}
-                disabled={creatingWorkspace}
-              >
-                Cancel
-              </Button>
-              <Button 
-                type="submit" 
-                className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={selectedModules.length === 0 || creatingWorkspace}
-              >
-                {creatingWorkspace ? 'Creating...' : 'Create Workspace'}
-              </Button>
-            </div>
-          </form>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
