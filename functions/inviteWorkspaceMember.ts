@@ -112,6 +112,36 @@ Deno.serve(async (req) => {
         expires_at: expiresAt.toISOString()
       });
 
+      // Get workspace details for email
+      const workspace = await base44.asServiceRole.entities.Tenant.filter({ id: workspace_id });
+      const workspaceName = workspace.length > 0 ? workspace[0].name : 'Workspace';
+
+      // Generate in-app invite link (NEVER use function URL)
+      const reqUrl = new URL(req.url);
+      const appOrigin = reqUrl.hostname.includes('deno.dev') 
+        ? 'https://amazonoms.base44.app'
+        : reqUrl.origin;
+      const inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
+
+      // Send invitation email
+      try {
+        await base44.asServiceRole.integrations.Core.SendEmail({
+          to: normalizedEmail,
+          subject: `Workspace Invitation: ${workspaceName}`,
+          body: `
+            <h2>You've been invited to ${workspaceName}</h2>
+            <p><strong>${user.full_name || user.email}</strong> has invited you to join the workspace <strong>${workspaceName}</strong> as a <strong>${role}</strong>.</p>
+            <p>Click the link below to accept your invitation:</p>
+            <p><a href="${inviteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
+            <p>Or copy this link: ${inviteLink}</p>
+            <p>This invitation expires on ${expiresAt.toLocaleDateString()}.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Failed to send invite email:', emailError);
+        // Continue even if email fails
+      }
+
       // Audit log
       await base44.asServiceRole.entities.AuditLog.create({
         workspace_id,
@@ -124,12 +154,6 @@ Deno.serve(async (req) => {
           role
         }
       });
-
-      // Generate in-app invite link (not raw function URL)
-      const appOrigin = Deno.env.get('DENO_ENV') === 'production' 
-        ? 'https://app.amazon-oms.com' 
-        : new URL(req.url).origin;
-      const inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
 
       return Response.json({
         ok: true,
