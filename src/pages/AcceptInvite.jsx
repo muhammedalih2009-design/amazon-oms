@@ -17,16 +17,9 @@ export default function AcceptInvite() {
 
   const acceptInvite = async () => {
     try {
-      // Get token from URL or localStorage (after login redirect)
+      // Get token from URL
       const params = new URLSearchParams(window.location.search);
-      let token = params.get('token');
-
-      if (!token) {
-        token = localStorage.getItem('pending_invite_token');
-        if (token) {
-          localStorage.removeItem('pending_invite_token');
-        }
-      }
+      const token = params.get('token');
 
       if (!token) {
         setStatus('error');
@@ -38,9 +31,9 @@ export default function AcceptInvite() {
       const isAuthenticated = await base44.auth.isAuthenticated();
       
       if (!isAuthenticated) {
-        // Store token and redirect to login
-        localStorage.setItem('pending_invite_token', token);
-        base44.auth.redirectToLogin(window.location.pathname + window.location.search);
+        // Redirect to login with full return URL
+        const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?from_url=${returnUrl}`;
         return;
       }
 
@@ -52,10 +45,15 @@ export default function AcceptInvite() {
         setMessage(data.message);
         setWorkspaceId(data.workspace_id);
         
-        // Auto-redirect after 3 seconds
+        // Switch to invited workspace and reload
+        if (data.workspace_id) {
+          localStorage.setItem('active_workspace_id', data.workspace_id);
+        }
+        
+        // Auto-redirect after 2 seconds
         setTimeout(() => {
-          window.location.href = '/'; // Force reload to update workspace list
-        }, 3000);
+          window.location.href = '/'; // Force reload to update workspace context
+        }, 2000);
       } else {
         setStatus('error');
         setMessage(data.error || 'Failed to accept invite');

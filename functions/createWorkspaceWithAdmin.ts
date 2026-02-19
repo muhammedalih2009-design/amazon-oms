@@ -139,8 +139,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      // CRITICAL: Generate in-app invite link (NEVER Deno function URL)
-      inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${token}`;
+      // CRITICAL: Return token only, frontend will build the link with correct domain
+      inviteToken = token;
 
       // Audit log
       await base44.asServiceRole.entities.AuditLog.create({

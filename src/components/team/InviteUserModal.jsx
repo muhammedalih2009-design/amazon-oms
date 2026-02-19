@@ -142,22 +142,24 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
       });
 
       if (data.ok) {
-        if (data.mode === 'invite_created' && data.invite_link) {
-          // Show invite link with copy button
+        if (data.mode === 'invite_created' && data.token) {
+          // Build invite link with current app domain
+          const inviteLink = `${window.location.origin}/AcceptInvite?token=${data.token}`;
+          
           toast({
             title: 'Invite Created',
             description: (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Share this link with {email}:</p>
                 <div className="bg-slate-100 p-2 rounded text-xs font-mono break-all">
-                  {data.invite_link}
+                  {inviteLink}
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    navigator.clipboard.writeText(data.invite_link);
-                    toast({ title: 'Link copied!' });
+                    navigator.clipboard.writeText(inviteLink);
+                    toast({ title: 'Link copied to clipboard!' });
                   }}
                   className="w-full mt-2"
                 >
@@ -271,7 +273,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
                 <Label className="mb-2 block">Pending Invites ({pendingInvites.length})</Label>
                 <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-3 bg-slate-50">
                   {pendingInvites.map((invite) => {
-                    const inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${invite.token}`;
+                    const inviteLink = `${window.location.origin}/AcceptInvite?token=${invite.token}`;
                     return (
                       <div
                         key={invite.id}

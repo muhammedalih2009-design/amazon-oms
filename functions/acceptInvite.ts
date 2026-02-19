@@ -72,8 +72,13 @@ Deno.serve(async (req) => {
 
     // Update invite status
     await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
-      status: 'accepted'
+      status: 'accepted',
+      accepted_at: new Date().toISOString()
     });
+
+    // Get workspace details for redirect
+    const workspace = await base44.asServiceRole.entities.Tenant.filter({ id: invite.workspace_id });
+    const workspaceSlug = workspace.length > 0 ? workspace[0].slug : null;
 
     // Audit log
     await base44.asServiceRole.entities.AuditLog.create({
@@ -95,7 +100,8 @@ Deno.serve(async (req) => {
     return Response.json({
       ok: true,
       message: 'Invite accepted',
-      workspace_id: invite.workspace_id
+      workspace_id: invite.workspace_id,
+      workspace_slug: workspaceSlug
     });
   } catch (error) {
     console.error('Error accepting invite:', error);

@@ -137,14 +137,11 @@ Deno.serve(async (req) => {
         });
       }
 
-      // CRITICAL: Generate in-app invite link (NEVER Deno function URL)
-      const inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${token}`;
-
+      // Return token only, frontend builds link with correct domain
       return Response.json({
         ok: true,
         mode: 'invite_created',
         token,
-        invite_link: inviteLink,
         message: `Invite created for ${normalizedEmail}`
       });
     }
