@@ -54,6 +54,7 @@ import Dashboard from './pages/Dashboard';
 import EmergencyRestore from './pages/EmergencyRestore';
 import Monitoring from './pages/Monitoring';
 import Orders from './pages/Orders';
+import OwnerLog from './pages/OwnerLog';
 import Profile from './pages/Profile';
 import Profitability from './pages/Profitability';
 import PurchaseRequests from './pages/PurchaseRequests';
@@ -69,7 +70,6 @@ import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import OwnerLog from './pages/OwnerLog';
 import __Layout from './Layout.jsx';
 
 
@@ -81,6 +81,7 @@ export const PAGES = {
     "EmergencyRestore": EmergencyRestore,
     "Monitoring": Monitoring,
     "Orders": Orders,
+    "OwnerLog": OwnerLog,
     "Profile": Profile,
     "Profitability": Profitability,
     "PurchaseRequests": PurchaseRequests,
@@ -96,7 +97,6 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
-    "OwnerLog": OwnerLog,
 }
 
 export const pagesConfig = {
