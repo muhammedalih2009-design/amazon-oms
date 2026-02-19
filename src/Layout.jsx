@@ -32,7 +32,8 @@ import {
   Store,
   TrendingUp,
   Activity,
-  Languages
+  Languages,
+  BookOpen
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,6 +57,8 @@ const navItems = [
   { nameKey: 'suppliers', icon: Users, page: 'SuppliersStores', pageKey: 'suppliers', moduleKey: 'suppliers' },
   { nameKey: 'tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
 ];
+
+const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
 
 const adminNavItems = [
   { name: 'Platform Admin', nameKey: 'platform_admin', icon: Shield, page: 'Admin' },
@@ -224,6 +227,26 @@ function LayoutContent({ children, currentPageName }) {
               >
                 <Settings className="w-5 h-5" />
                 <span className="font-medium">{t('settings')}</span>
+              </Link>
+            )}
+
+            {user?.email?.toLowerCase() === APP_OWNER_EMAIL.toLowerCase() && (
+              <Link
+                to={createPageUrl('OwnerLog')}
+                onClick={() => setSidebarOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                  ${isRTL ? 'flex-row-reverse' : ''}
+                  ${currentPageName === 'OwnerLog'
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
+                    : ''}
+                `}
+                style={currentPageName !== 'OwnerLog' ? { color: '#9333ea', borderColor: '#e9d5ff', borderWidth: '1px', borderStyle: 'solid' } : {}}
+                onMouseEnter={(e) => currentPageName !== 'OwnerLog' && (e.currentTarget.style.backgroundColor = '#faf5ff')}
+                onMouseLeave={(e) => currentPageName !== 'OwnerLog' && (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <BookOpen className="w-5 h-5" />
+                <span className="font-medium">Owner Log</span>
               </Link>
             )}
 
