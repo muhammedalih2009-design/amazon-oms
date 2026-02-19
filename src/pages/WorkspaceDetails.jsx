@@ -294,12 +294,6 @@ export default function WorkspaceDetails() {
           )}
         </CardContent>
       </Card>
-                />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Delete Member Dialog */}
       <AlertDialog open={!!memberToDelete} onOpenChange={() => setMemberToDelete(null)}>
