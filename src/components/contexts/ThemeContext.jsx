@@ -23,6 +23,12 @@ export function ThemeProvider({ children }) {
     if (metaThemeColor) {
       metaThemeColor.setAttribute('content', theme === 'dark' ? '#0f172a' : '#ffffff');
     }
+    
+    // Force repaint to ensure styles apply immediately
+    document.body.style.display = 'none';
+    requestAnimationFrame(() => {
+      document.body.style.display = '';
+    });
   }, [theme]);
 
   const toggleTheme = () => {
