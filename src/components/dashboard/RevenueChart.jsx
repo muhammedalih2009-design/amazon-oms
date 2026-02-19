@@ -1,8 +1,9 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { format, parseISO } from 'date-fns';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 
-export default function RevenueChart({ data = [] }) {
+export default function RevenueChart({ data = [], currency = 'USD', locale = 'en-US' }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6">
       <h3 className="text-lg font-semibold text-slate-900 mb-6">Revenue vs Cost vs Profit</h3>
@@ -23,7 +24,7 @@ export default function RevenueChart({ data = [] }) {
                 borderRadius: '12px',
                 boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
               }}
-              formatter={(value) => `$${value.toLocaleString()}`}
+              formatter={(value) => formatCurrency(value, currency, locale)}
             />
             <Legend />
             <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
