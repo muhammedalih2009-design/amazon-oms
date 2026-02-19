@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
     }));
     await base44.asServiceRole.entities.WorkspaceModule.bulkCreate(modulesToCreate);
 
+    // P0 SECURITY: Create membership ONLY for THIS workspace
     // 4. Always add platform admin (current user) as OWNER
     await base44.asServiceRole.entities.Membership.create({
       tenant_id: newTenant.id,
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
       }
     });
 
-    // 5. Handle admin assignment
+    // 5. Handle admin assignment - ONLY for THIS workspace
     const normalizedEmail = admin_email.toLowerCase().trim();
     let mode = 'invite_created';
     let inviteToken = null;
@@ -79,9 +80,10 @@ Deno.serve(async (req) => {
     const existingUsers = await base44.asServiceRole.entities.User.filter({ email: normalizedEmail });
     
     if (existingUsers.length > 0) {
-      // User exists - add directly as member (if not already the platform admin)
+      // User exists - add as member ONLY to THIS workspace (if not already the platform admin)
       const targetUser = existingUsers[0];
       if (targetUser.email !== currentUser.email) {
+        // P0 SECURITY: Create membership ONLY for newTenant.id
         await base44.asServiceRole.entities.Membership.create({
           tenant_id: newTenant.id,
           user_id: targetUser.id,

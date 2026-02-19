@@ -61,7 +61,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create membership
+    // P0 SECURITY: Create membership ONLY for invite.workspace_id
+    // Never add to any other workspace
     await base44.asServiceRole.entities.Membership.create({
       tenant_id: invite.workspace_id,
       user_id: user.id,
@@ -80,20 +81,22 @@ Deno.serve(async (req) => {
     const workspace = await base44.asServiceRole.entities.Tenant.filter({ id: invite.workspace_id });
     const workspaceSlug = workspace.length > 0 ? workspace[0].slug : null;
 
-    // Audit log
+    // P0 SECURITY: Log workspace access granted
     await base44.asServiceRole.entities.AuditLog.create({
       workspace_id: invite.workspace_id,
       user_id: user.id,
       user_email: user.email,
-      action: 'create',
+      action: 'workspace_access_granted',
       entity_type: 'Membership',
+      entity_id: invite.workspace_id,
       after_data: JSON.stringify({
         user_email: user.email,
         role: invite.role
       }),
       metadata: {
         accepted_invite: true,
-        invited_by: invite.invited_by
+        invited_by: invite.invited_by,
+        invite_id: invite.id
       }
     });
 
