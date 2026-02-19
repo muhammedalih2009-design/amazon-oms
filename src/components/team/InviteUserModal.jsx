@@ -71,6 +71,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
   const [role, setRole] = useState('member');
   const [permissions, setPermissions] = useState(ROLE_PRESETS.staff);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [pendingInvites, setPendingInvites] = useState([]);
   const { toast } = useToast();
 
