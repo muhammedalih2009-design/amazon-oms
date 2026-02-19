@@ -2,12 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+:root[data-theme="light"] {
   /* Light Theme */
   --bg: #f8fafc;
   --surface: #ffffff;
   --surface-2: #f1f5f9;
   --text: #0f172a;
+  --text-primary: #0f172a;
   --text-muted: #64748b;
   --border: #e2e8f0;
   --primary: #6366f1;
@@ -24,14 +26,17 @@
   --shadow-lg: rgba(0, 0, 0, 0.15);
   --hover-bg: #f1f5f9;
   --skeleton: #e2e8f0;
+  --accent: #f1f5f9;
+  --background: #f8fafc;
 }
 
-[data-theme="dark"] {
+:root[data-theme="dark"] {
   /* Dark Theme */
   --bg: #0f172a;
   --surface: #1e293b;
   --surface-2: #334155;
   --text: #f1f5f9;
+  --text-primary: #f1f5f9;
   --text-muted: #94a3b8;
   --border: #334155;
   --primary: #818cf8;
@@ -48,15 +53,24 @@
   --shadow-lg: rgba(0, 0, 0, 0.5);
   --hover-bg: #334155;
   --skeleton: #334155;
+  --accent: #334155;
+  --background: #0f172a;
 }
 
 * {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
+html,
 body {
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+#root {
   background-color: var(--bg);
   color: var(--text);
+  min-height: 100vh;
 }
 
 /* Override Tailwind defaults with theme variables */

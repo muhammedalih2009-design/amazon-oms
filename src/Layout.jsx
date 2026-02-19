@@ -80,19 +80,19 @@ function LayoutContent({ children, currentPageName }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg)' }}>
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-slate-600">Loading workspace...</p>
+          <p style={{ color: 'var(--text-muted)' }}>Loading workspace...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b z-50 flex items-center px-4">
+      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 z-50 flex items-center px-4" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
           <Menu className="w-5 h-5" />
         </Button>
@@ -153,9 +153,12 @@ function LayoutContent({ children, currentPageName }) {
                     flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
                     ${isRTL ? 'flex-row-reverse' : ''}
                     ${isActive 
-                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200' 
-                      : 'text-slate-600 hover:bg-slate-100'}
+                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' 
+                      : ''}
                   `}
+                  style={!isActive ? { color: 'var(--text-muted)' } : {}}
+                  onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
+                  onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <item.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                   <span className="font-medium">{t(item.nameKey)}</span>
@@ -172,8 +175,11 @@ function LayoutContent({ children, currentPageName }) {
                   ${isRTL ? 'flex-row-reverse' : ''}
                   ${currentPageName === 'Team'
                     ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                    : ''}
                 `}
+                style={currentPageName !== 'Team' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
+                onMouseEnter={(e) => currentPageName !== 'Team' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
+                onMouseLeave={(e) => currentPageName !== 'Team' && (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <Users className="w-5 h-5" />
                 <span className="font-medium">{t('team')}</span>
@@ -189,8 +195,11 @@ function LayoutContent({ children, currentPageName }) {
                   ${isRTL ? 'flex-row-reverse' : ''}
                   ${currentPageName === 'BackupData'
                     ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                    : ''}
                 `}
+                style={currentPageName !== 'BackupData' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
+                onMouseEnter={(e) => currentPageName !== 'BackupData' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
+                onMouseLeave={(e) => currentPageName !== 'BackupData' && (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <Store className="w-5 h-5" />
                 <span className="font-medium">{t('backup_data') || 'Backup & Data'}</span>
@@ -206,8 +215,11 @@ function LayoutContent({ children, currentPageName }) {
                   ${isRTL ? 'flex-row-reverse' : ''}
                   ${currentPageName === 'Settings'
                     ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : 'text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                    : ''}
                 `}
+                style={currentPageName !== 'Settings' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
+                onMouseEnter={(e) => currentPageName !== 'Settings' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
+                onMouseLeave={(e) => currentPageName !== 'Settings' && (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <Settings className="w-5 h-5" />
                 <span className="font-medium">{t('settings')}</span>
@@ -215,8 +227,8 @@ function LayoutContent({ children, currentPageName }) {
             )}
 
             {(user?.role === 'admin' || user?.email === 'your-admin@email.com') && (
-              <div className="mt-4 pt-4 border-t border-slate-200">
-                <p className="px-4 text-xs font-semibold text-slate-500 uppercase mb-2">{t('admin_tools') || 'Admin Tools'}</p>
+              <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+                <p className="px-4 text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-muted)' }}>{t('admin_tools') || 'Admin Tools'}</p>
                 {adminNavItems.map((item) => {
                   const isActive = currentPageName === item.page;
                   return (
@@ -229,8 +241,11 @@ function LayoutContent({ children, currentPageName }) {
                         ${isRTL ? 'flex-row-reverse' : ''}
                         ${isActive
                           ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg'
-                          : 'text-red-600 hover:bg-red-50 border border-red-200'}
+                          : ''}
                       `}
+                      style={!isActive ? { color: '#dc2626', borderColor: '#fecaca', borderWidth: '1px', borderStyle: 'solid' } : {}}
+                      onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                      onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
                     >
                       <item.icon className="w-5 h-5" />
                       <span className="font-medium">{t(item.nameKey || item.name.toLowerCase().replace(/\s+/g, '_'))}</span>
@@ -278,10 +293,10 @@ function LayoutContent({ children, currentPageName }) {
                     </AvatarFallback>
                   </Avatar>
                   <div className={`flex-1 ${isRTL ? 'text-right' : 'text-left'}`}>
-                    <p className="font-medium text-slate-900 text-sm truncate">{user?.full_name}</p>
-                    <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+                    <p className="font-medium text-sm truncate" style={{ color: 'var(--text)' }}>{user?.full_name}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                  <ChevronDown className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
