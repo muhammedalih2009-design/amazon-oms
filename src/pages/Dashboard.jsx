@@ -288,35 +288,35 @@ export default function Dashboard() {
         />
         <KPICard
           title="Stock Value"
-          value={`$${kpis.stockValue.toLocaleString()}`}
+          value={formatCurrency(kpis.stockValue, currency, locale)}
           icon={Package}
           iconBg="bg-violet-100"
           iconColor="text-violet-600"
         />
         <KPICard
           title="Purchased Stock Cost (Suppliers)"
-          value={`$${kpis.purchasedCostSuppliers.toLocaleString()}`}
+          value={formatCurrency(kpis.purchasedCostSuppliers, currency, locale)}
           icon={Package}
           iconBg="bg-blue-100"
           iconColor="text-blue-600"
         />
         <KPICard
           title="Purchased Stock Cost (Warehouse)"
-          value={`$${kpis.purchasedCostWarehouse.toLocaleString()}`}
+          value={formatCurrency(kpis.purchasedCostWarehouse, currency, locale)}
           icon={Package}
           iconBg="bg-slate-100"
           iconColor="text-slate-600"
         />
         <KPICard
           title="Monthly Revenue"
-          value={`$${kpis.revenue.toLocaleString()}`}
+          value={formatCurrency(kpis.revenue, currency, locale)}
           icon={DollarSign}
           iconBg="bg-emerald-100"
           iconColor="text-emerald-600"
         />
         <KPICard
           title="Monthly Profit"
-          value={`$${kpis.profit.toLocaleString()}`}
+          value={formatCurrency(kpis.profit, currency, locale)}
           icon={TrendingUp}
           iconBg="bg-blue-100"
           iconColor="text-blue-600"
@@ -333,7 +333,7 @@ export default function Dashboard() {
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <OrdersChart data={ordersChartData} />
-        <RevenueChart data={revenueChartData} />
+        <RevenueChart data={revenueChartData} currency={currency} locale={locale} />
       </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
