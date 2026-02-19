@@ -62,6 +62,7 @@ const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
 
 const adminNavItems = [
   { name: 'Platform Admin', nameKey: 'platform_admin', icon: Shield, page: 'Admin' },
+  { name: 'Security Audit', nameKey: 'security_audit', icon: Shield, page: 'SecurityAudit' },
   { name: 'Emergency Restore', nameKey: 'emergency_restore', icon: Shield, page: 'EmergencyRestore' },
   { name: 'Rate Limit Monitor', nameKey: 'rate_limit_monitor', icon: Activity, page: 'RateLimitMonitor' },
   { name: 'System Monitoring', nameKey: 'system_monitoring', icon: Activity, page: 'Monitoring' },
