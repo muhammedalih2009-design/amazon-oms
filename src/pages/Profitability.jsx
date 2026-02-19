@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 
 export default function ProfitabilityPage() {
   const { tenant, currency, locale } = useTenant();
@@ -254,7 +255,7 @@ export default function ProfitabilityPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-slate-900">${totalRevenue.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalRevenue, currency, locale)}</p>
             </div>
             <DollarSign className="w-10 h-10 text-green-500 opacity-20" />
           </div>
@@ -263,7 +264,7 @@ export default function ProfitabilityPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600">Total Cost</p>
-              <p className="text-2xl font-bold text-slate-900">${totalCost.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCost, currency, locale)}</p>
             </div>
             <Package className="w-10 h-10 text-orange-500 opacity-20" />
           </div>
@@ -273,7 +274,7 @@ export default function ProfitabilityPage() {
             <div>
               <p className="text-sm text-slate-600">Net Profit</p>
               <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                ${totalProfit.toFixed(2)}
+                {formatCurrency(totalProfit, currency, locale)}
               </p>
             </div>
             <TrendingUp className="w-10 h-10 text-blue-500 opacity-20" />
