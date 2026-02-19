@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 import { format, subDays, startOfMonth, parseISO, isWithinInterval } from 'date-fns';
 import { ShoppingCart, Package, DollarSign, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import KPICard from '@/components/dashboard/KPICard';
@@ -18,6 +19,7 @@ import { formatCurrency } from '@/components/utils/formatCurrency';
 
 export default function Dashboard() {
   const { tenantId, subscription, isActive, user, currency, locale } = useTenant();
+  const { t } = useLanguage();
   const [orders, setOrders] = useState([]);
   const [orderLines, setOrderLines] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
