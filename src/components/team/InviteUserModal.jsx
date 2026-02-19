@@ -17,7 +17,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Mail, Eye, Edit } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Mail, Eye, Edit, X, AlertCircle } from 'lucide-react';
+import { base44 } from '@/api/base44Client';
+import { useToast } from '@/components/ui/use-toast';
 
 const ROLE_PRESETS = {
   admin: {
@@ -63,15 +66,37 @@ const PAGES = [
   { key: 'suppliers', name: 'Suppliers' }
 ];
 
-export default function InviteUserModal({ open, onClose, onInvite }) {
+export default function InviteUserModal({ open, onClose, onInvite, workspaceId }) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('staff');
+  const [role, setRole] = useState('member');
   const [permissions, setPermissions] = useState(ROLE_PRESETS.staff);
+  const [loading, setLoading] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const { toast } = useToast();
 
   useEffect(() => {
     // Apply role preset when role changes
-    setPermissions(ROLE_PRESETS[role]);
+    const preset = ROLE_PRESETS[role] || ROLE_PRESETS.staff;
+    setPermissions(preset);
   }, [role]);
+
+  useEffect(() => {
+    if (open && workspaceId) {
+      loadPendingInvites();
+    }
+  }, [open, workspaceId]);
+
+  const loadPendingInvites = async () => {
+    try {
+      const invites = await base44.entities.WorkspaceInvite.filter({
+        workspace_id: workspaceId,
+        status: 'pending'
+      });
+      setPendingInvites(invites);
+    } catch (error) {
+      console.error('Error loading invites:', error);
+    }
+  };
 
   const handleToggleView = (pageKey) => {
     setPermissions(prev => {
@@ -101,12 +126,65 @@ export default function InviteUserModal({ open, onClose, onInvite }) {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onInvite(email, role, permissions);
-    setEmail('');
-    setRole('staff');
-    setPermissions(ROLE_PRESETS.staff);
+    setLoading(true);
+
+    try {
+      const { data } = await base44.functions.invoke('inviteWorkspaceMember', {
+        workspace_id: workspaceId,
+        email: email.toLowerCase().trim(),
+        role
+      });
+
+      if (data.ok) {
+        toast({
+          title: data.mode === 'member_added' ? 'Member Added' : 'Invite Sent',
+          description: data.message,
+        });
+
+        setEmail('');
+        setRole('member');
+        setPermissions(ROLE_PRESETS.staff);
+        
+        if (data.mode === 'invite_created') {
+          await loadPendingInvites();
+        }
+        
+        if (onInvite) {
+          onInvite();
+        }
+      }
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.response?.data?.error || error.message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId) => {
+    try {
+      await base44.functions.invoke('revokeWorkspaceInvite', {
+        invite_id: inviteId
+      });
+
+      toast({
+        title: 'Invite Revoked',
+        description: 'The invitation has been cancelled',
+      });
+
+      await loadPendingInvites();
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.response?.data?.error || error.message,
+      });
+    }
   };
 
   return (
@@ -131,27 +209,78 @@ export default function InviteUserModal({ open, onClose, onInvite }) {
                   placeholder="user@example.com"
                   className="pl-10"
                   required
+                  disabled={loading}
                 />
               </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Enter any email address. If the user doesn't exist, they'll receive an invite.
+              </p>
             </div>
 
             {/* Role Select */}
             <div>
               <Label htmlFor="role">Role *</Label>
-              <Select value={role} onValueChange={setRole}>
+              <Select value={role} onValueChange={setRole} disabled={loading}>
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="owner">Owner - Full control</SelectItem>
                   <SelectItem value="admin">Admin - Full access to all modules</SelectItem>
-                  <SelectItem value="manager">Manager - Can view/edit most data</SelectItem>
-                  <SelectItem value="staff">Staff - Limited read access</SelectItem>
+                  <SelectItem value="member">Member - Standard access</SelectItem>
+                  <SelectItem value="viewer">Viewer - Read-only access</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Permissions Grid */}
-            <div>
+            {/* Pending Invites */}
+            {pendingInvites.length > 0 && (
+              <div>
+                <Label className="mb-2 block">Pending Invites ({pendingInvites.length})</Label>
+                <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-3 bg-slate-50">
+                  {pendingInvites.map((invite) => (
+                    <div
+                      key={invite.id}
+                      className="flex items-center justify-between p-2 bg-white rounded border"
+                    >
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-900">{invite.invited_email}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {invite.role}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            Pending
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRevokeInvite(invite.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Info Box */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-blue-700 space-y-1">
+                  <p><strong>Workspace Isolation:</strong> Invited users will ONLY see this workspace.</p>
+                  <p>They won't have access to any other workspaces unless explicitly invited.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Permissions Grid - Hidden for now, simplified */}
+            <div style={{ display: 'none' }}>
               <Label className="mb-3 block">Page-Level Permissions</Label>
               <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full">
