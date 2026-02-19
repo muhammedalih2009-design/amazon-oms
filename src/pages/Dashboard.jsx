@@ -14,6 +14,7 @@ import { KPISkeleton, ChartSkeleton } from '@/components/ui/LoadingSkeleton';
 import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
 import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
 import RefreshButton from '@/components/shared/RefreshButton';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 
 export default function Dashboard() {
   const { tenantId, subscription, isActive, user, currency, locale } = useTenant();
