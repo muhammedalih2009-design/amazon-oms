@@ -147,18 +147,20 @@ export default function AdminPage() {
       });
 
       if (response.data.ok) {
-        const { mode, invite_link } = response.data;
+        const { mode, invite_token, admin_email } = response.data;
 
-        if (mode === 'invite_created' && invite_link) {
-          setInviteLink(invite_link);
+        if (mode === 'invite_created' && invite_token) {
+          // Build invite link with current app domain
+          const inviteLink = `${window.location.origin}/AcceptInvite?token=${invite_token}`;
+          setInviteLink(inviteLink);
           toast({
             title: 'Workspace created with invite',
-            description: `Invite link generated for ${formData.admin_email}`
+            description: `Invite link generated for ${admin_email}`
           });
         } else {
           toast({
             title: 'Workspace created',
-            description: `Admin ${formData.admin_email} added successfully`
+            description: `Admin ${admin_email} added successfully`
           });
           setShowCreateWorkspace(false);
           setFormData({ name: '', slug: '', plan: 'trial', status: 'active', admin_email: '', admin_role: 'owner' });
