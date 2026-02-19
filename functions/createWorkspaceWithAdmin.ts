@@ -116,41 +116,31 @@ Deno.serve(async (req) => {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
-      await base44.asServiceRole.entities.WorkspaceInvite.create({
+      // Check for duplicate pending invite
+      const existingInvites = await base44.asServiceRole.entities.WorkspaceInvite.filter({
         workspace_id: newTenant.id,
         invited_email: normalizedEmail,
-        role: admin_role,
-        token: token,
-        status: 'pending',
-        invited_by: currentUser.email,
-        expires_at: expiresAt.toISOString()
+        status: 'pending'
       });
 
-      // Generate in-app invite link (NEVER use function URL)
-      const reqUrl = new URL(req.url);
-      const appOrigin = reqUrl.hostname.includes('deno.dev') 
-        ? 'https://amazonoms.base44.app'
-        : reqUrl.origin;
-      inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
-
-      // Send invitation email
-      try {
-        await base44.asServiceRole.integrations.Core.SendEmail({
-          to: normalizedEmail,
-          subject: `Workspace Invitation: ${workspace_name}`,
-          body: `
-            <h2>You've been invited to ${workspace_name}</h2>
-            <p>You have been invited to join the workspace <strong>${workspace_name}</strong> as an <strong>${admin_role}</strong>.</p>
-            <p>Click the link below to accept your invitation:</p>
-            <p><a href="${inviteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
-            <p>Or copy this link: ${inviteLink}</p>
-            <p>This invitation expires on ${expiresAt.toLocaleDateString()}.</p>
-          `
+      if (existingInvites.length > 0) {
+        // Reuse existing invite token
+        token = existingInvites[0].token;
+      } else {
+        // Create new invite
+        await base44.asServiceRole.entities.WorkspaceInvite.create({
+          workspace_id: newTenant.id,
+          invited_email: normalizedEmail,
+          role: admin_role,
+          token: token,
+          status: 'pending',
+          invited_by: currentUser.email,
+          expires_at: expiresAt.toISOString()
         });
-      } catch (emailError) {
-        console.error('Failed to send invite email:', emailError);
-        // Continue even if email fails
       }
+
+      // CRITICAL: Generate in-app invite link (NEVER Deno function URL)
+      inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${token}`;
 
       // Audit log
       await base44.asServiceRole.entities.AuditLog.create({

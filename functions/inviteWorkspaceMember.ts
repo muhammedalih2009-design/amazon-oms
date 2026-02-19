@@ -98,69 +98,54 @@ Deno.serve(async (req) => {
         message: `${normalizedEmail} added as member`
       });
     } else {
-      // User doesn't exist - create invite
-      const token = crypto.randomUUID();
-
-      await base44.asServiceRole.entities.WorkspaceInvite.create({
+      // Check for duplicate pending invite
+      const existingInvites = await base44.asServiceRole.entities.WorkspaceInvite.filter({
         workspace_id,
         invited_email: normalizedEmail,
-        role,
-        token,
-        status: 'pending',
-        invited_by_user_id: user.id,
-        invited_by_email: user.email,
-        expires_at: expiresAt.toISOString()
+        status: 'pending'
       });
 
-      // Get workspace details for email
-      const workspace = await base44.asServiceRole.entities.Tenant.filter({ id: workspace_id });
-      const workspaceName = workspace.length > 0 ? workspace[0].name : 'Workspace';
-
-      // Generate in-app invite link (NEVER use function URL)
-      const reqUrl = new URL(req.url);
-      const appOrigin = reqUrl.hostname.includes('deno.dev') 
-        ? 'https://amazonoms.base44.app'
-        : reqUrl.origin;
-      const inviteLink = `${appOrigin}/AcceptInvite?token=${token}`;
-
-      // Send invitation email
-      try {
-        await base44.asServiceRole.integrations.Core.SendEmail({
-          to: normalizedEmail,
-          subject: `Workspace Invitation: ${workspaceName}`,
-          body: `
-            <h2>You've been invited to ${workspaceName}</h2>
-            <p><strong>${user.full_name || user.email}</strong> has invited you to join the workspace <strong>${workspaceName}</strong> as a <strong>${role}</strong>.</p>
-            <p>Click the link below to accept your invitation:</p>
-            <p><a href="${inviteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
-            <p>Or copy this link: ${inviteLink}</p>
-            <p>This invitation expires on ${expiresAt.toLocaleDateString()}.</p>
-          `
+      let token;
+      if (existingInvites.length > 0) {
+        // Reuse existing invite token
+        token = existingInvites[0].token;
+      } else {
+        // Create new invite
+        token = crypto.randomUUID();
+        await base44.asServiceRole.entities.WorkspaceInvite.create({
+          workspace_id,
+          invited_email: normalizedEmail,
+          role,
+          token,
+          status: 'pending',
+          invited_by_user_id: user.id,
+          invited_by_email: user.email,
+          expires_at: expiresAt.toISOString()
         });
-      } catch (emailError) {
-        console.error('Failed to send invite email:', emailError);
-        // Continue even if email fails
+
+        // Audit log
+        await base44.asServiceRole.entities.AuditLog.create({
+          workspace_id,
+          user_id: user.id,
+          user_email: user.email,
+          action: 'create',
+          entity_type: 'invite',
+          metadata: {
+            invited_email: normalizedEmail,
+            role
+          }
+        });
       }
 
-      // Audit log
-      await base44.asServiceRole.entities.AuditLog.create({
-        workspace_id,
-        user_id: user.id,
-        user_email: user.email,
-        action: 'create',
-        entity_type: 'invite',
-        metadata: {
-          invited_email: normalizedEmail,
-          role
-        }
-      });
+      // CRITICAL: Generate in-app invite link (NEVER Deno function URL)
+      const inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${token}`;
 
       return Response.json({
         ok: true,
         mode: 'invite_created',
         token,
         invite_link: inviteLink,
-        message: `Invite sent to ${normalizedEmail}`
+        message: `Invite created for ${normalizedEmail}`
       });
     }
   } catch (error) {

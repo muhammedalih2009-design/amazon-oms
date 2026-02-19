@@ -264,33 +264,52 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
             {pendingInvites.length > 0 && (
               <div>
                 <Label className="mb-2 block">Pending Invites ({pendingInvites.length})</Label>
-                <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-3 bg-slate-50">
-                  {pendingInvites.map((invite) => (
-                    <div
-                      key={invite.id}
-                      className="flex items-center justify-between p-2 bg-white rounded border"
-                    >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-900">{invite.invited_email}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            {invite.role}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            Pending
-                          </Badge>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRevokeInvite(invite.id)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-3 bg-slate-50">
+                  {pendingInvites.map((invite) => {
+                    const inviteLink = `https://amazonoms.base44.app/AcceptInvite?token=${invite.token}`;
+                    return (
+                      <div
+                        key={invite.id}
+                        className="flex items-start justify-between p-3 bg-white rounded border"
                       >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">{invite.invited_email}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className="text-xs">
+                              {invite.role}
+                          </Badge>
+                              <Badge variant="secondary" className="text-xs">
+                                Pending
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Expires: {new Date(invite.expires_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                navigator.clipboard.writeText(inviteLink);
+                                toast({ title: 'Invite link copied!' });
+                              }}
+                              className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs"
+                            >
+                              Copy Link
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevokeInvite(invite.id)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -300,8 +319,10 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                 <div className="text-xs text-blue-700 space-y-1">
-                  <p><strong>Workspace Isolation:</strong> Invited users will ONLY see this workspace.</p>
-                  <p>They won't have access to any other workspaces unless explicitly invited.</p>
+                  <p><strong>How Invites Work:</strong></p>
+                  <p>• Copy and share the invite link with the user</p>
+                  <p>• They'll join THIS workspace only (strict isolation)</p>
+                  <p>• Links expire in 7 days</p>
                 </div>
               </div>
             </div>
