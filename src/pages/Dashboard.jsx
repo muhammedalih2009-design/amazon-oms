@@ -16,7 +16,7 @@ import PagePermissionGuard from '@/components/shared/PagePermissionGuard';
 import RefreshButton from '@/components/shared/RefreshButton';
 
 export default function Dashboard() {
-  const { tenantId, subscription, isActive, user } = useTenant();
+  const { tenantId, subscription, isActive, user, currency, locale } = useTenant();
   const [orders, setOrders] = useState([]);
   const [orderLines, setOrderLines] = useState([]);
   const [currentStock, setCurrentStock] = useState([]);
