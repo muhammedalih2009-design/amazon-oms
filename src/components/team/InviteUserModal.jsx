@@ -73,6 +73,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingInvites, setPendingInvites] = useState([]);
+  const [workspaceModules, setWorkspaceModules] = useState([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -84,6 +85,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
   useEffect(() => {
     if (open && workspaceId) {
       loadPendingInvites();
+      loadWorkspaceModules();
     }
   }, [open, workspaceId]);
 
@@ -96,6 +98,18 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
       setPendingInvites(invites);
     } catch (error) {
       console.error('Error loading invites:', error);
+    }
+  };
+
+  const loadWorkspaceModules = async () => {
+    try {
+      const modules = await base44.entities.WorkspaceModule.filter({
+        workspace_id: workspaceId
+      });
+      setWorkspaceModules(modules);
+    } catch (error) {
+      console.error('Error loading workspace modules:', error);
+      setWorkspaceModules([]);
     }
   };
 
@@ -135,7 +149,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
     setLoading(true);
 
     try {
-      const { data } = await base44.functions.invoke('inviteWorkspaceMember', {
+      const { data } = await base44.functions.invoke('addMemberByEmail', {
         workspace_id: workspaceId,
         email: email.toLowerCase().trim(),
         role
@@ -251,6 +265,53 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
               </p>
             </div>
 
+            {/* Workspace Access Info */}
+            {workspaceModules.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 text-sm mb-2 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Workspace Page Access
+                </h4>
+                <p className="text-xs text-blue-700 mb-3">
+                  Members can only access pages that are enabled for this workspace:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {['dashboard', 'skus_products', 'orders', 'profitability', 'purchase_requests', 'purchases', 'returns', 'suppliers', 'tasks', 'team'].map(moduleKey => {
+                    const module = workspaceModules.find(m => m.module_key === moduleKey);
+                    const isEnabled = module ? module.enabled : false;
+                    const displayNames = {
+                      dashboard: 'Dashboard',
+                      skus_products: 'SKUs',
+                      orders: 'Orders',
+                      profitability: 'Profitability',
+                      purchase_requests: 'Purchase Requests',
+                      purchases: 'Purchases',
+                      returns: 'Returns',
+                      suppliers: 'Suppliers',
+                      tasks: 'Tasks',
+                      team: 'Team'
+                    };
+                    return (
+                      <Badge 
+                        key={moduleKey} 
+                        className={isEnabled 
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                          : 'bg-slate-100 text-slate-500 border-slate-200'}
+                      >
+                        {displayNames[moduleKey] || moduleKey}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-blue-600 mt-3 italic">
+                  {role === 'owner' && '✓ Owner: Full access to all enabled pages'}
+                  {role === 'admin' && '✓ Admin: Full access to all enabled pages'}
+                  {role === 'member' && '✓ Member: Can create/edit within enabled pages'}
+                  {role === 'viewer' && '✓ Viewer: Read-only access to enabled pages'}
+                </p>
+              </div>
+            )}
+
             {/* Role Select */}
             <div>
               <Label htmlFor="role">Role *</Label>
@@ -260,7 +321,7 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="owner">Owner - Full control</SelectItem>
-                  <SelectItem value="admin">Admin - Full access to all modules</SelectItem>
+                  <SelectItem value="admin">Admin - Full access to enabled pages</SelectItem>
                   <SelectItem value="member">Member - Standard access</SelectItem>
                   <SelectItem value="viewer">Viewer - Read-only access</SelectItem>
                 </SelectContent>
