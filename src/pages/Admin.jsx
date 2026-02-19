@@ -36,6 +36,7 @@ import TelegramSettings from '@/components/admin/TelegramSettings';
 import ExportSettings from '@/components/admin/ExportSettings';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
 import CloneWorkspaceModal from '@/components/admin/CloneWorkspaceModal';
+import ModuleSelector from '@/components/admin/ModuleSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -65,6 +66,7 @@ export default function AdminPage() {
     plan: 'trial',
     status: 'active'
   });
+  const [selectedModules, setSelectedModules] = useState([]);
 
   useEffect(() => {
     if (user) {
@@ -109,6 +111,15 @@ export default function AdminPage() {
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
     
+    if (selectedModules.length === 0) {
+      toast({
+        title: 'No modules selected',
+        description: 'Please enable at least one module',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
     try {
       const newTenant = await base44.entities.Tenant.create({
         name: formData.name,
@@ -122,6 +133,15 @@ export default function AdminPage() {
         status: 'active',
         current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
+
+      // Create workspace modules
+      const modulesToCreate = selectedModules.map(moduleKey => ({
+        workspace_id: newTenant.id,
+        module_key: moduleKey,
+        enabled: true
+      }));
+      
+      await base44.entities.WorkspaceModule.bulkCreate(modulesToCreate);
 
       // CRITICAL: Auto-create membership for creator (super admin) - ALWAYS
       try {
@@ -145,13 +165,28 @@ export default function AdminPage() {
         // Continue anyway - useTenant will auto-repair
       }
 
+      // Audit log
+      await base44.entities.AuditLog.create({
+        workspace_id: newTenant.id,
+        user_id: user.id,
+        user_email: user.email,
+        action: 'create',
+        entity_type: 'Workspace',
+        after_data: JSON.stringify({
+          name: formData.name,
+          modules: selectedModules
+        }),
+        metadata: { modules_enabled: selectedModules.length }
+      });
+
       toast({
         title: 'Workspace created',
-        description: `${formData.name} has been created successfully`
+        description: `${formData.name} with ${selectedModules.length} modules`
       });
 
       setShowCreateWorkspace(false);
       setFormData({ name: '', slug: '', plan: 'trial', status: 'active' });
+      setSelectedModules([]);
       loadData(true);
     } catch (error) {
       toast({
