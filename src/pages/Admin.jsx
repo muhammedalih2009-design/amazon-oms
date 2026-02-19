@@ -108,6 +108,8 @@ export default function AdminPage() {
     }
   };
 
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
     
@@ -119,6 +121,8 @@ export default function AdminPage() {
       });
       return;
     }
+    
+    setCreatingWorkspace(true);
     
     try {
       const newTenant = await base44.entities.Tenant.create({
@@ -194,6 +198,8 @@ export default function AdminPage() {
         description: error.message,
         variant: 'destructive'
       });
+    } finally {
+      setCreatingWorkspace(false);
     }
   };
 
@@ -699,19 +705,25 @@ export default function AdminPage() {
               <ModuleSelector
                 selectedModules={selectedModules}
                 onChange={setSelectedModules}
+                disabled={creatingWorkspace}
               />
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
-              <Button type="button" variant="outline" onClick={() => setShowCreateWorkspace(false)}>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowCreateWorkspace(false)}
+                disabled={creatingWorkspace}
+              >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={selectedModules.length === 0}
+                disabled={selectedModules.length === 0 || creatingWorkspace}
               >
-                Create Workspace
+                {creatingWorkspace ? 'Creating...' : 'Create Workspace'}
               </Button>
             </div>
           </form>

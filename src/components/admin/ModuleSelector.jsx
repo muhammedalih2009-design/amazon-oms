@@ -53,10 +53,11 @@ const PLAN_PRESETS = {
   pro: Object.values(MODULE_GROUPS).flatMap(g => g.modules.map(m => m.key))
 };
 
-export default function ModuleSelector({ selectedModules, onChange }) {
+export default function ModuleSelector({ selectedModules, onChange, disabled }) {
   const [modules, setModules] = useState(selectedModules || PLAN_PRESETS.pro);
 
   const handleToggle = (moduleKey) => {
+    if (disabled) return;
     const updated = modules.includes(moduleKey)
       ? modules.filter(k => k !== moduleKey)
       : [...modules, moduleKey];
@@ -65,17 +66,20 @@ export default function ModuleSelector({ selectedModules, onChange }) {
   };
 
   const handleSelectAll = () => {
+    if (disabled) return;
     const allKeys = Object.values(MODULE_GROUPS).flatMap(g => g.modules.map(m => m.key));
     setModules(allKeys);
     onChange(allKeys);
   };
 
   const handleClearAll = () => {
+    if (disabled) return;
     setModules([]);
     onChange([]);
   };
 
   const handlePreset = (preset) => {
+    if (disabled) return;
     const presetModules = PLAN_PRESETS[preset];
     setModules(presetModules);
     onChange(presetModules);
@@ -90,27 +94,32 @@ export default function ModuleSelector({ selectedModules, onChange }) {
           <p className="text-sm text-slate-600">Choose which features are available in this workspace</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleClearAll}>
+          <Button type="button" variant="outline" size="sm" onClick={handleClearAll} disabled={disabled}>
             Clear All
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSelectAll}>
+          <Button type="button" variant="outline" size="sm" onClick={handleSelectAll} disabled={disabled}>
             Select All
           </Button>
         </div>
       </div>
 
       {/* Presets */}
-      <div className="flex gap-2">
-        <span className="text-sm text-slate-600">Quick presets:</span>
-        <Button variant="ghost" size="sm" onClick={() => handlePreset('starter')} className="h-7 px-3">
-          Starter
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => handlePreset('growth')} className="h-7 px-3">
-          Growth
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => handlePreset('pro')} className="h-7 px-3">
-          Pro (All)
-        </Button>
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <span className="text-sm text-slate-600">Quick presets:</span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => handlePreset('starter')} className="h-7 px-3" disabled={disabled}>
+            Starter
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => handlePreset('growth')} className="h-7 px-3" disabled={disabled}>
+            Growth
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => handlePreset('pro')} className="h-7 px-3" disabled={disabled}>
+            Pro (All)
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500 italic">
+          💡 Presets only pre-fill selections. Click "Create Workspace" below to apply.
+        </p>
       </div>
 
       {/* Module Groups */}
@@ -161,6 +170,7 @@ export default function ModuleSelector({ selectedModules, onChange }) {
                       <Switch
                         checked={isEnabled}
                         onCheckedChange={() => handleToggle(module.key)}
+                        disabled={disabled}
                       />
                     </div>
                   );
