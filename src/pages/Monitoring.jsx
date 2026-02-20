@@ -79,6 +79,14 @@ export default function MonitoringPage() {
     setRefreshing(false);
   };
 
+  // Auto-refresh jobs every 3 seconds
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      refetchJobs();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [refetchJobs]);
+
   const handleJobAction = async (jobId, action) => {
     setActioningJob(jobId);
     try {
