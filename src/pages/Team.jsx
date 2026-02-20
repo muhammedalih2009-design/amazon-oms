@@ -154,10 +154,11 @@ export default function TeamPage() {
 
   const getAccessCoverage = (member) => {
     if (member.role === 'owner') {
-      return { granted: 8, total: 8, percentage: 100 };
+      return { granted: 10, total: 10, percentage: 100 };
     }
 
-    const pages = ['dashboard', 'tasks', 'skus', 'orders', 'purchases', 'returns', 'settlement', 'suppliers'];
+    // DYNAMIC: Use all modules that have permissions
+    const pages = ['dashboard', 'tasks', 'skus_products', 'orders', 'profitability', 'purchase_requests', 'purchases', 'returns', 'suppliers', 'team'];
     const granted = pages.filter(page => member.permissions?.[page]?.view).length;
     
     return {
@@ -168,13 +169,14 @@ export default function TeamPage() {
     };
   };
 
-  if (!isOwner) {
+  // SECURITY: Check if user has team edit permission
+  if (!canManageTeam) {
     return (
       <div className="space-y-6">
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
           <Shield className="w-12 h-12 text-yellow-600 mx-auto mb-3" />
           <h2 className="text-lg font-semibold text-yellow-900 mb-2">Access Restricted</h2>
-          <p className="text-yellow-700">Only workspace owners can manage team members and permissions.</p>
+          <p className="text-yellow-700">You do not have permission to manage team members.</p>
         </div>
       </div>
     );
