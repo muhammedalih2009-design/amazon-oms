@@ -164,31 +164,50 @@ export default function TelegramExportModal({
             <DialogHeader>
               <DialogTitle>Sending to Telegram</DialogTitle>
               <DialogDescription>
-                {status.currentSupplier && `Processing: ${status.currentSupplier}`}
+                Job ID: {jobId?.slice(0, 8)}... Status: {status.status}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Progress bar */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Progress</span>
+                  <span className="text-slate-600">Sent / Total</span>
                   <span className="font-semibold text-slate-900">
-                    {status.sentItems} / {status.totalItems}
+                    {status.sentItems || 0} / {status.totalItems}
                   </span>
                 </div>
-                <Progress value={progressPercent} className="h-2" />
-                <p className="text-xs text-slate-500 text-center">{progressPercent}%</p>
+                <Progress value={Math.min(status.progressPercent || 0, 100)} className="h-2" />
+                <p className="text-xs text-slate-500 text-center">{status.progressPercent || 0}%</p>
               </div>
 
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-green-50 rounded p-2 text-center">
+                  <p className="text-xs text-slate-600">Sent</p>
+                  <p className="text-lg font-bold text-green-600">{status.sentItems || 0}</p>
+                </div>
+                <div className="bg-slate-50 rounded p-2 text-center">
+                  <p className="text-xs text-slate-600">Processing</p>
+                  <p className="text-lg font-bold text-slate-600">{status.processedItems || 0}</p>
+                </div>
+                <div className="bg-red-50 rounded p-2 text-center">
+                  <p className="text-xs text-slate-600">Failed</p>
+                  <p className="text-lg font-bold text-red-600">{status.failedItems || 0}</p>
+                </div>
+              </div>
+
+              {/* Status message */}
               <div className="flex items-center justify-center gap-2 text-slate-600">
                 <Loader className="w-5 h-5 animate-spin" />
-                <span className="text-sm">Sending items...</span>
+                <span className="text-sm">Processing {status.sentItems}/{status.totalItems} items...</span>
               </div>
 
-              {status.failedItems > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-sm text-amber-800">
-                    {status.failedItems} item(s) failed to send
+              {/* Error message if any */}
+              {status.errorMessage && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-800">
+                    <span className="font-semibold">Error:</span> {status.errorMessage}
                   </p>
                 </div>
               )}
