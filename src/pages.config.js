@@ -48,11 +48,13 @@
  * The mainPage value must match a key in the PAGES object exactly.
  */
 import AcceptInvite from './pages/AcceptInvite';
+import AcceptPlatformInvite from './pages/AcceptPlatformInvite';
 import Admin from './pages/Admin';
 import BackupData from './pages/BackupData';
 import Dashboard from './pages/Dashboard';
 import EmergencyRestore from './pages/EmergencyRestore';
 import Monitoring from './pages/Monitoring';
+import NoAccess from './pages/NoAccess';
 import Orders from './pages/Orders';
 import OwnerLog from './pages/OwnerLog';
 import Profile from './pages/Profile';
@@ -70,18 +72,18 @@ import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import NoAccess from './pages/NoAccess';
-import AcceptPlatformInvite from './pages/AcceptPlatformInvite';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
     "AcceptInvite": AcceptInvite,
+    "AcceptPlatformInvite": AcceptPlatformInvite,
     "Admin": Admin,
     "BackupData": BackupData,
     "Dashboard": Dashboard,
     "EmergencyRestore": EmergencyRestore,
     "Monitoring": Monitoring,
+    "NoAccess": NoAccess,
     "Orders": Orders,
     "OwnerLog": OwnerLog,
     "Profile": Profile,
@@ -99,8 +101,6 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
-    "NoAccess": NoAccess,
-    "AcceptPlatformInvite": AcceptPlatformInvite,
 }
 
 export const pagesConfig = {
