@@ -405,7 +405,7 @@ export default function MonitoringPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Background Jobs {!isPlatformAdmin && `(Workspace)`}</CardTitle>
+                <CardTitle>Background Jobs {isSuperAdmin ? '(All Workspaces)' : '(Workspace)'}</CardTitle>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
