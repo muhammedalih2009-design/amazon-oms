@@ -22,7 +22,7 @@ export default function BackgroundJobManager() {
         'BackgroundJob',
         { 
           tenant_id: tenantId,
-          status: { $in: ['queued', 'running', 'throttled', 'paused'] }
+          status: { $in: ['queued', 'running', 'throttled', 'paused', 'cancelling'] }
         },
         '-created_date',
         5,
@@ -43,6 +43,31 @@ export default function BackgroundJobManager() {
         setPollInterval(prev => Math.min(prev * 2, 60000));
         console.log(`[Job Manager] Rate limited, increasing poll interval to ${pollInterval}ms`);
       }
+    }
+  };
+
+  const forceStop = async (jobId) => {
+    try {
+      const result = await apiClient.invokeFunction('forceStopJob', {
+        job_id: jobId
+      });
+
+      if (result.success) {
+        toast({
+          title: 'Force stop requested',
+          description: 'Job is being terminated...',
+          duration: 3000
+        });
+        fetchJobs();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      toast({
+        title: 'Force stop failed',
+        description: error.message,
+        variant: 'destructive'
+      });
     }
   };
 
@@ -90,7 +115,9 @@ export default function BackgroundJobManager() {
           <div className="space-y-3">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2">
-                {job.status === 'throttled' ? (
+                {job.status === 'cancelling' ? (
+                  <Ban className="w-5 h-5 text-red-600 animate-pulse" />
+                ) : job.status === 'throttled' ? (
                   <AlertTriangle className="w-5 h-5 text-amber-600 animate-pulse" />
                 ) : job.status === 'paused' ? (
                   <Pause className="w-5 h-5 text-blue-600" />
@@ -101,17 +128,11 @@ export default function BackgroundJobManager() {
                   <p className="font-semibold text-sm text-slate-900">
                     {job.job_type === 'delete_all_skus' && 'Deleting All SKUs'}
                   </p>
-                  <p className="text-xs text-slate-600">{job.progress?.message}</p>
+                  <p className={`text-xs ${job.status === 'cancelling' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
+                    {job.status === 'cancelling' ? 'Stopping...' : job.progress?.message}
+                  </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => manageJob(job.id, 'cancel')}
-                className="h-6 w-6"
-              >
-                <X className="w-4 h-4" />
-              </Button>
             </div>
 
             <div className="space-y-1">
@@ -130,35 +151,58 @@ export default function BackgroundJobManager() {
             )}
 
             <div className="flex items-center gap-2">
-              {job.status === 'paused' ? (
+              {job.status === 'cancelling' ? (
                 <Button
                   size="sm"
-                  onClick={() => manageJob(job.id, 'resume')}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
-                >
-                  <Play className="w-3 h-3 mr-1" />
-                  Resume
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => manageJob(job.id, 'pause')}
+                  variant="destructive"
+                  disabled
                   className="flex-1"
                 >
-                  <Pause className="w-3 h-3 mr-1" />
-                  Pause
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Stopping...
                 </Button>
+              ) : job.status === 'paused' ? (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => manageJob(job.id, 'resume')}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    Resume
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => forceStop(job.id)}
+                    className="flex-1"
+                  >
+                    <Ban className="w-3 h-3 mr-1" />
+                    Force Stop
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => manageJob(job.id, 'pause')}
+                    className="flex-1"
+                  >
+                    <Pause className="w-3 h-3 mr-1" />
+                    Pause
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => forceStop(job.id)}
+                    className="flex-1"
+                  >
+                    <Ban className="w-3 h-3 mr-1" />
+                    Force Stop
+                  </Button>
+                </>
               )}
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => manageJob(job.id, 'cancel')}
-                className="flex-1"
-              >
-                <Ban className="w-3 h-3 mr-1" />
-                Cancel
-              </Button>
             </div>
 
             <p className="text-xs text-slate-500">

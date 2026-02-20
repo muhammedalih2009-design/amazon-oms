@@ -3,9 +3,69 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 const BATCH_SIZE = 100;
 const BASE_DELAY = 500; // 500ms between batches
 const THROTTLED_DELAY = 2000; // 2s when throttled
+const MAX_RUNTIME_MS = 5 * 60 * 1000; // 5 minutes max
+const TERMINATION_GUARD_MS = 30 * 1000; // 30 seconds
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function checkCancellation(base44, job_id, startTime, processedCount) {
+  const currentJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
+  
+  // Check for cancelling status
+  if (currentJob.status === 'cancelling') {
+    console.log(`[Job ${job_id}] Cancelling detected, terminating immediately`);
+    await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+      status: 'cancelled',
+      finished_at: new Date().toISOString(),
+      progress: {
+        ...currentJob.progress,
+        message: `Cancelled after processing ${processedCount} items`
+      }
+    });
+    return { shouldStop: true, reason: 'cancelled' };
+  }
+  
+  // Check for stuck in cancelling (termination guard)
+  if (currentJob.cancel_requested_at) {
+    const cancelAge = Date.now() - new Date(currentJob.cancel_requested_at).getTime();
+    if (cancelAge > TERMINATION_GUARD_MS) {
+      console.log(`[Job ${job_id}] Stuck in cancelling for ${cancelAge}ms, force terminating`);
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        status: 'force_terminated',
+        finished_at: new Date().toISOString(),
+        progress: {
+          ...currentJob.progress,
+          message: `Force terminated after ${Math.round(cancelAge / 1000)}s in cancelling state`
+        }
+      });
+      return { shouldStop: true, reason: 'force_terminated' };
+    }
+  }
+  
+  // Check for timeout
+  const runtime = Date.now() - startTime;
+  if (runtime > MAX_RUNTIME_MS) {
+    console.log(`[Job ${job_id}] Timeout after ${runtime}ms, terminating`);
+    await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+      status: 'timeout_cancelled',
+      finished_at: new Date().toISOString(),
+      progress: {
+        ...currentJob.progress,
+        message: `Timeout after ${Math.round(runtime / 1000 / 60)} minutes`
+      }
+    });
+    return { shouldStop: true, reason: 'timeout' };
+  }
+  
+  // Check for paused
+  if (currentJob.status === 'paused') {
+    console.log(`[Job ${job_id}] Paused, exiting`);
+    return { shouldStop: true, reason: 'paused' };
+  }
+  
+  return { shouldStop: false };
 }
 
 Deno.serve(async (req) => {
@@ -27,6 +87,7 @@ Deno.serve(async (req) => {
     }
 
     const workspace_id = job.tenant_id;
+    const startTime = Date.now();
 
     // Update job to running if it was queued
     if (job.status === 'queued') {
@@ -42,31 +103,14 @@ Deno.serve(async (req) => {
     let currentDelay = BASE_DELAY;
 
     while (true) {
-      // CRITICAL: Check job status before each batch (cancellation support)
-      const currentJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
-      
-      // P0 FIX: Detect cancelling status and immediately cancel
-      if (currentJob.status === 'cancelling') {
-        console.log(`[Execute Delete All SKUs] Job ${job_id} cancelling detected, stopping immediately`);
-        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString(),
-          progress: {
-            ...currentJob.progress,
-            message: `Cancelled after processing ${processedCount} SKUs`
-          }
+      // CRITICAL: Check for cancellation, timeout, termination
+      const cancelCheck = await checkCancellation(base44, job_id, startTime, processedCount);
+      if (cancelCheck.shouldStop) {
+        return Response.json({ 
+          ok: true, 
+          message: `Job ${cancelCheck.reason}`, 
+          processed: processedCount 
         });
-        return Response.json({ ok: true, message: 'Job cancelled', processed: processedCount });
-      }
-      
-      if (currentJob.status === 'paused') {
-        console.log(`[Execute Delete All SKUs] Job ${job_id} paused, exiting`);
-        return Response.json({ ok: true, message: 'Job paused' });
-      }
-      
-      if (currentJob.status === 'cancelled') {
-        console.log(`[Execute Delete All SKUs] Job ${job_id} already cancelled, exiting`);
-        return Response.json({ ok: true, message: 'Job cancelled' });
       }
 
       // Fetch next batch of SKUs
@@ -146,20 +190,13 @@ Deno.serve(async (req) => {
     // Process movements in batches
     for (let i = 0; i < movements.length; i += 50) {
       // Check for cancellation
-      const checkJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
-      if (checkJob.status === 'cancelling') {
-        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString(),
-          progress: {
-            current: processedCount,
-            total: job.params.total_skus,
-            percent: 95,
-            phase: 'cancelled',
-            message: `Cancelled during cleanup after ${deletedCount} SKUs deleted`
-          }
+      const cancelCheck = await checkCancellation(base44, job_id, startTime, processedCount);
+      if (cancelCheck.shouldStop) {
+        return Response.json({ 
+          ok: true, 
+          message: `Job ${cancelCheck.reason} during cleanup`, 
+          processed: processedCount 
         });
-        return Response.json({ ok: true, message: 'Job cancelled during cleanup', processed: processedCount });
       }
 
       const batch = movements.slice(i, i + 50);
@@ -175,20 +212,13 @@ Deno.serve(async (req) => {
     // Process stocks in batches
     for (let i = 0; i < stocks.length; i += 50) {
       // Check for cancellation
-      const checkJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
-      if (checkJob.status === 'cancelling') {
-        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString(),
-          progress: {
-            current: processedCount,
-            total: job.params.total_skus,
-            percent: 97,
-            phase: 'cancelled',
-            message: `Cancelled during cleanup after ${deletedCount} SKUs deleted`
-          }
+      const cancelCheck = await checkCancellation(base44, job_id, startTime, processedCount);
+      if (cancelCheck.shouldStop) {
+        return Response.json({ 
+          ok: true, 
+          message: `Job ${cancelCheck.reason} during cleanup`, 
+          processed: processedCount 
         });
-        return Response.json({ ok: true, message: 'Job cancelled during cleanup', processed: processedCount });
       }
 
       const batch = stocks.slice(i, i + 50);
@@ -204,7 +234,7 @@ Deno.serve(async (req) => {
     // Mark job as completed
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'completed',
-      completed_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
       progress: {
         current: processedCount,
         total: job.params.total_skus,
