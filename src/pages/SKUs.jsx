@@ -933,34 +933,47 @@ export default function SKUsPage() {
           <Button 
             variant="outline" 
             onClick={handleExportCSV}
-            disabled={!canEdit || filteredSkus.length === 0}
+            disabled={filteredSkus.length === 0}
             className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+            title={!canView ? "You don't have permission to view SKUs" : ""}
           >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
           <Button 
             variant="outline" 
-            onClick={() => setShowUploadModal(true)}
+            onClick={() => {
+              console.log('[SKUs] Bulk Upload clicked', { canEdit, workspace_id: tenantId });
+              setShowUploadModal(true);
+            }}
             disabled={!isActive || !canEdit}
             className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+            title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
             <Upload className="w-4 h-4 mr-2" />
             Bulk Upload
           </Button>
           <Button 
             variant="outline" 
-            onClick={() => setShowUpdateModal(true)}
+            onClick={() => {
+              console.log('[SKUs] Bulk Update clicked', { canEdit, workspace_id: tenantId });
+              setShowUpdateModal(true);
+            }}
             disabled={!isActive || !canEdit}
             className="border-purple-200 text-purple-600 hover:bg-purple-50"
+            title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
             <Upload className="w-4 h-4 mr-2" />
             Bulk Update
           </Button>
           <Button 
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              console.log('[SKUs] Add SKU clicked', { canEdit, workspace_id: tenantId });
+              setShowAddModal(true);
+            }}
             disabled={!isActive || !canEdit}
             className="bg-indigo-600 hover:bg-indigo-700"
+            title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
             <Plus className="w-4 h-4 mr-2" />
             Add SKU
