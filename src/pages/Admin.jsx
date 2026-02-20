@@ -75,12 +75,9 @@ export default function AdminPage() {
     name: '',
     slug: '',
     plan: 'trial',
-    status: 'active',
-    admin_email: '',
-    admin_role: 'owner'
+    status: 'active'
   });
   const [selectedModules, setSelectedModules] = useState([]);
-  const [inviteLink, setInviteLink] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -149,15 +146,6 @@ export default function AdminPage() {
       return;
     }
 
-    if (!formData.admin_email) {
-      toast({
-        title: 'Admin email required',
-        description: 'Please specify a primary workspace admin',
-        variant: 'destructive'
-      });
-      return;
-    }
-    
     setCreatingWorkspace(true);
     
     try {
@@ -165,32 +153,18 @@ export default function AdminPage() {
         workspace_name: formData.name,
         slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, '-'),
         plan: formData.plan,
-        enabled_modules: selectedModules,
-        admin_email: formData.admin_email,
-        admin_role: formData.admin_role
+        enabled_modules: selectedModules
       });
 
       if (response.data.ok) {
-        const { mode, invite_token, admin_email } = response.data;
-
-        if (mode === 'invite_created' && invite_token) {
-          // Build invite link with current app domain
-          const inviteLink = `${window.location.origin}/AcceptInvite?token=${invite_token}`;
-          setInviteLink(inviteLink);
-          toast({
-            title: 'Workspace created with invite',
-            description: `Invite link generated for ${admin_email}`
-          });
-        } else {
-          toast({
-            title: 'Workspace created',
-            description: `Admin ${admin_email} added successfully`
-          });
-          setShowCreateWorkspace(false);
-          setFormData({ name: '', slug: '', plan: 'trial', status: 'active', admin_email: '', admin_role: 'owner' });
-          setSelectedModules([]);
-          loadData(true);
-        }
+        toast({
+          title: 'Workspace created',
+          description: `${formData.name} created successfully with ${PLATFORM_OWNER_EMAIL} as owner`
+        });
+        setShowCreateWorkspace(false);
+        setFormData({ name: '', slug: '', plan: 'trial', status: 'active' });
+        setSelectedModules([]);
+        loadData(true);
       } else {
         throw new Error(response.data.error || 'Creation failed');
       }
@@ -207,8 +181,7 @@ export default function AdminPage() {
 
   const handleCloseCreateDialog = () => {
     setShowCreateWorkspace(false);
-    setInviteLink(null);
-    setFormData({ name: '', slug: '', plan: 'trial', status: 'active', admin_email: '', admin_role: 'owner' });
+    setFormData({ name: '', slug: '', plan: 'trial', status: 'active' });
     setSelectedModules([]);
     loadData(true);
   };
@@ -818,40 +791,10 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="border-t pt-6">
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">Workspace Admin (Primary Owner)</h3>
-                <p className="text-sm text-slate-600 mb-4">
-                  This person will become the workspace owner/admin. If they don't have an account, an invite link will be generated.
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> You ({PLATFORM_OWNER_EMAIL}) will be automatically assigned as the owner of this workspace with full permissions.
                 </p>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Admin Email *</Label>
-                    <Input
-                      type="email"
-                      value={formData.admin_email}
-                      onChange={(e) => setFormData({ ...formData, admin_email: e.target.value })}
-                      placeholder="admin@example.com"
-                      required
-                      disabled={creatingWorkspace}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Admin Role</Label>
-                    <Select
-                      value={formData.admin_role}
-                      onValueChange={(value) => setFormData({ ...formData, admin_role: value })}
-                      disabled={creatingWorkspace}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="owner">Owner (Recommended)</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
               </div>
 
               <div className="border-t pt-6">
@@ -874,13 +817,12 @@ export default function AdminPage() {
                 <Button 
                   type="submit" 
                   className="bg-indigo-600 hover:bg-indigo-700"
-                  disabled={selectedModules.length === 0 || !formData.admin_email || creatingWorkspace}
+                  disabled={selectedModules.length === 0 || creatingWorkspace}
                 >
                   {creatingWorkspace ? 'Creating...' : 'Create Workspace'}
                 </Button>
               </div>
             </form>
-          )}
         </DialogContent>
       </Dialog>
 
