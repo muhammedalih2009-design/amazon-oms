@@ -383,17 +383,49 @@ export default function MonitoringPage() {
         <TabsContent value="jobs">
           <Card>
             <CardHeader>
-              <CardTitle>Background Jobs</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Background Jobs {!isPlatformAdmin && `(Workspace)`}</CardTitle>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={jobFilter === 'active' ? 'default' : 'outline'}
+                    onClick={() => setJobFilter('active')}
+                  >
+                    Active
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={jobFilter === 'completed' ? 'default' : 'outline'}
+                    onClick={() => setJobFilter('completed')}
+                  >
+                    Completed
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={jobFilter === 'all' ? 'default' : 'outline'}
+                    onClick={() => setJobFilter('all')}
+                  >
+                    All
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {jobs.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <Activity className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                    <p>No background jobs</p>
-                  </div>
-                ) : (
-                  jobs.map(job => (
+                {(() => {
+                  let filtered = jobs;
+                  if (jobFilter === 'active') {
+                    filtered = jobs.filter(j => ['running', 'queued', 'throttled', 'paused', 'cancelling'].includes(j.status));
+                  } else if (jobFilter === 'completed') {
+                    filtered = jobs.filter(j => ['completed', 'cancelled', 'failed'].includes(j.status));
+                  }
+                  return filtered.length === 0 ? (
+                    <div className="text-center py-8 text-slate-500">
+                      <Activity className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                      <p>No {jobFilter === 'all' ? 'background' : jobFilter} jobs</p>
+                    </div>
+                  ) : (
+                    filtered.map(job => (
                     <div key={job.id} className="border rounded-lg p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
