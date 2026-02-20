@@ -93,7 +93,16 @@ export default function UserManagementTab({ allUsers, memberships, workspaces, o
           <div className="p-6 border-b border-slate-200">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
-              <RefreshButton onRefresh={onRefresh} />
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setInviteModalOpen(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Invite User
+                </Button>
+                <RefreshButton onRefresh={onRefresh} />
+              </div>
             </div>
           </div>
           <div className="overflow-x-auto">
