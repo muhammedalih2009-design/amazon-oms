@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
+import { resolveOrCreateSupplier } from './supplierResolver';
 import TaskProgressModal from '@/components/shared/TaskProgressModal';
 
 export default function BulkUploadModal({ open, onClose, onComplete }) {
