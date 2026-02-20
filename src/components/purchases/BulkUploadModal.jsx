@@ -1,38 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { format } from 'date-fns';
-import { Upload, FileText, AlertTriangle, CheckCircle, XCircle, Download } from 'lucide-react';
+import { Upload, FileText, AlertTriangle, CheckCircle, XCircle, Download, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useToast } from '@/components/ui/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) {
   const { toast } = useToast();
+  const [step, setStep] = useState(1); // 1: Upload, 2: Validate, 3: Progress, 4: Complete
   const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState(null);
-
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile && selectedFile.type === 'text/csv') {
-      setFile(selectedFile);
-      setResult(null);
-    } else {
-      toast({ 
-        title: 'Invalid file type', 
-        description: 'Please select a CSV file',
-        variant: 'destructive' 
-      });
-    }
-  };
+  const [rows, setRows] = useState([]);
+  const [validationResult, setValidationResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null);
+  const [pollInterval, setPollInterval] = useState(null);
 
   const normalizeHeader = (header) => {
-    // Normalize header: lowercase, remove spaces/underscores
     const normalized = header.toLowerCase().replace(/[\s_]+/g, '');
-    
-    // Map to canonical keys
     const headerMap = {
       'skucode': 'sku_code',
       'unitprice': 'unit_price',
@@ -40,7 +29,6 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       'quantity': 'quantity',
       'purchasedate': 'purchase_date'
     };
-    
     return headerMap[normalized] || normalized;
   };
 
@@ -80,574 +68,347 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
     return rows;
   };
 
-  const handleUpload = async () => {
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile && selectedFile.type === 'text/csv') {
+      setFile(selectedFile);
+      setValidationResult(null);
+    } else {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please select a CSV file',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleValidate = async () => {
     if (!file) {
       toast({ title: 'No file selected', variant: 'destructive' });
       return;
     }
 
-    setUploading(true);
-    setProgress(0);
-    setResult(null);
-
+    setLoading(true);
     try {
-      // Read file with UTF-8-sig encoding support
       const text = await file.text();
-      const textUtf8 = text.replace(/^\uFEFF/, ''); // Remove BOM if present
-      const rows = parseCSV(textUtf8);
+      const textUtf8 = text.replace(/^\uFEFF/, '');
+      const parsedRows = parseCSV(textUtf8);
 
-      if (rows.length === 0) {
+      if (parsedRows.length === 0) {
         toast({ title: 'Empty CSV file', variant: 'destructive' });
-        setUploading(false);
+        setLoading(false);
         return;
       }
 
-      // Preload SKUs, Suppliers, and recent Purchases for efficient lookup
-      const skus = await base44.entities.SKU.filter({ tenant_id: tenantId });
-      const suppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
-      const allPurchases = await base44.entities.Purchase.filter({ tenant_id: tenantId });
-      
-      // Create lookup maps
-      const skuMap = {};
-      skus.forEach(sku => {
-        skuMap[sku.sku_code?.trim()?.toLowerCase()] = {
-          id: sku.id,
-          sku_code: sku.sku_code,
-          cost_price: sku.cost_price,
-          supplier_id: sku.supplier_id,
-          product_name: sku.product_name,
-          image_url: sku.image_url
-        };
-      });
+      setRows(parsedRows);
 
-      const supplierMap = {};
-      suppliers.forEach(supplier => {
-        supplierMap[supplier.id] = supplier.supplier_name;
-      });
-
-      // Create map of most recent purchase cost AND supplier per SKU
-      const lastPurchaseDataMap = {};
-      allPurchases.forEach(purchase => {
-        const skuKey = purchase.sku_code?.trim()?.toLowerCase();
-        if (skuKey) {
-          if (!lastPurchaseDataMap[skuKey] || 
-              new Date(purchase.purchase_date) > new Date(lastPurchaseDataMap[skuKey].date)) {
-            lastPurchaseDataMap[skuKey] = {
-              cost: purchase.cost_per_unit > 0 ? purchase.cost_per_unit : null,
-              supplier_name: purchase.supplier_name || null,
-              supplier_id: purchase.supplier_id || null,
-              date: purchase.purchase_date
-            };
-          }
-        }
-      });
-
-      // Create batch record
-      const batch = await base44.entities.ImportBatch.create({
+      // Call validation function
+      const { data } = await base44.functions.invoke('validatePurchasesImport', {
         tenant_id: tenantId,
-        batch_type: 'purchases',
-        batch_name: `purchases_${format(new Date(), 'yyyyMMdd_HHmmss')}`,
-        filename: file.name,
-        status: 'processing',
-        total_rows: rows.length,
-        success_rows: 0,
-        failed_rows: 0
+        rows: parsedRows
       });
 
-      const results = {
-        total: rows.length,
-        success: 0,
-        failed: 0,
-        errors: []
-      };
-
-      // Process each row
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const rowNumber = i + 1;
-        
-        setProgress(Math.round(((i + 1) / rows.length) * 100));
-
-        try {
-          // 1. Validate and lookup SKU
-          const skuCodeRaw = row.sku_code?.trim();
-          if (!skuCodeRaw) {
-            throw new Error('SKU code is required');
-          }
-
-          const skuData = skuMap[skuCodeRaw.toLowerCase()];
-          if (!skuData) {
-            throw new Error('SKU not found');
-          }
-
-          // Get historical purchase data for this SKU
-          const lastPurchaseData = lastPurchaseDataMap[skuCodeRaw.toLowerCase()];
-
-          // 2. RESOLVE unit_price BEFORE validation
-          const originalUnitPrice = row.unit_price?.trim();
-          let unitPrice = parseFloat(originalUnitPrice);
-          let unitPriceSource = 'csv';
-          let skuCostCandidate = skuData.cost_price > 0 ? skuData.cost_price : null;
-          let lastPurchaseCostCandidate = lastPurchaseData?.cost || null;
-          let resolvedUnitPrice = null;
-          
-          if (isNaN(unitPrice) || !originalUnitPrice) {
-            // Resolve candidate prices
-            if (skuCostCandidate && lastPurchaseCostCandidate) {
-              // Both available: use minimum
-              resolvedUnitPrice = Math.min(skuCostCandidate, lastPurchaseCostCandidate);
-              unitPriceSource = 'min(sku_cost,last_purchase)';
-            } else if (skuCostCandidate) {
-              // Only SKU cost available
-              resolvedUnitPrice = skuCostCandidate;
-              unitPriceSource = 'sku_cost';
-            } else if (lastPurchaseCostCandidate) {
-              // Only last purchase cost available
-              resolvedUnitPrice = lastPurchaseCostCandidate;
-              unitPriceSource = 'last_purchase';
-            } else {
-              throw new Error('Missing unit_price and no fallback price available');
-            }
-            unitPrice = resolvedUnitPrice;
-          } else {
-            resolvedUnitPrice = unitPrice;
-          }
-
-          // 3. RESOLVE supplier_name BEFORE validation
-          const originalSupplierName = row.supplier_name?.trim();
-          let supplierName = originalSupplierName || null;
-          let supplierId = null;
-          let supplierSource = 'csv';
-          let resolvedSupplierName = null;
-
-          if (!supplierName) {
-            // Fallback priority: SKU master -> Last purchase
-            if (skuData.supplier_id && supplierMap[skuData.supplier_id]) {
-              supplierId = skuData.supplier_id;
-              resolvedSupplierName = supplierMap[skuData.supplier_id];
-              supplierSource = 'sku_master';
-            } else if (lastPurchaseData?.supplier_name) {
-              resolvedSupplierName = lastPurchaseData.supplier_name;
-              supplierId = lastPurchaseData.supplier_id;
-              supplierSource = 'last_purchase';
-            } else {
-              resolvedSupplierName = null;
-              supplierSource = 'unresolved';
-            }
-            supplierName = resolvedSupplierName;
-          } else {
-            resolvedSupplierName = supplierName;
-            // Find supplier ID from name
-            const supplier = suppliers.find(s => 
-              s.supplier_name?.toLowerCase() === supplierName.toLowerCase()
-            );
-            if (supplier) {
-              supplierId = supplier.id;
-            }
-          }
-
-          // 4. NOW validate quantity
-          const quantity = parseInt(row.quantity);
-          if (isNaN(quantity) || quantity < 1) {
-            throw new Error('Invalid quantity (must be >= 1)');
-          }
-
-          // 5. Purchase date (default to today if missing)
-          let purchaseDate = row.purchase_date?.trim();
-          if (!purchaseDate) {
-            purchaseDate = format(new Date(), 'yyyy-MM-dd');
-          }
-
-          // Create purchase record (NEVER save empty string for supplier)
-          const totalCost = quantity * unitPrice;
-          
-          await base44.entities.Purchase.create({
-            tenant_id: tenantId,
-            sku_id: skuData.id,
-            sku_code: skuData.sku_code,
-            quantity_purchased: quantity,
-            total_cost: totalCost,
-            cost_per_unit: unitPrice,
-            purchase_date: purchaseDate,
-            supplier_id: supplierId || null,
-            supplier_name: supplierName || null,
-            quantity_remaining: quantity,
-            import_batch_id: batch.id
-          });
-
-          // Update current stock
-          const existingStock = await base44.entities.CurrentStock.filter({
-            tenant_id: tenantId,
-            sku_id: skuData.id
-          });
-
-          if (existingStock.length > 0) {
-            await base44.entities.CurrentStock.update(existingStock[0].id, {
-              quantity_available: (existingStock[0].quantity_available || 0) + quantity
-            });
-          } else {
-            await base44.entities.CurrentStock.create({
-              tenant_id: tenantId,
-              sku_id: skuData.id,
-              sku_code: skuData.sku_code,
-              quantity_available: quantity
-            });
-          }
-
-          // Create stock movement
-          const movementNotes = [
-            `Batch import: ${batch.batch_name}`,
-            unitPriceSource !== 'csv' ? `Price source: ${unitPriceSource}` : null,
-            supplierSource !== 'csv' ? `Supplier source: ${supplierSource}` : null,
-            !supplierName ? 'Warning: Supplier unresolved' : null
-          ].filter(Boolean).join(' | ');
-
-          await base44.entities.StockMovement.create({
-            tenant_id: tenantId,
-            sku_id: skuData.id,
-            sku_code: skuData.sku_code,
-            movement_type: 'purchase',
-            quantity: quantity,
-            reference_type: 'batch',
-            reference_id: batch.id,
-            movement_date: purchaseDate,
-            notes: movementNotes
-          });
-
-          results.success++;
-        } catch (error) {
-          results.failed++;
-          
-          // Detailed error diagnostics
-          const skuData = skuMap[row.sku_code?.trim()?.toLowerCase()];
-          const lastPurchaseData = lastPurchaseDataMap[row.sku_code?.trim()?.toLowerCase()];
-          
-          const skuCostCandidate = skuData?.cost_price > 0 ? skuData.cost_price : null;
-          const lastPurchaseCostCandidate = lastPurchaseData?.cost || null;
-          
-          let errorUnitPriceSource = 'csv';
-          let resolvedUnitPrice = row.unit_price?.trim() || '';
-          
-          if (!row.unit_price?.trim()) {
-            if (skuCostCandidate && lastPurchaseCostCandidate) {
-              errorUnitPriceSource = 'min(sku_cost,last_purchase)';
-              resolvedUnitPrice = Math.min(skuCostCandidate, lastPurchaseCostCandidate);
-            } else if (skuCostCandidate) {
-              errorUnitPriceSource = 'sku_cost';
-              resolvedUnitPrice = skuCostCandidate;
-            } else if (lastPurchaseCostCandidate) {
-              errorUnitPriceSource = 'last_purchase';
-              resolvedUnitPrice = lastPurchaseCostCandidate;
-            } else {
-              errorUnitPriceSource = 'none_available';
-              resolvedUnitPrice = '';
-            }
-          }
-
-          let errorSupplierSource = 'csv';
-          let resolvedSupplierName = row.supplier_name?.trim() || '';
-          
-          if (!row.supplier_name?.trim()) {
-            if (skuData?.supplier_id && supplierMap[skuData.supplier_id]) {
-              errorSupplierSource = 'sku_master';
-              resolvedSupplierName = supplierMap[skuData.supplier_id];
-            } else if (lastPurchaseData?.supplier_name) {
-              errorSupplierSource = 'last_purchase';
-              resolvedSupplierName = lastPurchaseData.supplier_name;
-            } else {
-              errorSupplierSource = 'unresolved';
-              resolvedSupplierName = '';
-            }
-          }
-          
-          results.errors.push({
-            row: rowNumber,
-            data: row,
-            error: error.message,
-            original_unit_price: row.unit_price?.trim() || '',
-            resolved_unit_price: resolvedUnitPrice,
-            unit_price_source: errorUnitPriceSource,
-            sku_cost_candidate: skuCostCandidate || '',
-            last_purchase_cost_candidate: lastPurchaseCostCandidate || '',
-            original_supplier_name: row.supplier_name?.trim() || '',
-            resolved_supplier_name: resolvedSupplierName,
-            supplier_source: errorSupplierSource
-          });
-
-          // Log error to database
-          await base44.entities.ImportError.create({
-            tenant_id: tenantId,
-            batch_id: batch.id,
-            row_number: rowNumber,
-            raw_row_json: JSON.stringify(row),
-            error_reason: error.message
-          });
-        }
-      }
-
-      // Update batch status
-      await base44.entities.ImportBatch.update(batch.id, {
-        status: results.failed === 0 ? 'success' : (results.success > 0 ? 'partial' : 'failed'),
-        success_rows: results.success,
-        failed_rows: results.failed
-      });
-
-      // Generate error CSV if there are failures
-      if (results.errors.length > 0) {
-        const errorCsvContent = generateErrorCSV(results.errors);
-        const blob = new Blob(['\uFEFF' + errorCsvContent], { type: 'text/csv;charset=utf-8;' });
-        const errorFileUrl = URL.createObjectURL(blob);
-        
-        await base44.entities.ImportBatch.update(batch.id, {
-          error_file_url: errorFileUrl
-        });
-      }
-
-      setResult(results);
-      
-      toast({
-        title: 'Import completed',
-        description: `${results.success} succeeded, ${results.failed} failed`
-      });
-
-      if (results.success > 0) {
-        onSuccess();
-      }
-
+      setValidationResult(data);
+      setStep(2);
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Validation error:', error);
       toast({
-        title: 'Upload failed',
+        title: 'Validation failed',
         description: error.message,
         variant: 'destructive'
       });
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
-  const generateErrorCSV = (errors) => {
-    if (errors.length === 0) return '';
+  const handleStartImport = async () => {
+    if (!validationResult || validationResult.valid_count === 0) {
+      toast({ title: 'No valid rows to import', variant: 'destructive' });
+      return;
+    }
 
-    const headers = [
-      'row',
-      'sku_code',
-      'quantity',
-      'original_unit_price',
-      'resolved_unit_price',
-      'unit_price_source',
-      'sku_cost_candidate',
-      'last_purchase_cost_candidate',
-      'original_supplier_name',
-      'resolved_supplier_name',
-      'supplier_source',
-      'purchase_date',
-      'error_reason'
-    ];
+    setLoading(true);
+    setStep(3);
 
-    const rows = errors.map(e => [
-      e.row,
-      e.data.sku_code || '',
-      e.data.quantity || '',
-      e.original_unit_price,
-      e.resolved_unit_price,
-      e.unit_price_source,
-      e.sku_cost_candidate,
-      e.last_purchase_cost_candidate,
-      e.original_supplier_name,
-      e.resolved_supplier_name,
-      e.supplier_source,
-      e.data.purchase_date || '',
-      e.error
-    ]);
+    try {
+      // Filter only valid rows
+      const validRows = [];
+      const invalidSet = new Set(validationResult.errors?.map(e => e.row) || []);
 
-    const escapeCsvCell = (value) => {
-      if (value === null || value === undefined) return '';
-      const str = String(value);
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-        return `"${str.replace(/"/g, '""')}"`;
+      rows.forEach((row, idx) => {
+        if (!invalidSet.has(idx + 1)) {
+          validRows.push(row);
+        }
+      });
+
+      // Start import job
+      const { data } = await base44.functions.invoke('startPurchasesImport', {
+        tenant_id: tenantId,
+        rows: validRows,
+        filename: file.name
+      });
+
+      if (!data.ok) {
+        throw new Error(data.error || 'Failed to start import');
       }
-      return str;
-    };
 
-    return [
-      headers.map(h => escapeCsvCell(h)).join(','),
-      ...rows.map(row => row.map(cell => escapeCsvCell(cell)).join(','))
-    ].join('\n');
+      setJobId(data.job_id);
+      setJobStatus({ status: 'running', processed: 0, success: 0, failed: 0 });
+
+      // Start polling job status
+      const interval = setInterval(() => pollJobStatus(data.job_id), 2000);
+      setPollInterval(interval);
+    } catch (error) {
+      console.error('Import start error:', error);
+      toast({
+        title: 'Import failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+      setStep(2);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const downloadErrorCSV = () => {
-    if (!result || result.errors.length === 0) return;
+  const pollJobStatus = async (id) => {
+    try {
+      const job = await base44.asServiceRole.entities.BackgroundJob.get(id);
+      if (!job) return;
 
-    const csvContent = generateErrorCSV(result.errors);
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const jobData = JSON.parse(job.job_data || '{}');
+
+      setJobStatus({
+        status: job.status,
+        processed: job.processed || 0,
+        success: job.success || 0,
+        failed: job.failed || 0,
+        failed_rows: jobData.failed_rows || []
+      });
+
+      if (job.status === 'completed' || job.status === 'failed') {
+        clearInterval(pollInterval);
+        setStep(4);
+      }
+    } catch (error) {
+      console.error('Poll error:', error);
+    }
+  };
+
+  const downloadFailedRows = () => {
+    if (!jobStatus?.failed_rows || jobStatus.failed_rows.length === 0) {
+      toast({ title: 'No failed rows', variant: 'default' });
+      return;
+    }
+
+    const csv = [
+      ['Row Number', 'SKU Code', 'Reason'].join(','),
+      ...jobStatus.failed_rows.map(r => `${r.row},"${r.sku_code}","${r.reason}"`)
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `purchase_import_errors_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
+    a.download = `failed_rows_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadTemplate = () => {
-    const template = [
-      'sku_code,quantity,unit_price,supplier_name,purchase_date',
-      'SKU001,10,15.50,Supplier A,2026-02-09',
-      'SKU002,5,,Warehouse,2026-02-09',
-      'SKU003,20,,,2026-02-09'
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + template], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'purchases_template.csv';
-    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
   const handleClose = () => {
+    if (pollInterval) clearInterval(pollInterval);
+    setStep(1);
     setFile(null);
-    setResult(null);
-    setProgress(0);
+    setRows([]);
+    setValidationResult(null);
+    setJobId(null);
+    setJobStatus(null);
     onClose();
+    if (jobStatus?.status === 'completed') {
+      onSuccess?.();
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Bulk Upload Purchases</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Instructions */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-            <h4 className="font-semibold text-blue-900 text-sm">CSV Format:</h4>
-            <ul className="text-xs text-blue-800 space-y-1">
-              <li>• <strong>sku_code</strong> (required) - must exist in SKU master</li>
-              <li>• <strong>quantity</strong> (required) - integer ≥ 1</li>
-              <li>• <strong>unit_price</strong> (optional) - falls back to SKU.cost if missing</li>
-              <li>• <strong>supplier_name</strong> (optional) - falls back to SKU supplier if missing</li>
-              <li>• <strong>purchase_date</strong> (optional) - defaults to today if missing</li>
-            </ul>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={downloadTemplate}
-              className="mt-2"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download Template
-            </Button>
-          </div>
+        <Tabs value={`step${step}`} className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="step1" disabled={step < 1}>Upload</TabsTrigger>
+            <TabsTrigger value="step2" disabled={step < 2}>Validate</TabsTrigger>
+            <TabsTrigger value="step3" disabled={step < 3}>Import</TabsTrigger>
+            <TabsTrigger value="step4" disabled={step < 4}>Complete</TabsTrigger>
+          </TabsList>
 
-          {/* File Upload */}
-          {!result && (
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-indigo-400 transition-colors">
+          {/* Step 1: Upload */}
+          <TabsContent value="step1" className="space-y-4">
+            <div className="border-2 border-dashed rounded-lg p-8 text-center">
+              <Upload className="w-8 h-8 mx-auto mb-3 text-slate-400" />
+              <p className="font-medium mb-2">Select CSV file</p>
+              <p className="text-sm text-slate-500 mb-4">Required columns: sku_code, quantity</p>
               <input
                 type="file"
                 accept=".csv"
                 onChange={handleFileChange}
                 className="hidden"
-                id="csv-upload"
-                disabled={uploading}
+                id="csv-input"
               />
-              <label htmlFor="csv-upload" className="cursor-pointer">
-                <Upload className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                <p className="text-sm font-medium text-slate-700">
-                  {file ? file.name : 'Click to select CSV file'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Supports UTF-8 encoding (Arabic compatible)
-                </p>
+              <label htmlFor="csv-input" className="cursor-pointer">
+                <Button variant="outline" asChild>
+                  <span>Browse Files</span>
+                </Button>
               </label>
+              {file && (
+                <p className="mt-4 text-sm text-green-600">
+                  ✓ {file.name}
+                </p>
+              )}
             </div>
-          )}
 
-          {/* Progress */}
-          {uploading && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-slate-600">
-                <span>Processing...</span>
-                <span>{progress}%</span>
-              </div>
-              <Progress value={progress} className="h-2" />
-            </div>
-          )}
+            <Button onClick={handleValidate} disabled={!file || loading} className="w-full">
+              {loading ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Validate
+            </Button>
+          </TabsContent>
 
-          {/* Results */}
-          {result && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-slate-50 rounded-lg p-3 text-center">
-                  <FileText className="w-5 h-5 text-slate-500 mx-auto mb-1" />
-                  <p className="text-xs text-slate-500">Total</p>
-                  <p className="text-lg font-bold text-slate-900">{result.total}</p>
-                </div>
-                <div className="bg-emerald-50 rounded-lg p-3 text-center">
-                  <CheckCircle className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
-                  <p className="text-xs text-emerald-600">Success</p>
-                  <p className="text-lg font-bold text-emerald-700">{result.success}</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-3 text-center">
-                  <XCircle className="w-5 h-5 text-red-600 mx-auto mb-1" />
-                  <p className="text-xs text-red-600">Failed</p>
-                  <p className="text-lg font-bold text-red-700">{result.failed}</p>
-                </div>
-              </div>
-
-              {result.failed > 0 && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-orange-900">
-                        {result.failed} row(s) failed
-                      </p>
-                      <p className="text-xs text-orange-700 mt-1">
-                        Common issues: SKU not found, invalid quantity, missing unit_price and SKU.cost
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={downloadErrorCSV}
-                        className="mt-2 border-orange-300 text-orange-700 hover:bg-orange-100"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Error Report
-                      </Button>
-                    </div>
+          {/* Step 2: Validation Results */}
+          <TabsContent value="step2" className="space-y-4">
+            {validationResult && (
+              <>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Total Rows</p>
+                    <p className="text-2xl font-bold text-blue-600">{validationResult.total}</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Valid</p>
+                    <p className="text-2xl font-bold text-green-600">{validationResult.valid_count}</p>
+                  </div>
+                  <div className="bg-red-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Invalid</p>
+                    <p className="text-2xl font-bold text-red-600">{validationResult.invalid_count}</p>
                   </div>
                 </div>
-              )}
 
-              {result.success > 0 && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                  <p className="text-sm text-emerald-800">
-                    ✓ {result.success} purchase(s) imported successfully
-                  </p>
+                {validationResult.errors.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="w-4 h-4" />
+                    <AlertDescription>
+                      <p className="font-medium mb-2">Errors found (showing first 10):</p>
+                      <ul className="space-y-1 text-sm">
+                        {validationResult.errors.map((err, i) => (
+                          <li key={i}>
+                            Row {err.row} ({err.sku_code}): {err.issues}
+                          </li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
+                  <Button
+                    onClick={handleStartImport}
+                    disabled={validationResult.valid_count === 0 || loading}
+                    className="flex-1"
+                  >
+                    {loading ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Start Import ({validationResult.valid_count} rows)
+                  </Button>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={handleClose}>
-              {result ? 'Close' : 'Cancel'}
-            </Button>
-            {!result && (
-              <Button 
-                onClick={handleUpload}
-                disabled={!file || uploading}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                {uploading ? 'Uploading...' : 'Upload & Import'}
-              </Button>
+              </>
             )}
-          </div>
-        </div>
+          </TabsContent>
+
+          {/* Step 3: Progress */}
+          <TabsContent value="step3" className="space-y-4">
+            {jobStatus && (
+              <>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Progress</span>
+                    <span className="font-medium">
+                      {jobStatus.processed} / {validationResult?.valid_count || 0}
+                    </span>
+                  </div>
+                  <Progress
+                    value={(jobStatus.processed / (validationResult?.valid_count || 1)) * 100}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Success</p>
+                    <p className="text-2xl font-bold text-green-600">{jobStatus.success}</p>
+                  </div>
+                  <div className="bg-red-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Failed</p>
+                    <p className="text-2xl font-bold text-red-600">{jobStatus.failed}</p>
+                  </div>
+                </div>
+
+                {jobStatus.status === 'running' && (
+                  <div className="flex items-center justify-center gap-2 text-slate-600">
+                    <Loader className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {/* Step 4: Complete */}
+          <TabsContent value="step4" className="space-y-4">
+            {jobStatus && (
+              <>
+                <Alert className={jobStatus.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}>
+                  {jobStatus.status === 'completed' ? (
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-600" />
+                  )}
+                  <AlertDescription className={jobStatus.status === 'completed' ? 'text-green-800' : 'text-red-800'}>
+                    {jobStatus.status === 'completed'
+                      ? `Import completed: ${jobStatus.success} successful, ${jobStatus.failed} failed`
+                      : 'Import failed'}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Total Processed</p>
+                    <p className="text-2xl font-bold text-blue-600">{jobStatus.success + jobStatus.failed}</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <p className="text-sm text-slate-600">Success Rate</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {((jobStatus.success / (jobStatus.success + jobStatus.failed)) * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                </div>
+
+                {jobStatus.failed > 0 && (
+                  <Button onClick={downloadFailedRows} variant="outline" className="w-full">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Failed Rows
+                  </Button>
+                )}
+
+                <Button onClick={handleClose} className="w-full">
+                  Close
+                </Button>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
