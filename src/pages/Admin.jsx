@@ -719,39 +719,7 @@ export default function AdminPage() {
             <DialogTitle>Create New Workspace</DialogTitle>
           </DialogHeader>
 
-          {inviteLink ? (
-            <div className="space-y-6 py-4">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6">
-                <h3 className="font-semibold text-emerald-900 mb-2">✓ Workspace Created Successfully</h3>
-                <p className="text-sm text-emerald-700 mb-4">
-                  The user <strong>{formData.admin_email}</strong> doesn't have an account yet. 
-                  Share this invite link with them:
-                </p>
-                <div className="bg-white border border-emerald-300 rounded p-3 font-mono text-sm break-all">
-                  {inviteLink}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      navigator.clipboard.writeText(inviteLink);
-                      toast({ title: 'Copied to clipboard' });
-                    }}
-                  >
-                    Copy Link
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleCloseCreateDialog}
-                  >
-                    Done
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleCreateWorkspace} className="space-y-6">
+          <form onSubmit={handleCreateWorkspace} className="space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label>Workspace Name *</Label>
