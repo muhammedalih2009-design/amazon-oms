@@ -20,14 +20,18 @@ Deno.serve(async (req) => {
 
     console.log(`[Start Delete All SKUs] User ${user.email} starting job for workspace ${workspace_id}`);
 
-    // Check if there's already a running job for this workspace
+    // P0: Check for existing delete_all_skus jobs (prevent duplicates)
     const existingJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
       tenant_id: workspace_id,
-      status: 'running'
+      job_type: 'delete_all_skus',
+      status: { $in: ['running', 'cancelling', 'queued', 'throttled'] }
     });
 
     if (existingJobs.length > 0) {
-      console.log(`[Start Delete All SKUs] Found ${existingJobs.length} running jobs, queuing this one`);
+      return Response.json({ 
+        ok: false, 
+        error: 'A delete_all_skus job is already running or queued for this workspace' 
+      }, { status: 400 });
     }
 
     // Get SKU count for progress tracking
@@ -37,7 +41,7 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.BackgroundJob.create({
       tenant_id: workspace_id,
       job_type: 'delete_all_skus',
-      status: existingJobs.length > 0 ? 'queued' : 'running',
+      status: 'running',
       priority: 'low',
       progress: {
         current: 0,
