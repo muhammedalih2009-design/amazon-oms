@@ -450,11 +450,25 @@ export default function MonitoringPage() {
                     <div key={job.id} className="border rounded-lg p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <Badge variant={getJobStatusBadge(job.status)}>
                               {job.status}
                             </Badge>
                             <span className="font-medium text-slate-900">{job.job_type}</span>
+                            {isSuperAdmin && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {workspaceMap[job.tenant_id] || job.tenant_id}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Workspace ID: {job.tenant_id}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                           </div>
                           
                           {job.progress_percent > 0 && (
