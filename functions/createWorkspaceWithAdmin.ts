@@ -157,22 +157,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 6. Final audit log for workspace creation
+    // 6. P0 MONITORING: Log workspace creation with created_by
     await base44.asServiceRole.entities.AuditLog.create({
       workspace_id: newTenant.id,
       user_id: currentUser.id,
       user_email: currentUser.email,
-      action: 'create',
-      entity_type: 'Workspace',
+      action: 'workspace_created',
+      entity_type: 'Tenant',
+      entity_id: newTenant.id,
       after_data: JSON.stringify({
         name: workspace_name,
+        slug: newTenant.slug,
         admin_email: normalizedEmail,
         admin_role: admin_role,
         modules: enabled_modules
       }),
       metadata: { 
+        created_by: currentUser.email,
         modules_enabled: enabled_modules.length,
-        admin_assignment_mode: mode
+        admin_assignment_mode: mode,
+        timestamp: new Date().toISOString()
       }
     });
 

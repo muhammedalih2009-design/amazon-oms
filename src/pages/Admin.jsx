@@ -92,7 +92,10 @@ export default function AdminPage() {
         base44.entities.Subscription.filter({})
       ]);
 
-      setWorkspaces(tenantsData);
+      // P0 FIX: Filter out deleted workspaces
+      const activeWorkspaces = tenantsData.filter(w => !w.deleted_at);
+      
+      setWorkspaces(activeWorkspaces);
       setAllUsers(usersData);
       setMemberships(membershipsData);
       setSubscriptions(subscriptionsData);
