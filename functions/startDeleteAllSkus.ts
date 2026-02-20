@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess, requireWorkspaceId } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -9,13 +10,20 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id } = await req.json();
+    const payload = await req.json();
 
-    if (!workspace_id) {
+    // SECURITY: Require and validate workspace_id
+    const workspace_id = requireWorkspaceId(payload);
+
+    // SECURITY: Verify user has access to this workspace
+    const membership = await guardWorkspaceAccess(base44, user, workspace_id);
+
+    // Only owner/admin can delete all SKUs
+    if (!['owner', 'admin'].includes(membership.role)) {
       return Response.json({ 
         ok: false, 
-        error: 'workspace_id required' 
-      }, { status: 400 });
+        error: 'Admin access required' 
+      }, { status: 403 });
     }
 
     console.log(`[Start Delete All SKUs] User ${user.email} starting job for workspace ${workspace_id}`);

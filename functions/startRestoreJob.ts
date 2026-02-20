@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   try {
@@ -13,6 +14,18 @@ Deno.serve(async (req) => {
 
     if (!backupJobId && !backupData) {
       return Response.json({ error: 'Must provide backupJobId or backupData' }, { status: 400 });
+    }
+
+    if (!targetWorkspaceId) {
+      return Response.json({ error: 'targetWorkspaceId required' }, { status: 400 });
+    }
+
+    // SECURITY: Verify user has access to target workspace
+    const membership = await guardWorkspaceAccess(base44, user, targetWorkspaceId);
+
+    // Only owner/admin can restore
+    if (!['owner', 'admin'].includes(membership.role)) {
+      return Response.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     // Get backup info
