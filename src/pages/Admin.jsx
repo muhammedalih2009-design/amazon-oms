@@ -477,31 +477,44 @@ export default function AdminPage() {
 
         <TabsContent value="workspaces" className="space-y-6">
           {/* Debug Info - Owner Only */}
-          {user?.email === 'muhammedalih.2009@gmail.com' && (
-            <details className="bg-slate-50 rounded-lg border border-slate-200 p-4">
-              <summary className="text-sm font-medium text-slate-700 cursor-pointer">Debug: Workspace Counts</summary>
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                <div className="bg-white p-2 rounded border">
-                  <span className="text-slate-500">Total All:</span>
-                  <span className="ml-2 font-semibold">{subscriptions.length > 0 ? subscriptions.map(s => s.tenant_id).filter((v, i, a) => a.indexOf(v) === i).length : memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length}</span>
+          {user?.email === 'muhammedalih.2009@gmail.com' && (() => {
+            const paidPlans = ['starter', 'growth', 'pro'];
+            const activePaidWorkspaces = workspaces.filter(w => {
+              const sub = subscriptions.find(s => s.tenant_id === w.id);
+              return sub && paidPlans.includes(sub.plan);
+            }).length;
+            const trialWorkspaces = workspaces.filter(w => {
+              const sub = subscriptions.find(s => s.tenant_id === w.id);
+              return sub && (sub.plan === 'trial' || sub.plan === 'free');
+            }).length;
+            const activeSubscriptionRows = subscriptions.filter(s => 
+              s.status === 'active' && workspaces.find(w => w.id === s.tenant_id)
+            ).length;
+            
+            return (
+              <details className="bg-slate-50 rounded-lg border border-slate-200 p-4">
+                <summary className="text-sm font-medium text-slate-700 cursor-pointer">Debug: Workspace & Subscription Counts</summary>
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div className="bg-white p-2 rounded border">
+                    <span className="text-slate-500">Active Workspaces:</span>
+                    <span className="ml-2 font-semibold text-green-600">{workspaces.length}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border">
+                    <span className="text-slate-500">Active Paid:</span>
+                    <span className="ml-2 font-semibold text-blue-600">{activePaidWorkspaces}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border">
+                    <span className="text-slate-500">Trial/Free:</span>
+                    <span className="ml-2 font-semibold text-amber-600">{trialWorkspaces}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded border">
+                    <span className="text-slate-500">Sub Rows (active):</span>
+                    <span className="ml-2 font-semibold">{activeSubscriptionRows}</span>
+                  </div>
                 </div>
-                <div className="bg-white p-2 rounded border">
-                  <span className="text-slate-500">Deleted:</span>
-                  <span className="ml-2 font-semibold text-red-600">
-                    {memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length - workspaces.length}
-                  </span>
-                </div>
-                <div className="bg-white p-2 rounded border">
-                  <span className="text-slate-500">Active:</span>
-                  <span className="ml-2 font-semibold text-green-600">{workspaces.length}</span>
-                </div>
-                <div className="bg-white p-2 rounded border">
-                  <span className="text-slate-500">Active Users:</span>
-                  <span className="ml-2 font-semibold">{allUsers.length}</span>
-                </div>
-              </div>
-            </details>
-          )}
+              </details>
+            );
+          })()}
 
           {/* Stats - UNIFIED WITH TABLE FILTERING */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -529,7 +542,22 @@ export default function AdminPage() {
             <div>
               <p className="text-sm text-slate-500">Active Subscriptions</p>
               <p className="text-2xl font-bold text-slate-900">
-                {subscriptions.filter(s => s.status === 'active' && workspaces.find(w => w.id === s.tenant_id)).length}
+                {(() => {
+                  const paidPlans = ['starter', 'growth', 'pro'];
+                  return subscriptions.filter(s => {
+                    // Must be for an active workspace
+                    const workspace = workspaces.find(w => w.id === s.tenant_id);
+                    if (!workspace) return false;
+                    
+                    // Must be a paid plan (not trial or free)
+                    if (!paidPlans.includes(s.plan)) return false;
+                    
+                    // Must have active subscription status
+                    if (s.status !== 'active') return false;
+                    
+                    return true;
+                  }).length;
+                })()}
               </p>
             </div>
           </div>
