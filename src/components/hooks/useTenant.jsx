@@ -219,13 +219,19 @@ export function TenantProvider({ children }) {
   const permissions = membership?.permissions || {};
 
   // PERMISSIONS: Check module-level permissions
-  const canViewPage = (moduleKey) => {
+  const canViewPage = (page) => {
+    if (noAccess) return false;
     if (isOwner) return true;
+    // CRITICAL: Map page names to module keys
+    const moduleKey = PAGE_MODULE_MAP[page] || page;
     return permissions[moduleKey]?.view === true;
   };
 
-  const canEditPage = (moduleKey) => {
+  const canEditPage = (page) => {
+    if (noAccess) return false;
     if (isOwner) return true;
+    // CRITICAL: Map page names to module keys
+    const moduleKey = PAGE_MODULE_MAP[page] || page;
     return permissions[moduleKey]?.edit === true;
   };
 
