@@ -38,6 +38,7 @@ import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
 import CloneWorkspaceModal from '@/components/admin/CloneWorkspaceModal';
 import ModuleSelector from '@/components/admin/ModuleSelector';
 import RecentWorkspacesMonitor from '@/components/admin/RecentWorkspacesMonitor';
+import UserManagementTab from '@/components/admin/UserManagementTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -644,6 +645,18 @@ export default function AdminPage() {
         </div>
       </div>
         </TabsContent>
+
+        {user?.email === 'muhammedalih.2009@gmail.com' && (
+          <TabsContent value="users" className="space-y-6">
+            <UserManagementTab
+              allUsers={allUsers}
+              memberships={memberships}
+              workspaces={workspaces}
+              onRefresh={() => loadData(true)}
+              ownerEmail="muhammedalih.2009@gmail.com"
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="integrations" className="space-y-6">
           <TelegramSettings />
