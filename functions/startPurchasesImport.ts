@@ -18,30 +18,22 @@ Deno.serve(async (req) => {
     // Create background job
     const job = await base44.asServiceRole.entities.BackgroundJob.create({
       tenant_id,
-      job_type: 'purchases_bulk_import',
-      status: 'running',
-      total_items: rows.length,
-      processed: 0,
-      success: 0,
-      failed: 0,
-      current_index: 0,
-      job_data: JSON.stringify({
+      job_type: 'purchases_bulk_upload',
+      status: 'queued',
+      total_count: rows.length,
+      processed_count: 0,
+      success_count: 0,
+      failed_count: 0,
+      started_at: new Date().toISOString(),
+      actor_user_id: user.id,
+      meta: {
         filename,
-        rows_ids: rows.map((_, i) => i), // Row indices
-        created_at: new Date().toISOString()
-      })
-    });
-
-    // Store rows in a temp entity or encoded job_data
-    // For now, we'll store rows directly in job metadata
-    const jobData = {
-      filename,
-      rows,
-      created_at: new Date().toISOString()
-    };
-
-    await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-      job_data: JSON.stringify(jobData)
+        row_count: rows.length
+      },
+      params: {
+        filename,
+        rows_json: JSON.stringify(rows)
+      }
     });
 
     // Trigger async execution
