@@ -1,6 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-
-const PLATFORM_ADMIN_EMAIL = 'muhammedalih.2009@gmail.com';
+import { guardWorkspaceAccess, requireWorkspaceId, isPlatformOwner } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -11,30 +10,25 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id, action, module_key, enabled } = await req.json();
+    const payload = await req.json();
+    const { action, module_key, enabled } = payload;
 
-    if (!workspace_id || !action) {
-      return Response.json({ 
-        ok: false, 
-        error: 'workspace_id and action required' 
-      }, { status: 400 });
+    // SECURITY: Require workspace_id
+    const workspace_id = requireWorkspaceId(payload);
+
+    if (!action) {
+      return Response.json({ ok: false, error: 'action required' }, { status: 400 });
     }
 
-    // Check if user is platform admin or workspace owner/admin
-    const isPlatformAdmin = user.email === PLATFORM_ADMIN_EMAIL;
-    
-    if (!isPlatformAdmin) {
-      const memberships = await base44.asServiceRole.entities.Membership.filter({
-        tenant_id: workspace_id,
-        user_email: user.email
-      });
+    // SECURITY: Verify workspace access
+    const membership = await guardWorkspaceAccess(base44, user, workspace_id);
 
-      if (memberships.length === 0 || !['owner', 'admin'].includes(memberships[0].role)) {
-        return Response.json({ 
-          ok: false, 
-          error: 'Workspace admin access required' 
-        }, { status: 403 });
-      }
+    // Only platform owner or workspace admin can manage modules
+    if (!isPlatformOwner(user) && !['owner', 'admin'].includes(membership.role)) {
+      return Response.json({ 
+        ok: false, 
+        error: 'Workspace admin access required' 
+      }, { status: 403 });
     }
 
     console.log(`[Workspace Modules] ${user.email} performing ${action} on ${workspace_id}`);
