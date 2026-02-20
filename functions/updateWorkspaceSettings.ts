@@ -38,9 +38,9 @@ Deno.serve(async (req) => {
       workspace_id
     });
 
+    // Only include fields that are in the WorkspaceSettings schema
     const updateData = {
-      workspace_id,
-      updated_by_user_id: user.id
+      workspace_id
     };
 
     if (currency_code !== undefined) {
