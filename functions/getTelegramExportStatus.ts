@@ -15,26 +15,46 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Missing jobId' }, { status: 400 });
     }
 
-    const job = await base44.entities.TelegramExportJob.filter({ id: jobId });
+    // Fetch from BackgroundJob (new system)
+    const backgroundJobs = await base44.asServiceRole.entities.BackgroundJob.filter({ 
+      id: jobId,
+      job_type: 'telegram_export'
+    });
 
-    if (!job || job.length === 0) {
+    if (!backgroundJobs || backgroundJobs.length === 0) {
       return Response.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    const jobData = job[0];
+    const job = backgroundJobs[0];
+
+    // Fetch errors for this job
+    const errors = await base44.asServiceRole.entities.JobError.filter({
+      job_id: jobId
+    });
+
+    const failedItemsLog = errors.map(err => ({
+      sku_code: err.item_identifier,
+      error_message: err.error_message,
+      details: err.error_details || {}
+    }));
 
     return Response.json({
-      status: jobData.status,
-      totalItems: jobData.total_items,
-      sentItems: jobData.sent_items,
-      failedItems: jobData.failed_items,
-      currentSupplier: jobData.current_supplier || '',
-      failedItemsLog: jobData.failed_items_log || [],
-      completedAt: jobData.completed_at
+      status: job.status,
+      totalItems: job.total_count,
+      sentItems: job.success_count,
+      failedItems: job.failed_count,
+      processedItems: job.processed_count,
+      progressPercent: job.progress_percent || 0,
+      errorMessage: job.error_message || null,
+      failedItemsLog,
+      completedAt: job.completed_at
     });
 
   } catch (error) {
-    console.error('Get telegram export status error:', error);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error('[Get Telegram Status] Error:', error);
+    return Response.json({ 
+      error: error.message,
+      details: error.stack 
+    }, { status: 500 });
   }
 });
