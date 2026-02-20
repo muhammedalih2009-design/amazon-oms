@@ -112,16 +112,30 @@ export default function Settings() {
   };
 
   const handleSaveTelegram = async () => {
-    if (!telegramBotToken || telegramBotToken === '************') {
+    // Don't allow saving if no new token entered and none previously saved
+    if (!telegramBotToken && !hasSavedToken) {
       toast({
         title: t('settings_error'),
-        description: 'Please enter a valid bot token',
+        description: 'Please enter a bot token',
         variant: 'destructive'
       });
       return;
     }
 
-    if (!telegramChatId) {
+    // If token was not changed but exists, don't send it (security)
+    // Only send token if user just entered a new one
+    if (telegramBotToken && telegramBotToken.trim()) {
+      if (!telegramBotToken.includes(':') || telegramBotToken.length < 10) {
+        toast({
+          title: t('settings_error'),
+          description: 'Invalid token format. Token should contain ":" and be at least 10 characters',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+
+    if (!telegramChatId || !telegramChatId.trim()) {
       toast({
         title: t('settings_error'),
         description: 'Please enter a chat ID',
@@ -132,18 +146,31 @@ export default function Settings() {
 
     setSaving(true);
     try {
-      const { data } = await base44.functions.invoke('updateWorkspaceSettings', {
+      // Only send token if it was entered by user (new or updated)
+      const payload = {
         workspace_id: tenantId,
-        telegram_bot_token: telegramBotToken,
         telegram_chat_id: telegramChatId
-      });
+      };
+
+      if (telegramBotToken && telegramBotToken.trim()) {
+        payload.telegram_bot_token = telegramBotToken;
+      }
+
+      const { data } = await base44.functions.invoke('updateWorkspaceSettings', payload);
 
       // Success response is ok:true
       if (data?.ok === true) {
+        // Mark as saved and reload to confirm persistence
+        setHasSavedToken(true);
+        setTelegramBotToken(''); // Clear token field after save
+        
         toast({
           title: t('settings_saved'),
-          description: 'Telegram credentials saved successfully'
+          description: 'Telegram settings saved successfully'
         });
+
+        // Reload to verify persistence
+        setTimeout(() => loadSettings(), 500);
       } else {
         throw new Error(data?.error || 'Save failed');
       }
