@@ -313,22 +313,37 @@ export default function Settings() {
         <div className="space-y-6">
           <div className="space-y-2">
             <Label>{t('bot_token')}</Label>
-            <div className="relative">
-              <Input
-                type={showToken ? 'text' : 'password'}
-                value={telegramBotToken}
-                onChange={(e) => setTelegramBotToken(e.target.value)}
-                placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
-                className={isRTL ? 'text-right pr-12' : 'pr-12'}
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-3' : 'right-3'} text-slate-400 hover:text-slate-600`}
-              >
-                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
+            {hasSavedToken && !telegramBotToken ? (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
+                <span className="text-sm text-emerald-800">✓ Token saved</span>
+                <button
+                  onClick={() => {
+                    setHasSavedToken(false);
+                    setTelegramBotToken('');
+                  }}
+                  className="text-xs px-2 py-1 bg-emerald-100 hover:bg-emerald-200 rounded text-emerald-800"
+                >
+                  Change token
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Input
+                  type={showToken ? 'text' : 'password'}
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                  className={isRTL ? 'text-right pr-12' : 'pr-12'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowToken(!showToken)}
+                  className={`absolute top-1/2 -translate-y-1/2 ${isRTL ? 'left-3' : 'right-3'} text-slate-400 hover:text-slate-600`}
+                >
+                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
