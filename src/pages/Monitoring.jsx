@@ -41,7 +41,9 @@ export default function MonitoringPage() {
   const [actioningJob, setActioningJob] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [jobFilter, setJobFilter] = useState('active'); // all | active | completed
-  const isSuperAdmin = user?.email?.toLowerCase() === APP_OWNER_EMAIL.toLowerCase();
+  const [jobScope, setJobScope] = useState('all'); // all | workspace
+  // Platform admin sees all workspaces; others see only their workspace
+  const isSuperAdmin = isPlatformAdmin;
 
   const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
     queryKey: ['error-logs'],
