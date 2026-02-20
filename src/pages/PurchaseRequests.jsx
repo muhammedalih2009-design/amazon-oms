@@ -618,7 +618,12 @@ export default function PurchaseRequests() {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
+              <PopoverContent className="w-auto p-0" align="end" onPointerDownOutside={(e) => {
+                // Only allow outside close if both dates are selected
+                if (!dateRange?.to) {
+                  e.preventDefault();
+                }
+              }}>
                 <Calendar
                   mode="range"
                   selected={dateRange}
@@ -630,6 +635,7 @@ export default function PurchaseRequests() {
                     }
                   }}
                   numberOfMonths={2}
+                  disabled={(date) => false}
                 />
               </PopoverContent>
             </Popover>
