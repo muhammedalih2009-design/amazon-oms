@@ -15,24 +15,34 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid rows data' }, { status: 400 });
     }
 
-    // Create export job
-    const job = await base44.entities.TelegramExportJob.create({
+    // MANDATORY: Always create a background job BEFORE sending anything
+    const job = await base44.asServiceRole.entities.BackgroundJob.create({
       tenant_id: tenantId,
-      status: 'pending',
-      total_items: rows.length,
-      sent_items: 0,
-      failed_items: 0,
-      current_supplier: '',
-      current_index: 0,
-      rows_data: JSON.stringify(rows),
-      date_range: dateRange,
-      failed_items_log: [],
-      started_at: new Date().toISOString()
+      job_type: 'telegram_export',
+      status: 'running',
+      priority: 'normal',
+      total_count: rows.length,
+      processed_count: 0,
+      success_count: 0,
+      failed_count: 0,
+      progress_percent: 0,
+      params: {
+        rows,
+        dateRange,
+        createdBy: user.email
+      },
+      started_at: new Date().toISOString(),
+      started_by: user.email
     });
 
-    // Start processing asynchronously
-    base44.functions.invoke('processTelegramExportQueue', { jobId: job.id }).catch(err => {
-      console.error('Failed to start telegram export queue:', err);
+    console.log(`[Telegram Export] Job created: ${job.id} for tenant ${tenantId}`);
+
+    // Start processing asynchronously (non-blocking)
+    base44.asServiceRole.functions.invoke('processTelegramExportQueue', { 
+      jobId: job.id,
+      tenantId 
+    }).catch(err => {
+      console.error(`[Telegram Export] Failed to start queue for job ${job.id}:`, err);
     });
 
     return Response.json({ 
@@ -42,7 +52,10 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Start telegram export error:', error);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error('[Telegram Export] Start error:', error);
+    return Response.json({ 
+      error: error.message,
+      details: error.stack 
+    }, { status: 500 });
   }
 });
