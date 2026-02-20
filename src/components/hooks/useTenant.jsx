@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { base44 } from '@/api/base44Client';
-import { AUTO_WORKSPACE_PROVISIONING } from '@/lib/constants';
+import { AUTO_WORKSPACE_PROVISIONING } from '@/components/utils/constants';
 
 const TenantContext = createContext(null);
 const ACTIVE_WORKSPACE_KEY = 'active_workspace_id';
