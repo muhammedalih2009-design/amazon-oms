@@ -9,131 +9,114 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
-import { Mail, Eye, Edit, X, AlertCircle } from 'lucide-react';
+import { Mail, Eye, Edit, Shield, UserPlus, UserMinus } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useToast } from '@/components/ui/use-toast';
+import { WORKSPACE_MODULES, getDefaultPermissions } from '@/components/shared/modulesConfig';
 
-const ROLE_PRESETS = {
-  admin: {
-    dashboard: { view: true, edit: true },
-    tasks: { view: true, edit: true },
-    skus: { view: true, edit: true },
-    orders: { view: true, edit: true },
-    purchases: { view: true, edit: true },
-    returns: { view: true, edit: true },
-    settlement: { view: true, edit: true },
-    suppliers: { view: true, edit: true }
+const ROLE_TEMPLATES = {
+  staff: {
+    label: 'Staff',
+    description: 'Basic access - View only most pages',
+    permissions: {
+      dashboard: { view: true, edit: false },
+      tasks: { view: true, edit: false },
+      skus_products: { view: true, edit: false },
+      orders: { view: true, edit: false },
+      profitability: { view: false, edit: false },
+      purchase_requests: { view: false, edit: false },
+      purchases: { view: false, edit: false },
+      returns: { view: false, edit: false },
+      suppliers: { view: false, edit: false },
+      team: { view: false, edit: false },
+      backup_data: { view: false, edit: false },
+      settings: { view: false, edit: false },
+      member_mgmt: { can_add_members: false, can_remove_members: false }
+    }
   },
   manager: {
-    dashboard: { view: true, edit: true },
-    tasks: { view: true, edit: true },
-    skus: { view: true, edit: true },
-    orders: { view: true, edit: true },
-    purchases: { view: true, edit: true },
-    returns: { view: true, edit: true },
-    settlement: { view: true, edit: false },
-    suppliers: { view: true, edit: true }
+    label: 'Manager',
+    description: 'Extended access - Can edit most operational pages',
+    permissions: {
+      dashboard: { view: true, edit: true },
+      tasks: { view: true, edit: true },
+      skus_products: { view: true, edit: true },
+      orders: { view: true, edit: true },
+      profitability: { view: true, edit: false },
+      purchase_requests: { view: true, edit: true },
+      purchases: { view: true, edit: true },
+      returns: { view: true, edit: true },
+      suppliers: { view: true, edit: true },
+      team: { view: false, edit: false },
+      backup_data: { view: false, edit: false },
+      settings: { view: false, edit: false },
+      member_mgmt: { can_add_members: false, can_remove_members: false }
+    }
   },
-  staff: {
-    dashboard: { view: true, edit: false },
-    tasks: { view: true, edit: false },
-    skus: { view: true, edit: false },
-    orders: { view: true, edit: false },
-    purchases: { view: false, edit: false },
-    returns: { view: false, edit: false },
-    settlement: { view: false, edit: false },
-    suppliers: { view: false, edit: false }
+  admin: {
+    label: 'Admin',
+    description: 'Full access - Can view and edit everything',
+    permissions: {
+      dashboard: { view: true, edit: true },
+      tasks: { view: true, edit: true },
+      skus_products: { view: true, edit: true },
+      orders: { view: true, edit: true },
+      profitability: { view: true, edit: true },
+      purchase_requests: { view: true, edit: true },
+      purchases: { view: true, edit: true },
+      returns: { view: true, edit: true },
+      suppliers: { view: true, edit: true },
+      team: { view: true, edit: true },
+      backup_data: { view: true, edit: true },
+      settings: { view: true, edit: true },
+      member_mgmt: { can_add_members: true, can_remove_members: true }
+    }
   }
 };
 
-const PAGES = [
-  { key: 'dashboard', name: 'Dashboard' },
-  { key: 'tasks', name: 'Tasks' },
-  { key: 'skus', name: 'SKUs / Products' },
-  { key: 'orders', name: 'Orders' },
-  { key: 'purchases', name: 'Purchases' },
-  { key: 'returns', name: 'Returns' },
-  { key: 'settlement', name: 'Settlement' },
-  { key: 'suppliers', name: 'Suppliers' }
-];
-
 export default function InviteUserModal({ open, onClose, onInvite, workspaceId }) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('member');
-  const [permissions, setPermissions] = useState(ROLE_PRESETS.staff);
+  const [selectedTemplate, setSelectedTemplate] = useState('staff');
+  const [permissions, setPermissions] = useState(ROLE_TEMPLATES.staff.permissions);
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [pendingInvites, setPendingInvites] = useState([]);
-  const [workspaceModules, setWorkspaceModules] = useState([]);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Apply role preset when role changes
-    const preset = ROLE_PRESETS[role] || ROLE_PRESETS.staff;
-    setPermissions(preset);
-  }, [role]);
-
-  useEffect(() => {
-    if (open && workspaceId) {
-      loadPendingInvites();
-      loadWorkspaceModules();
+    if (open) {
+      // Reset form
+      setEmail('');
+      setSelectedTemplate('staff');
+      setPermissions(ROLE_TEMPLATES.staff.permissions);
     }
-  }, [open, workspaceId]);
+  }, [open]);
 
-  const loadPendingInvites = async () => {
-    try {
-      const invites = await base44.entities.WorkspaceInvite.filter({
-        workspace_id: workspaceId,
-        status: 'pending'
-      });
-      setPendingInvites(invites);
-    } catch (error) {
-      console.error('Error loading invites:', error);
-    }
+  const applyTemplate = (templateKey) => {
+    setSelectedTemplate(templateKey);
+    setPermissions({ ...ROLE_TEMPLATES[templateKey].permissions });
   };
 
-  const loadWorkspaceModules = async () => {
-    try {
-      const modules = await base44.entities.WorkspaceModule.filter({
-        workspace_id: workspaceId
-      });
-      setWorkspaceModules(modules);
-    } catch (error) {
-      console.error('Error loading workspace modules:', error);
-      setWorkspaceModules([]);
-    }
-  };
-
-  const handleToggleView = (pageKey) => {
+  const handleToggleView = (moduleKey) => {
     setPermissions(prev => {
       const newPerms = { ...prev };
-      const newViewValue = !prev[pageKey].view;
+      const newViewValue = !prev[moduleKey].view;
       
-      newPerms[pageKey] = {
+      newPerms[moduleKey] = {
         view: newViewValue,
-        edit: newViewValue ? prev[pageKey].edit : false // If view OFF, edit must be OFF
+        edit: newViewValue ? prev[moduleKey].edit : false // If view OFF, edit must be OFF
       };
       
       return newPerms;
     });
   };
 
-  const handleToggleEdit = (pageKey) => {
+  const handleToggleEdit = (moduleKey) => {
     setPermissions(prev => {
       const newPerms = { ...prev };
-      const newEditValue = !prev[pageKey].edit;
+      const newEditValue = !prev[moduleKey].edit;
       
-      newPerms[pageKey] = {
-        view: newEditValue ? true : prev[pageKey].view, // If edit ON, view must be ON
+      newPerms[moduleKey] = {
+        view: newEditValue ? true : prev[moduleKey].view, // If edit ON, view must be ON
         edit: newEditValue
       };
       
@@ -141,38 +124,45 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
     });
   };
 
+  const handleToggleMemberMgmt = (permissionKey) => {
+    setPermissions(prev => ({
+      ...prev,
+      member_mgmt: {
+        ...prev.member_mgmt,
+        [permissionKey]: !prev.member_mgmt[permissionKey]
+      }
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (submitting) return; // Prevent double-submit
+    if (loading) return;
     
-    setSubmitting(true);
     setLoading(true);
 
     try {
-      const { data } = await base44.functions.invoke('addMemberByEmail', {
+      const { data } = await base44.functions.invoke('inviteWorkspaceMemberGranular', {
         workspace_id: workspaceId,
         email: email.toLowerCase().trim(),
-        role
+        role: selectedTemplate, // Use template name as role
+        permissions
       });
 
-      if (data.ok) {
-        if (data.mode === 'invite_created' && data.token) {
-          // CANONICAL: Use production domain for invite links
-          const inviteLink = `https://app.amazon-oms.com/AcceptInvite?token=${data.token}`;
-          
+      if (data.success) {
+        if (data.mode === 'invite_created' && data.invite_link) {
           toast({
             title: 'Invite Created',
             description: (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Share this link with {email}:</p>
                 <div className="bg-slate-100 p-2 rounded text-xs font-mono break-all">
-                  {inviteLink}
+                  {data.invite_link}
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    navigator.clipboard.writeText(inviteLink);
+                    navigator.clipboard.writeText(data.invite_link);
                     toast({ title: 'Link copied to clipboard!' });
                   }}
                   className="w-full mt-2"
@@ -191,16 +181,14 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
         }
 
         setEmail('');
-        setRole('member');
-        setPermissions(ROLE_PRESETS.staff);
-        
-        if (data.mode === 'invite_created') {
-          await loadPendingInvites();
-        }
+        setSelectedTemplate('staff');
+        setPermissions(ROLE_TEMPLATES.staff.permissions);
         
         if (onInvite) {
           onInvite();
         }
+        
+        onClose();
       }
     } catch (error) {
       toast({
@@ -210,36 +198,19 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
       });
     } finally {
       setLoading(false);
-      setSubmitting(false);
     }
   };
 
-  const handleRevokeInvite = async (inviteId) => {
-    try {
-      await base44.functions.invoke('revokeWorkspaceInvite', {
-        invite_id: inviteId
-      });
-
-      toast({
-        title: 'Invite Revoked',
-        description: 'The invitation has been cancelled',
-      });
-
-      await loadPendingInvites();
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.response?.data?.error || error.message,
-      });
-    }
-  };
+  const pageModules = WORKSPACE_MODULES.filter(m => m.hasPermissions);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Invite Team Member</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Invite Team Member
+          </DialogTitle>
         </DialogHeader>
         
         <form onSubmit={handleSubmit}>
@@ -247,229 +218,164 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
             {/* Email Input */}
             <div>
               <Label htmlFor="email">Email Address *</Label>
-              <div className="relative mt-2">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="pl-10"
-                  required
-                  disabled={loading}
-                />
-              </div>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="mt-2"
+                required
+                disabled={loading}
+              />
               <p className="text-xs text-slate-500 mt-1">
-                Enter any email address. If the user doesn't exist, they'll receive an invite.
+                Enter any email address. If the user doesn't exist, they'll receive an invite link.
               </p>
             </div>
 
-            {/* Workspace Access Info */}
-            {workspaceModules.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 text-sm mb-2 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
-                  Workspace Page Access
-                </h4>
-                <p className="text-xs text-blue-700 mb-3">
-                  Members can only access pages that are enabled for this workspace:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {['dashboard', 'skus_products', 'orders', 'profitability', 'purchase_requests', 'purchases', 'returns', 'suppliers', 'tasks', 'team'].map(moduleKey => {
-                    const module = workspaceModules.find(m => m.module_key === moduleKey);
-                    const isEnabled = module ? module.enabled : false;
-                    const displayNames = {
-                      dashboard: 'Dashboard',
-                      skus_products: 'SKUs',
-                      orders: 'Orders',
-                      profitability: 'Profitability',
-                      purchase_requests: 'Purchase Requests',
-                      purchases: 'Purchases',
-                      returns: 'Returns',
-                      suppliers: 'Suppliers',
-                      tasks: 'Tasks',
-                      team: 'Team'
-                    };
-                    return (
-                      <Badge 
-                        key={moduleKey} 
-                        className={isEnabled 
-                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
-                          : 'bg-slate-100 text-slate-500 border-slate-200'}
-                      >
-                        {displayNames[moduleKey] || moduleKey}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-blue-600 mt-3 italic">
-                  {role === 'owner' && '✓ Owner: Full access to all enabled pages'}
-                  {role === 'admin' && '✓ Admin: Full access to all enabled pages'}
-                  {role === 'member' && '✓ Member: Can create/edit within enabled pages'}
-                  {role === 'viewer' && '✓ Viewer: Read-only access to enabled pages'}
-                </p>
-              </div>
-            )}
-
-            {/* Role Select */}
+            {/* Role Template Selector */}
             <div>
-              <Label htmlFor="role">Role *</Label>
-              <Select value={role} onValueChange={setRole} disabled={loading}>
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="owner">Owner - Full control</SelectItem>
-                  <SelectItem value="admin">Admin - Full access to enabled pages</SelectItem>
-                  <SelectItem value="member">Member - Standard access</SelectItem>
-                  <SelectItem value="viewer">Viewer - Read-only access</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Pending Invites */}
-            {pendingInvites.length > 0 && (
-              <div>
-                <Label className="mb-2 block">Pending Invites ({pendingInvites.length})</Label>
-                <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-3 bg-slate-50">
-                  {pendingInvites.map((invite) => {
-                    const inviteLink = `${window.location.origin}/AcceptInvite?token=${invite.token}`;
-                    return (
-                      <div
-                        key={invite.id}
-                        className="flex items-start justify-between p-3 bg-white rounded border"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-900 truncate">{invite.invited_email}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="outline" className="text-xs">
-                              {invite.role}
-                          </Badge>
-                              <Badge variant="secondary" className="text-xs">
-                                Pending
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-1">
-                              Expires: {new Date(invite.expires_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 ml-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                navigator.clipboard.writeText(inviteLink);
-                                toast({ title: 'Invite link copied!' });
-                              }}
-                              className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs"
-                            >
-                              Copy Link
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRevokeInvite(invite.id)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Info Box */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-blue-700 space-y-1">
-                  <p><strong>How Invites Work:</strong></p>
-                  <p>• Copy and share the invite link with the user</p>
-                  <p>• They'll join THIS workspace only (strict isolation)</p>
-                  <p>• Links expire in 7 days</p>
-                </div>
+              <Label>Role Template (Optional Convenience)</Label>
+              <p className="text-xs text-slate-500 mb-3">
+                Select a template to pre-fill permissions, then customize per-page below
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                {Object.entries(ROLE_TEMPLATES).map(([key, template]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => applyTemplate(key)}
+                    className={`
+                      p-4 rounded-lg border-2 text-left transition-colors
+                      ${selectedTemplate === key 
+                        ? 'border-indigo-600 bg-indigo-50' 
+                        : 'border-slate-200 hover:border-slate-300'}
+                    `}
+                    disabled={loading}
+                  >
+                    <p className="font-medium text-sm">{template.label}</p>
+                    <p className="text-xs text-slate-600 mt-1">{template.description}</p>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Permissions Grid - Hidden for now, simplified */}
-            <div style={{ display: 'none' }}>
-              <Label className="mb-3 block">Page-Level Permissions</Label>
-              <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+            {/* Per-Page Permissions Table */}
+            <div>
+              <Label>Per-Page Permissions</Label>
+              <p className="text-xs text-slate-500 mb-3">
+                Customize what this member can see and edit on each page
+              </p>
+              <div className="border rounded-lg overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-slate-100 border-b border-slate-200">
+                  <thead className="bg-slate-50">
                     <tr>
-                      <th className="py-3 px-4 text-left text-xs font-semibold text-slate-600 uppercase">
-                        Page
-                      </th>
-                      <th className="py-3 px-4 text-center text-xs font-semibold text-slate-600 uppercase w-24">
+                      <th className="text-left px-4 py-3 text-sm font-medium text-slate-700">Page / Module</th>
+                      <th className="text-center px-4 py-3 text-sm font-medium text-slate-700 w-24">
                         <div className="flex items-center justify-center gap-1">
-                          <Eye className="w-3 h-3" />
+                          <Eye className="w-4 h-4" />
                           View
                         </div>
                       </th>
-                      <th className="py-3 px-4 text-center text-xs font-semibold text-slate-600 uppercase w-24">
+                      <th className="text-center px-4 py-3 text-sm font-medium text-slate-700 w-24">
                         <div className="flex items-center justify-center gap-1">
-                          <Edit className="w-3 h-3" />
+                          <Edit className="w-4 h-4" />
                           Edit
                         </div>
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {PAGES.map((page) => (
-                      <tr key={page.key} className="hover:bg-slate-100/50 transition-colors">
-                        <td className="py-3 px-4 text-sm font-medium text-slate-900">
-                          {page.name}
+                  <tbody className="divide-y">
+                    {pageModules.map(module => (
+                      <tr key={module.key} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-sm font-medium">{module.label}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Switch
+                            checked={permissions[module.key]?.view || false}
+                            onCheckedChange={() => handleToggleView(module.key)}
+                            disabled={loading}
+                          />
                         </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex justify-center">
-                            <Switch
-                              checked={permissions[page.key]?.view || false}
-                              onCheckedChange={() => handleToggleView(page.key)}
-                            />
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex justify-center">
-                            <Switch
-                              checked={permissions[page.key]?.edit || false}
-                              onCheckedChange={() => handleToggleEdit(page.key)}
-                              disabled={!permissions[page.key]?.view}
-                            />
-                          </div>
+                        <td className="px-4 py-3 text-center">
+                          <Switch
+                            checked={permissions[module.key]?.edit || false}
+                            onCheckedChange={() => handleToggleEdit(module.key)}
+                            disabled={loading || !permissions[module.key]?.view}
+                          />
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-slate-500 mt-2">
-                💡 <strong>Tip:</strong> Edit access automatically enables View. Disabling View removes Edit.
+              <p className="text-xs text-amber-600 mt-2">
+                ⚠️ If "Edit" is ON, "View" is automatically enabled. If "View" is OFF, "Edit" is disabled.
               </p>
             </div>
 
-            {/* Info Box */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-blue-900 mb-2">Role Presets:</h4>
-              <div className="text-xs text-blue-700 space-y-1">
-                <p>• <strong>Admin:</strong> Full access (View + Edit) to all modules</p>
-                <p>• <strong>Manager:</strong> View/Edit most modules except Settlement edit</p>
-                <p>• <strong>Staff:</strong> Limited View-only access to basic modules</p>
-                <p className="mt-2 text-blue-600">You can customize permissions after selecting a role</p>
+            {/* Member Management Permissions */}
+            <div>
+              <Label>Member Management Permissions</Label>
+              <p className="text-xs text-slate-500 mb-3">
+                Control whether this member can add or remove other team members (separate from Team page access)
+              </p>
+              <div className="border rounded-lg p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                      <UserPlus className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Can Add Members</p>
+                      <p className="text-xs text-slate-600">Allows inviting new members to workspace</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={permissions.member_mgmt?.can_add_members || false}
+                    onCheckedChange={() => handleToggleMemberMgmt('can_add_members')}
+                    disabled={loading}
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                      <UserMinus className="w-5 h-5 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Can Remove Members</p>
+                      <p className="text-xs text-slate-600">Allows removing members with lower role levels</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={permissions.member_mgmt?.can_remove_members || false}
+                    onCheckedChange={() => handleToggleMemberMgmt('can_remove_members')}
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3">
+                <div className="flex gap-2">
+                  <Shield className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-amber-800">
+                    <p className="font-medium mb-1">Safety Rules:</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>Cannot remove workspace owner (except platform admin)</li>
+                      <li>Cannot remove members with equal or higher role level</li>
+                      <li>Cannot remove yourself</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700">
-              {submitting ? 'Creating...' : 'Create Invite'}
+            <Button type="submit" disabled={loading} className="bg-indigo-600 hover:bg-indigo-700">
+              {loading ? 'Creating...' : 'Create Invite'}
             </Button>
           </DialogFooter>
         </form>
