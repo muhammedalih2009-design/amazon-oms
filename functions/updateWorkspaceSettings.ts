@@ -7,7 +7,7 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
 
     if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const payload = await req.json();
@@ -19,13 +19,18 @@ Deno.serve(async (req) => {
     // SECURITY: Verify user has access and is admin/owner
     const membership = await guardWorkspaceAccess(base44, user, workspace_id);
     if (!['owner', 'admin'].includes(membership.role)) {
-      return Response.json({ error: 'Admin access required' }, { status: 403 });
+      return Response.json({ ok: false, error: 'Admin access required' }, { status: 403 });
     }
 
     // Validate currency if provided
     const validCurrencies = ['SAR', 'EGP', 'AED', 'USD', 'EUR', 'KWD', 'QAR', 'BHD', 'OMR'];
     if (currency_code && !validCurrencies.includes(currency_code)) {
-      return Response.json({ error: 'Invalid currency_code' }, { status: 400 });
+      return Response.json({ ok: false, error: 'Invalid currency_code' }, { status: 400 });
+    }
+
+    // Validate Telegram token if provided
+    if (telegram_bot_token && (!telegram_bot_token.includes(':') || telegram_bot_token.length < 10)) {
+      return Response.json({ ok: false, error: 'Invalid Telegram bot token format' }, { status: 400 });
     }
 
     // Check if settings exist
@@ -49,45 +54,26 @@ Deno.serve(async (req) => {
     }
 
     let result;
-    const changedFields = [];
 
     if (existing.length > 0) {
       // Update existing
-      const old = existing[0];
-      
-      if (currency_code && old.currency_code !== currency_code) {
-        changedFields.push(`currency: ${old.currency_code} → ${currency_code}`);
-      }
-      if (telegram_bot_token !== undefined) {
-        changedFields.push('telegram_bot_token: updated');
-      }
-      if (telegram_chat_id !== undefined && old.telegram_chat_id !== telegram_chat_id) {
-        changedFields.push(`telegram_chat_id: updated`);
-      }
-
       result = await base44.asServiceRole.entities.WorkspaceSettings.update(
         existing[0].id,
         updateData
       );
     } else {
       // Create new
-      if (currency_code) changedFields.push(`currency: ${currency_code}`);
-      if (telegram_bot_token) changedFields.push('telegram_bot_token: set');
-      if (telegram_chat_id) changedFields.push('telegram_chat_id: set');
-
       result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
     }
 
-    // CRITICAL: Skip audit log on errors - never let side effects fail the main operation
-    // The save is already committed to DB, so we return success regardless
-
-    // Always return clean success response
+    // SUCCESS: Always return after DB update succeeds
+    // Never throw or call other APIs that could fail
     return Response.json({
       ok: true,
       settings: result
     });
   } catch (error) {
-    console.error('Error updating workspace settings:', error);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error('Error updating workspace settings:', error.message);
+    return Response.json({ ok: false, error: error.message }, { status: 400 });
   }
 });
