@@ -32,8 +32,6 @@ import {
   StopCircle
 } from 'lucide-react';
 
-const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
-
 export default function MonitoringPage() {
   const { isPlatformAdmin, tenantId, user } = useTenant();
   const { toast } = useToast();
@@ -399,9 +397,29 @@ export default function MonitoringPage() {
         <TabsContent value="jobs">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Background Jobs {isSuperAdmin ? '(All Workspaces)' : '(Workspace)'}</CardTitle>
-                <div className="flex gap-2">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between flex-wrap">
+                  <CardTitle>Background Jobs {isSuperAdmin ? '(All Workspaces)' : '(Workspace)'}</CardTitle>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {isSuperAdmin && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant={jobScope === 'all' ? 'default' : 'outline'}
+                        onClick={() => setJobScope('all')}
+                      >
+                        All Workspaces
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={jobScope === 'workspace' ? 'default' : 'outline'}
+                        onClick={() => setJobScope('workspace')}
+                      >
+                        Current Workspace
+                      </Button>
+                    </>
+                  )}
                   <Button
                     size="sm"
                     variant={jobFilter === 'active' ? 'default' : 'outline'}
@@ -455,7 +473,7 @@ export default function MonitoringPage() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Badge variant="secondary" className="text-xs">
-                                      {workspaceMap[job.tenant_id] || job.tenant_id}
+                                      {job.workspace_name || job.tenant_id}
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
@@ -579,8 +597,8 @@ export default function MonitoringPage() {
               )}
               {confirmAction?.action === 'force_stop' && (
                 <>
-                  Force Stop will cancel this job permanently and you <strong>cannot resume it</strong>. 
-                  The job will stop at the next safe point.
+                  Force Stop will immediately terminate the job. The operation may be incomplete.
+                  Resuming is not possible for forced stops.
                 </>
               )}
             </AlertDialogDescription>
@@ -588,11 +606,10 @@ export default function MonitoringPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => handleJobAction(confirmAction.job.id, confirmAction.action)}
+              onClick={() => handleJobAction(confirmAction?.job?.id, confirmAction?.action)}
               className={confirmAction?.action === 'force_stop' ? 'bg-red-600 hover:bg-red-700' : ''}
             >
-              {confirmAction?.action === 'pause' && 'Pause Job'}
-              {confirmAction?.action === 'force_stop' && 'Force Stop'}
+              {confirmAction?.action === 'pause' ? 'Pause' : 'Force Stop'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
