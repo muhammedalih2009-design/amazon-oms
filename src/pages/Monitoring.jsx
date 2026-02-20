@@ -32,11 +32,12 @@ import {
 } from 'lucide-react';
 
 export default function MonitoringPage() {
-  const { isPlatformAdmin } = useTenant();
+  const { isPlatformAdmin, tenantId } = useTenant();
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [actioningJob, setActioningJob] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [jobFilter, setJobFilter] = useState('active'); // all | active | completed
 
   const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
     queryKey: ['error-logs'],
@@ -57,9 +58,14 @@ export default function MonitoringPage() {
   });
 
   const { data: jobs = [], refetch: refetchJobs } = useQuery({
-    queryKey: ['background-jobs-all'],
-    queryFn: () => apiClient.list('BackgroundJob', {}, '-created_date', 50, { useCache: false }),
-    staleTime: 5000
+    queryKey: ['background-jobs', tenantId, isPlatformAdmin],
+    queryFn: async () => {
+      // Filter by workspace if not platform admin
+      const query = isPlatformAdmin ? {} : { tenant_id: tenantId };
+      return apiClient.list('BackgroundJob', query, '-created_date', 100, { useCache: false });
+    },
+    staleTime: 3000,
+    enabled: !!tenantId
   });
 
   const handleRefresh = async () => {
