@@ -1,111 +1,113 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { createPageUrl } from '@/utils';
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { createPageUrl } from './utils';
+import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 export default function AcceptInvite() {
-  const navigate = useNavigate();
-  const [status, setStatus] = useState('loading'); // loading, success, error
+  const [status, setStatus] = useState('loading'); // loading | success | error
   const [message, setMessage] = useState('');
   const [workspaceId, setWorkspaceId] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
+    const acceptInvite = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        if (!token) {
+          setStatus('error');
+          setMessage('Invalid invite link: Missing token');
+          return;
+        }
+
+        // Check if user is logged in
+        const isAuth = await base44.auth.isAuthenticated();
+        if (!isAuth) {
+          // Redirect to login, then back here
+          const currentUrl = window.location.href;
+          base44.auth.redirectToLogin(currentUrl);
+          return;
+        }
+
+        // Accept the invite
+        const { data } = await base44.functions.invoke('acceptInvite', { token });
+
+        if (data.success) {
+          setStatus('success');
+          setWorkspaceId(data.workspace_id);
+          
+          if (data.already_member) {
+            setMessage('You are already a member of this workspace!');
+          } else {
+            setMessage('Invitation accepted successfully!');
+          }
+
+          // Redirect to dashboard after 2 seconds
+          setTimeout(() => {
+            window.location.href = createPageUrl('Dashboard');
+          }, 2000);
+        } else {
+          setStatus('error');
+          setMessage(data.error || 'Failed to accept invite');
+        }
+      } catch (error) {
+        console.error('Accept invite error:', error);
+        setStatus('error');
+        setMessage(error.response?.data?.error || 'An unexpected error occurred');
+      }
+    };
+
     acceptInvite();
   }, []);
 
-  const acceptInvite = async () => {
-    try {
-      // Get token from URL
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
-
-      if (!token) {
-        setStatus('error');
-        setMessage('Invalid invite link. No token provided.');
-        return;
-      }
-
-      // Check if user is logged in
-      const isAuthenticated = await base44.auth.isAuthenticated();
-      
-      if (!isAuthenticated) {
-        // Redirect to login with full return URL
-        const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = `/login?from_url=${returnUrl}`;
-        return;
-      }
-
-      // Accept the invite
-      const { data } = await base44.functions.invoke('acceptInvite', { token });
-
-      if (data.ok) {
-        setStatus('success');
-        setMessage(data.message);
-        setWorkspaceId(data.workspace_id);
-        
-        // Switch to invited workspace and reload
-        if (data.workspace_id) {
-          localStorage.setItem('active_workspace_id', data.workspace_id);
-        }
-        
-        // Auto-redirect after 2 seconds
-        setTimeout(() => {
-          window.location.href = '/'; // Force reload to update workspace context
-        }, 2000);
-      } else {
-        setStatus('error');
-        setMessage(data.error || 'Failed to accept invite');
-      }
-    } catch (error) {
-      setStatus('error');
-      setMessage(error.response?.data?.error || error.message);
-    }
-  };
-
-  const handleGoToDashboard = () => {
-    window.location.href = '/'; // Force reload
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ backgroundColor: 'var(--bg)' }}>
       <div className="max-w-md w-full">
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+        <div className="text-center space-y-6 p-8 rounded-xl" style={{ backgroundColor: 'var(--surface)', boxShadow: '0 4px 6px var(--shadow)' }}>
           {status === 'loading' && (
             <>
-              <Loader2 className="w-16 h-16 text-indigo-600 animate-spin mx-auto mb-4" />
-              <h1 className="text-2xl font-bold text-slate-900 mb-2">Processing Invite</h1>
-              <p className="text-slate-600">Please wait while we add you to the workspace...</p>
+              <Loader2 className="w-16 h-16 mx-auto animate-spin text-indigo-600" />
+              <h2 className="text-2xl font-bold" style={{ color: 'var(--text)' }}>
+                Processing Invitation
+              </h2>
+              <p style={{ color: 'var(--text-muted)' }}>
+                Please wait while we add you to the workspace...
+              </p>
             </>
           )}
 
           {status === 'success' && (
             <>
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 className="w-10 h-10 text-green-600" />
-              </div>
-              <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome!</h1>
-              <p className="text-slate-600 mb-6">{message}</p>
-              <p className="text-sm text-slate-500 mb-6">
-                Redirecting to your workspace...
+              <CheckCircle className="w-16 h-16 mx-auto text-green-600" />
+              <h2 className="text-2xl font-bold text-green-600">
+                Success!
+              </h2>
+              <p style={{ color: 'var(--text-muted)' }}>
+                {message}
               </p>
-              <Button onClick={handleGoToDashboard} className="w-full bg-indigo-600 hover:bg-indigo-700">
-                Go to Dashboard
-              </Button>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Redirecting to dashboard...
+              </p>
             </>
           )}
 
           {status === 'error' && (
             <>
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <XCircle className="w-10 h-10 text-red-600" />
-              </div>
-              <h1 className="text-2xl font-bold text-slate-900 mb-2">Invite Error</h1>
-              <p className="text-slate-600 mb-6">{message}</p>
-              <Button onClick={() => navigate('/')} variant="outline" className="w-full">
-                Go to Home
-              </Button>
+              <XCircle className="w-16 h-16 mx-auto text-red-600" />
+              <h2 className="text-2xl font-bold text-red-600">
+                Error
+              </h2>
+              <p style={{ color: 'var(--text-muted)' }}>
+                {message}
+              </p>
+              <button
+                onClick={() => window.location.href = createPageUrl('Dashboard')}
+                className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Go to Dashboard
+              </button>
             </>
           )}
         </div>

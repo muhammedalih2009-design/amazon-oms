@@ -115,9 +115,9 @@ Deno.serve(async (req) => {
       case 'delete_user': {
         let step = 'initialization';
         try {
-          // Fetch target user
+          // Fetch target PlatformUser
           step = 'fetch_user';
-          const targetUser = await base44.asServiceRole.entities.User.get(user_id);
+          const targetUser = await base44.asServiceRole.entities.PlatformUser.get(user_id);
           
           if (!targetUser) {
             return Response.json({ error: 'User not found' }, { status: 404 });
@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
           }
 
           // Idempotent: if already deleted, return success
-          if (targetUser.deleted || targetUser.account_status === 'deleted') {
+          if (targetUser.deleted_at) {
             return Response.json({ 
               success: true, 
               message: 'User already deleted',
@@ -139,35 +139,36 @@ Deno.serve(async (req) => {
             });
           }
 
-          // Step 1: Disable login immediately
-          step = 'disable_login';
-          await base44.asServiceRole.entities.User.update(user_id, {
-            is_disabled: true,
-            disabled_at: new Date().toISOString(),
-            disabled_by: user.email
+          // Step 1: Disable immediately
+          step = 'disable_user';
+          await base44.asServiceRole.entities.PlatformUser.update(user_id, {
+            status: 'disabled'
           });
 
           // Step 2: Remove all workspace memberships
           step = 'remove_memberships';
-          const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
-          for (const membership of memberships) {
-            await base44.asServiceRole.entities.Membership.delete(membership.id);
+          const members = await base44.asServiceRole.entities.WorkspaceMember.filter({ user_id });
+          for (const member of members) {
+            await base44.asServiceRole.entities.WorkspaceMember.delete(member.id);
           }
 
-          // Step 3: Remove workspace invites (by user_id or email)
-          step = 'remove_invites';
-          const invitesByEmail = await base44.asServiceRole.entities.WorkspaceInvite.filter({ 
-            invited_email: targetUser.email 
+          // Step 3: Revoke workspace invites
+          step = 'revoke_invites';
+          const invites = await base44.asServiceRole.entities.WorkspaceInvite.filter({ 
+            email: targetUser.email,
+            status: 'pending'
           });
-          for (const invite of invitesByEmail) {
-            await base44.asServiceRole.entities.WorkspaceInvite.delete(invite.id);
+          for (const invite of invites) {
+            await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
+              status: 'revoked'
+            });
           }
 
           // Step 4: Cancel running jobs
           step = 'cancel_jobs';
           const runningJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
-            created_by: targetUser.email,
-            status: { $in: ['running', 'queued', 'throttled', 'paused'] }
+            created_by: user_id,
+            status: { $in: ['running', 'queued', 'paused'] }
           });
           for (const job of runningJobs) {
             await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
@@ -180,28 +181,24 @@ Deno.serve(async (req) => {
             });
           }
 
-          // Step 5: Soft delete + anonymize email
+          // Step 5: Soft delete
           step = 'soft_delete';
-          const anonymizedEmail = `deleted+${user_id}@deleted.local`;
-          await base44.asServiceRole.entities.User.update(user_id, {
-            deleted: true,
-            deleted_at: new Date().toISOString(),
-            deleted_by: user.email,
-            account_status: 'deleted'
+          await base44.asServiceRole.entities.PlatformUser.update(user_id, {
+            deleted_at: new Date().toISOString()
           });
 
           // Step 6: Log audit
           step = 'audit_log';
           await base44.asServiceRole.entities.AuditLog.create({
-            action: 'user_disable_remove_access',
-            entity_type: 'User',
-            entity_id: user_id,
-            user_email: user.email,
-            metadata: {
+            workspace_id: null,
+            actor_user_id: user.id,
+            action: 'platform_user_deleted',
+            target_type: 'PlatformUser',
+            target_id: user_id,
+            meta: {
               target_email: targetUser.email,
-              target_user_id: user_id,
-              memberships_removed: memberships.length,
-              invites_removed: invitesByEmail.length,
+              memberships_removed: members.length,
+              invites_revoked: invites.length,
               jobs_cancelled: runningJobs.length
             }
           });
@@ -209,8 +206,8 @@ Deno.serve(async (req) => {
           return Response.json({ 
             success: true, 
             message: 'User disabled and access removed successfully',
-            memberships_removed: memberships.length,
-            invites_removed: invitesByEmail.length,
+            memberships_removed: members.length,
+            invites_revoked: invites.length,
             jobs_cancelled: runningJobs.length
           });
         } catch (error) {
