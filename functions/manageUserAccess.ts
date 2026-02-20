@@ -113,69 +113,113 @@ Deno.serve(async (req) => {
       }
 
       case 'delete_user': {
-        // P0: Safe soft delete with cleanup
-        const targetUser = await base44.asServiceRole.entities.User.get(user_id);
-        
-        if (!targetUser) {
-          return Response.json({ error: 'User not found' }, { status: 404 });
-        }
+        let step = 'initialization';
+        try {
+          // Fetch target user
+          step = 'fetch_user';
+          const targetUser = await base44.asServiceRole.entities.User.get(user_id);
+          
+          if (!targetUser) {
+            return Response.json({ error: 'User not found' }, { status: 404 });
+          }
 
-        // P0: PROTECT OWNER
-        if (targetUser.email.toLowerCase() === 'muhammedalih.2009@gmail.com') {
-          return Response.json({ 
-            error: 'Owner account cannot be deleted.' 
-          }, { status: 403 });
-        }
+          // PROTECT OWNER
+          if (targetUser.email.toLowerCase() === APP_OWNER_EMAIL.toLowerCase()) {
+            return Response.json({ 
+              error: 'Owner account cannot be deleted.' 
+            }, { status: 403 });
+          }
 
-        // 1) Remove all workspace memberships
-        const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
-        for (const membership of memberships) {
-          await base44.asServiceRole.entities.Membership.delete(membership.id);
-        }
+          // Idempotent: if already deleted, return success
+          if (targetUser.deleted || targetUser.account_status === 'deleted') {
+            return Response.json({ 
+              success: true, 
+              message: 'User already deleted',
+              already_deleted: true
+            });
+          }
 
-        // 2) Cancel all running jobs created by this user
-        const runningJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
-          created_by: targetUser.email,
-          status: { $in: ['running', 'queued', 'throttled', 'paused'] }
-        });
-        for (const job of runningJobs) {
-          await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-            status: 'cancelled',
-            finished_at: new Date().toISOString(),
-            progress: {
-              ...job.progress,
-              message: 'Cancelled due to user deletion'
+          // Step 1: Disable login immediately
+          step = 'disable_login';
+          await base44.asServiceRole.entities.User.update(user_id, {
+            is_disabled: true,
+            disabled_at: new Date().toISOString(),
+            disabled_by: user.email
+          });
+
+          // Step 2: Remove all workspace memberships
+          step = 'remove_memberships';
+          const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
+          for (const membership of memberships) {
+            await base44.asServiceRole.entities.Membership.delete(membership.id);
+          }
+
+          // Step 3: Remove workspace invites (by user_id or email)
+          step = 'remove_invites';
+          const invitesByEmail = await base44.asServiceRole.entities.WorkspaceInvite.filter({ 
+            invited_email: targetUser.email 
+          });
+          for (const invite of invitesByEmail) {
+            await base44.asServiceRole.entities.WorkspaceInvite.delete(invite.id);
+          }
+
+          // Step 4: Cancel running jobs
+          step = 'cancel_jobs';
+          const runningJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
+            created_by: targetUser.email,
+            status: { $in: ['running', 'queued', 'throttled', 'paused'] }
+          });
+          for (const job of runningJobs) {
+            await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+              status: 'cancelled',
+              finished_at: new Date().toISOString(),
+              progress: {
+                ...job.progress,
+                message: 'Cancelled due to user deletion'
+              }
+            });
+          }
+
+          // Step 5: Soft delete + anonymize email
+          step = 'soft_delete';
+          const anonymizedEmail = `deleted+${user_id}@deleted.local`;
+          await base44.asServiceRole.entities.User.update(user_id, {
+            deleted: true,
+            deleted_at: new Date().toISOString(),
+            deleted_by: user.email,
+            account_status: 'deleted'
+          });
+
+          // Step 6: Log audit
+          step = 'audit_log';
+          await base44.asServiceRole.entities.AuditLog.create({
+            action: 'user_disable_remove_access',
+            entity_type: 'User',
+            entity_id: user_id,
+            user_email: user.email,
+            metadata: {
+              target_email: targetUser.email,
+              target_user_id: user_id,
+              memberships_removed: memberships.length,
+              invites_removed: invitesByEmail.length,
+              jobs_cancelled: runningJobs.length
             }
           });
-        }
 
-        // 3) Soft delete user (NEVER hard delete)
-        await base44.asServiceRole.entities.User.update(user_id, {
-          deleted: true,
-          deleted_at: new Date().toISOString(),
-          deleted_by: user.email,
-          account_status: 'deleted'
-        });
-
-        // Log audit (DO NOT delete audit logs - keep for compliance)
-        await base44.asServiceRole.entities.AuditLog.create({
-          action: 'user_deleted',
-          entity_type: 'User',
-          entity_id: user_id,
-          user_email: user.email,
-          metadata: {
-            target_email: targetUser.email,
+          return Response.json({ 
+            success: true, 
+            message: 'User disabled and access removed successfully',
             memberships_removed: memberships.length,
+            invites_removed: invitesByEmail.length,
             jobs_cancelled: runningJobs.length
-          }
-        });
-
-        return Response.json({ 
-          success: true, 
-          message: 'User deleted successfully',
-          memberships_removed: memberships.length,
-          jobs_cancelled: runningJobs.length
-        });
+          });
+        } catch (error) {
+          console.error(`Delete user failed at step: ${step}`, error);
+          return Response.json({ 
+            error: `Failed at ${step}: ${error.message}`,
+            step
+          }, { status: 500 });
+        }
       }
 
       default:
