@@ -71,6 +71,7 @@ import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
 import NoAccess from './pages/NoAccess';
+import AcceptPlatformInvite from './pages/AcceptPlatformInvite';
 import __Layout from './Layout.jsx';
 
 
@@ -99,6 +100,7 @@ export const PAGES = {
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
     "NoAccess": NoAccess,
+    "AcceptPlatformInvite": AcceptPlatformInvite,
 }
 
 export const pagesConfig = {
