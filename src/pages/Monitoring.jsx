@@ -524,8 +524,8 @@ export default function MonitoringPage() {
                       </div>
                     </div>
                   ))
-                );
-              })()}
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>
