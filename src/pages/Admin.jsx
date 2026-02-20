@@ -41,6 +41,8 @@ import RecentWorkspacesMonitor from '@/components/admin/RecentWorkspacesMonitor'
 import UserManagementTab from '@/components/admin/UserManagementTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const PLATFORM_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+
 export default function AdminPage() {
   const { user, isPlatformAdmin } = useTenant();
   const { toast } = useToast();
@@ -48,6 +50,13 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [workspaces, setWorkspaces] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
+
+  // SECURITY: Block access if not platform owner
+  useEffect(() => {
+    if (user && user.email?.toLowerCase() !== PLATFORM_OWNER_EMAIL.toLowerCase()) {
+      window.location.href = '/';
+    }
+  }, [user]);
   const [memberships, setMemberships] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   
