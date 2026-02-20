@@ -36,7 +36,7 @@ import {
  */
 
 export const WORKSPACE_MODULES = [
-  // General
+  // REORDERED: Dashboard first, then core workflow pages
   {
     key: "dashboard",
     label: "Dashboard",
@@ -46,13 +46,20 @@ export const WORKSPACE_MODULES = [
     hasPermissions: true,
     adminOnly: false
   },
-  
-  // Inventory
   {
     key: "skus_products",
     label: "SKUs / Products",
     route: "SKUs",
     icon: Package,
+    group: "Inventory",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  {
+    key: "suppliers",
+    label: "Suppliers & Stores",
+    route: "SuppliersStores",
+    icon: Store,
     group: "Inventory",
     hasPermissions: true,
     adminOnly: false
@@ -76,17 +83,6 @@ export const WORKSPACE_MODULES = [
     adminOnly: false
   },
   {
-    key: "suppliers",
-    label: "Suppliers & Stores",
-    route: "SuppliersStores",
-    icon: Store,
-    group: "Inventory",
-    hasPermissions: true,
-    adminOnly: false
-  },
-  
-  // Operations
-  {
     key: "orders",
     label: "Orders",
     route: "Orders",
@@ -95,6 +91,8 @@ export const WORKSPACE_MODULES = [
     hasPermissions: true,
     adminOnly: false
   },
+  
+  // Remaining pages in original order
   {
     key: "returns",
     label: "Returns",
@@ -104,8 +102,6 @@ export const WORKSPACE_MODULES = [
     hasPermissions: true,
     adminOnly: false
   },
-  
-  // Finance
   {
     key: "profitability",
     label: "Profitability",
@@ -115,8 +111,6 @@ export const WORKSPACE_MODULES = [
     hasPermissions: true,
     adminOnly: false
   },
-  
-  // Task Management
   {
     key: "tasks",
     label: "Tasks",
@@ -126,8 +120,6 @@ export const WORKSPACE_MODULES = [
     hasPermissions: true,
     adminOnly: false
   },
-  
-  // Admin
   {
     key: "team",
     label: "Team",
