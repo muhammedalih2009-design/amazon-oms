@@ -49,20 +49,23 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.BackgroundJob.create({
       tenant_id: workspace_id,
       job_type: 'delete_all_skus',
-      status: 'running',
+      status: 'queued',
       priority: 'low',
-      progress: {
-        current: 0,
-        total: skus.length,
-        percent: 0,
-        phase: 'initializing',
-        message: 'Preparing to delete SKUs...'
-      },
+      progress_percent: 0,
+      processed_count: 0,
+      total_count: skus.length,
+      success_count: 0,
+      failed_count: 0,
+      actor_user_id: user.id,
+      started_by: user.email,
+      started_at: new Date().toISOString(),
       params: {
         total_skus: skus.length
       },
-      started_by: user.email,
-      started_at: existingJobs.length === 0 ? new Date().toISOString() : null
+      meta: {
+        phase: 'initializing',
+        message: 'Preparing to delete SKUs...'
+      }
     });
 
     console.log(`[Start Delete All SKUs] Created job ${job.id} with status ${job.status}`);
