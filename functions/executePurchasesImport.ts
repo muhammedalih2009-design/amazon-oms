@@ -66,10 +66,9 @@ Deno.serve(async (req) => {
       }
     });
 
-    let currentIndex = job.current_index || 0;
-    let successCount = job.success || 0;
-    let failCount = job.failed || 0;
-    const failedRows = [];
+    let currentIndex = job.processed_count || 0;
+    let successCount = job.success_count || 0;
+    let failCount = job.failed_count || 0;
 
     // Process rows in chunks
     while (currentIndex < rows.length) {
@@ -89,111 +88,61 @@ Deno.serve(async (req) => {
           const skuData = skuMap[skuCode.toLowerCase()];
           if (!skuData) {
             failCount++;
-            failedRows.push({
-              row: globalIdx + 1,
-              sku_code: skuCode,
-              reason: 'SKU not found'
-            });
             continue;
           }
 
           // Parse quantity
-          const qty = parseInt(row.quantity);
-          if (isNaN(qty) || qty < 1) {
+          const quantity = parseFloat(row.quantity);
+          if (isNaN(quantity) || quantity <= 0) {
             failCount++;
-            failedRows.push({
-              row: globalIdx + 1,
-              sku_code: skuCode,
-              reason: 'Invalid quantity'
-            });
             continue;
           }
 
-          // Resolve unit price
-          let unitPrice = null;
-          if (row.unit_price) {
-            const p = parseFloat(row.unit_price);
-            if (!isNaN(p) && p >= 0) {
-              unitPrice = p;
-            }
+          // Parse purchase date
+          let purchaseDate = row.purchase_date || new Date().toISOString().split('T')[0];
+          try {
+            const parsedDate = parseDate(purchaseDate, 'yyyy-MM-dd', new Date());
+            purchaseDate = parsedDate.toISOString().split('T')[0];
+          } catch (e) {
+            failCount++;
+            continue;
           }
-          
-          if (!unitPrice) {
-            // Fallback: use last purchase cost or SKU cost
-            const lastPurch = lastPurchaseMap[skuCode.toLowerCase()];
-            unitPrice = (lastPurch?.cost) || (skuData.cost_price || 0);
-            if (unitPrice <= 0) {
-              failCount++;
-              failedRows.push({
-                row: globalIdx + 1,
-                sku_code: skuCode,
-                reason: 'No unit price and no fallback available'
-              });
-              continue;
-            }
+
+          // Parse cost per unit
+          let costPerUnit = parseFloat(row.unit_price);
+          if (isNaN(costPerUnit) || costPerUnit < 0) {
+            failCount++;
+            continue;
           }
+
+          const totalCost = costPerUnit * quantity;
 
           // Resolve supplier
-          let supplierId = null;
-          let supplierName = (row.supplier_name || '').trim();
-          
-          if (!supplierName) {
-            const lastPurch = lastPurchaseMap[skuCode.toLowerCase()];
-            if (lastPurch?.supplier_id) {
-              supplierId = lastPurch.supplier_id;
-              supplierName = lastPurch.supplier_name;
-            } else if (skuData.supplier_id) {
-              supplierId = skuData.supplier_id;
-              const sup = suppliers.find(s => s.id === supplierId);
-              if (sup) supplierName = sup.supplier_name;
-            }
-          } else {
-            // Lookup by name
-            const sup = supplierMap[supplierName.toLowerCase()];
-            if (sup) {
-              supplierId = sup.id;
-            }
+          const supplierName = (row.supplier_name || '').trim();
+          let supplierData = null;
+          if (supplierName) {
+            supplierData = supplierMap[supplierName.toLowerCase()];
           }
 
-          // Parse date
-          let purchaseDate = new Date().toISOString().split('T')[0]; // Default today
-          if (row.purchase_date) {
-            const dateStr = row.purchase_date.trim();
-            const parsed = parseDate(dateStr, 'yyyy-MM-dd', new Date());
-            if (!isNaN(parsed.getTime())) {
-              purchaseDate = parsed.toISOString().split('T')[0];
-            }
-          }
-
-          // Create purchase record
-          purchasesToCreate.push({
+          // Build purchase record
+          const purchase = {
             tenant_id,
             sku_id: skuData.id,
-            sku_code: skuData.sku_code,
-            quantity_purchased: qty,
-            total_cost: qty * unitPrice,
-            cost_per_unit: unitPrice,
+            sku_code: skuCode,
+            quantity_purchased: quantity,
+            cost_per_unit: costPerUnit,
+            total_cost: totalCost,
             purchase_date: purchaseDate,
-            supplier_id: supplierId || null,
-            supplier_name: supplierName || null,
-            quantity_remaining: qty
-          });
+            quantity_remaining: quantity,
+            supplier_id: supplierData?.id || null,
+            supplier_name: supplierData?.supplier_name || supplierName || null
+          };
 
-          // Track stock update
-          if (!stockUpdates[skuData.id]) {
-            stockUpdates[skuData.id] = 0;
-          }
-          stockUpdates[skuData.id] += qty;
-
+          purchasesToCreate.push(purchase);
+          stockUpdates[skuData.id] = (stockUpdates[skuData.id] || 0) + quantity;
           successCount++;
-
-        } catch (error) {
+        } catch (err) {
           failCount++;
-          failedRows.push({
-            row: globalIdx + 1,
-            sku_code: row.sku_code || '?',
-            reason: error.message || 'Processing error'
-          });
         }
       }
 
@@ -221,25 +170,17 @@ Deno.serve(async (req) => {
 
       currentIndex = chunkEnd;
 
-      // Update job progress
-      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-        processed: currentIndex,
-        success: successCount,
-        failed: failCount,
-        current_index: currentIndex,
-        job_data: JSON.stringify({
-          ...jobData,
-          failed_rows: failedRows
-        })
-      });
-
-      // Check cancellation & update progress
+      // Check cancellation
       const updatedJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
       if (updatedJob.status === 'cancelled') {
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString()
+        });
         return Response.json({ ok: true, message: 'Import cancelled' });
       }
       
-      // Update job progress
+      // Update job progress with standard fields
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         processed_count: successCount + failCount,
         success_count: successCount,
@@ -262,12 +203,14 @@ Deno.serve(async (req) => {
       ok: true,
       message: 'Import completed',
       success: successCount,
-      failed: failCount,
-      failed_rows: failedRows
+      failed: failCount
     });
 
   } catch (error) {
     console.error('[Execute Purchases Import] Error:', error);
+
+    const payload = await req.json();
+    const job_id = payload?.job_id;
 
     // Mark job as failed
     if (job_id) {
