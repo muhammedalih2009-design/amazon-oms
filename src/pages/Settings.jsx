@@ -59,11 +59,17 @@ export default function Settings() {
 
       setCurrencyCode(data.currency_code || 'SAR');
       
-      // We don't load the actual token from backend for security
-      // But we can check if it's configured
+      // Check if token exists in DB
       if (data.telegram_config_present) {
-        setTelegramBotToken('************'); // Masked
-        setTelegramChatId(data.telegram_chat_id_masked || '');
+        setHasSavedToken(true);
+        // Don't load actual token - only show placeholder
+        setTelegramBotToken('');
+        // Show masked chat_id or leave empty for user to re-enter
+        setTelegramChatId(data.telegram_chat_id_display || '');
+      } else {
+        setHasSavedToken(false);
+        setTelegramBotToken('');
+        setTelegramChatId('');
       }
     } catch (error) {
       console.error('Error loading settings:', error);
