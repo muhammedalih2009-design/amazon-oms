@@ -82,6 +82,7 @@ Deno.serve(async (req) => {
     try {
       await base44.asServiceRole.entities.AuditLog.create({
         workspace_id,
+        actor_user_id: user.id,
         user_id: user.id,
         user_email: user.email,
         action: 'workspace_settings_update',
@@ -92,7 +93,7 @@ Deno.serve(async (req) => {
         }
       });
     } catch (auditError) {
-      console.error('[updateWorkspaceSettings] AuditLog failed (ignored):', auditError);
+      console.warn('[updateWorkspaceSettings] AuditLog failed (ignored):', auditError.message);
     }
 
     // Always return clean success response
