@@ -66,10 +66,45 @@ export function TenantProvider({ children }) {
         activeTenant = workspaces.find(t => t.id === activeWorkspaceId);
       }
 
-      // Fallback to first workspace
+      // SECURITY: Verify membership before fallback
+      if (activeTenant) {
+        const hasValidMembership = isSuperAdmin || 
+          memberships.some(m => m.tenant_id === activeTenant.id);
+        
+        if (!hasValidMembership) {
+          console.error('🚨 SECURITY: Blocked workspace access without membership', {
+            workspace_id: activeTenant.id,
+            user_email: currentUser.email,
+            memberships: memberships.map(m => m.tenant_id)
+          });
+          
+          // Block access
+          activeTenant = null;
+          localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+          
+          // Audit log
+          await base44.entities.AuditLog.create({
+            workspace_id: null,
+            actor_user_id: currentUser.id,
+            action: 'workspace_access_blocked',
+            target_type: 'Tenant',
+            target_id: activeWorkspaceId,
+            meta: { reason: 'no_membership' }
+          }).catch(() => {});
+        }
+      }
+
+      // Fallback to first workspace ONLY if membership exists
       if (!activeTenant && workspaces.length > 0) {
-        activeTenant = workspaces[0];
-        localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
+        // Find first workspace where user has membership
+        for (const workspace of workspaces) {
+          const hasAccess = isSuperAdmin || memberships.some(m => m.tenant_id === workspace.id);
+          if (hasAccess) {
+            activeTenant = workspace;
+            localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
+            break;
+          }
+        }
       }
 
       // P0 FIX: NEVER auto-create workspaces
