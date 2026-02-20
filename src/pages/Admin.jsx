@@ -477,50 +477,31 @@ export default function AdminPage() {
 
         <TabsContent value="workspaces" className="space-y-6">
           {/* Debug Info - Owner Only */}
-          {user?.email === 'muhammedalih.2009@gmail.com' && (() => {
-            const activeWorkspaceIds = workspaces.map(w => w.id);
-            const paidSubs = subscriptions.filter(s => 
-              s.status === 'active' && 
-              s.plan === 'pro' &&
-              activeWorkspaceIds.includes(s.tenant_id)
-            );
-            const trialSubs = subscriptions.filter(s => 
-              s.plan === 'trial' &&
-              activeWorkspaceIds.includes(s.tenant_id)
-            );
-            const freeSubs = subscriptions.filter(s => 
-              s.plan === 'free' &&
-              activeWorkspaceIds.includes(s.tenant_id)
-            );
-            
-            return (
-              <details className="bg-slate-50 rounded-lg border border-slate-200 p-4">
-                <summary className="text-sm font-medium text-slate-700 cursor-pointer">Debug: Subscription Breakdown</summary>
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-                  <div className="bg-white p-2 rounded border">
-                    <span className="text-slate-500">Active Workspaces:</span>
-                    <span className="ml-2 font-semibold text-green-600">{workspaces.length}</span>
-                  </div>
-                  <div className="bg-white p-2 rounded border">
-                    <span className="text-slate-500">Paid (Pro):</span>
-                    <span className="ml-2 font-semibold text-indigo-600">{paidSubs.length}</span>
-                  </div>
-                  <div className="bg-white p-2 rounded border">
-                    <span className="text-slate-500">Trial:</span>
-                    <span className="ml-2 font-semibold text-amber-600">{trialSubs.length}</span>
-                  </div>
-                  <div className="bg-white p-2 rounded border">
-                    <span className="text-slate-500">Free:</span>
-                    <span className="ml-2 font-semibold text-slate-600">{freeSubs.length}</span>
-                  </div>
-                  <div className="bg-white p-2 rounded border">
-                    <span className="text-slate-500">Active Users:</span>
-                    <span className="ml-2 font-semibold">{allUsers.length}</span>
-                  </div>
+          {user?.email === 'muhammedalih.2009@gmail.com' && (
+            <details className="bg-slate-50 rounded-lg border border-slate-200 p-4">
+              <summary className="text-sm font-medium text-slate-700 cursor-pointer">Debug: Workspace Counts</summary>
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Total All:</span>
+                  <span className="ml-2 font-semibold">{subscriptions.length > 0 ? subscriptions.map(s => s.tenant_id).filter((v, i, a) => a.indexOf(v) === i).length : memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length}</span>
                 </div>
-              </details>
-            );
-          })()}
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Deleted:</span>
+                  <span className="ml-2 font-semibold text-red-600">
+                    {memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length - workspaces.length}
+                  </span>
+                </div>
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Active:</span>
+                  <span className="ml-2 font-semibold text-green-600">{workspaces.length}</span>
+                </div>
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Active Users:</span>
+                  <span className="ml-2 font-semibold">{allUsers.length}</span>
+                </div>
+              </div>
+            </details>
+          )}
 
           {/* Stats - UNIFIED WITH TABLE FILTERING */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -548,16 +529,7 @@ export default function AdminPage() {
             <div>
               <p className="text-sm text-slate-500">Active Subscriptions</p>
               <p className="text-2xl font-bold text-slate-900">
-                {(() => {
-                  const activeWorkspaceIds = workspaces.map(w => w.id);
-                  const now = new Date();
-                  return subscriptions.filter(s => 
-                    s.status === 'active' && 
-                    s.plan === 'pro' &&
-                    activeWorkspaceIds.includes(s.tenant_id) &&
-                    (!s.current_period_end || new Date(s.current_period_end) >= now)
-                  ).length;
-                })()}
+                {subscriptions.filter(s => s.status === 'active' && workspaces.find(w => w.id === s.tenant_id)).length}
               </p>
             </div>
           </div>
