@@ -31,6 +31,7 @@ export default function PurchaseRequests() {
     from: new Date(),
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [preparingPrint, setPreparingPrint] = useState(false);
