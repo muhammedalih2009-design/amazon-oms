@@ -452,6 +452,12 @@ export default function AdminPage() {
             <Building2 className="w-4 h-4 mr-2" />
             Workspaces
           </TabsTrigger>
+          {user?.email === 'muhammedalih.2009@gmail.com' && (
+            <TabsTrigger value="users">
+              <Users className="w-4 h-4 mr-2" />
+              Users
+            </TabsTrigger>
+          )}
           <TabsTrigger value="integrations">
             <Settings className="w-4 h-4 mr-2" />
             Integrations
