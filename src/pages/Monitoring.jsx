@@ -83,10 +83,11 @@ export default function MonitoringPage() {
     queryFn: async () => {
       // Super admin sees ALL jobs; workspace users see only their workspace jobs
       const query = isSuperAdmin ? {} : { tenant_id: tenantId };
-      return apiClient.list('BackgroundJob', query, '-started_at', 100, { useCache: false });
+      const sortBy = '-started_at'; // Descending by started_at
+      return apiClient.list('BackgroundJob', query, sortBy, 200, { useCache: false });
     },
     staleTime: 3000,
-    enabled: !!tenantId
+    enabled: isSuperAdmin || !!tenantId
   });
 
   const handleRefresh = async () => {
