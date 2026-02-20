@@ -113,34 +113,35 @@ Deno.serve(async (req) => {
       }
 
       case 'delete_user': {
-        // Soft delete user
+        // Delete user completely (remove from all workspaces first)
         const targetUser = await base44.asServiceRole.entities.User.get(user_id);
         
         if (!targetUser) {
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        // Mark user as deleted
-        await base44.asServiceRole.entities.User.update(user_id, {
-          is_deleted: true,
-          deleted_at: new Date().toISOString(),
-          deleted_by: user.email
-        });
+        // First, remove all memberships
+        const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
+        for (const membership of memberships) {
+          await base44.asServiceRole.entities.Membership.delete(membership.id);
+        }
 
-        // Log audit
+        // Log audit before deletion
         await base44.asServiceRole.entities.AuditLog.create({
           action: 'user_deleted',
           entity_type: 'User',
           entity_id: user_id,
           user_email: user.email,
           metadata: {
-            target_email: targetUser.email
+            target_email: targetUser.email,
+            memberships_removed: memberships.length
           }
         });
 
         return Response.json({ 
           success: true, 
-          message: 'User deleted successfully' 
+          message: 'User deleted successfully',
+          memberships_removed: memberships.length
         });
       }
 
