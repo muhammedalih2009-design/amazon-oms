@@ -29,8 +29,19 @@ Deno.serve(async (req) => {
     }
 
     // Validate Telegram token if provided
-    if (telegram_bot_token && (!telegram_bot_token.includes(':') || telegram_bot_token.length < 10)) {
-      return Response.json({ ok: false, error: 'Invalid Telegram bot token format' }, { status: 400 });
+    if (telegram_bot_token && telegram_bot_token.trim()) {
+      if (!telegram_bot_token.includes(':') || telegram_bot_token.length < 10) {
+        return Response.json({ ok: false, error: 'Invalid Telegram bot token format. Token must contain ":" and be at least 10 characters.' }, { status: 400 });
+      }
+    }
+
+    // Validate Telegram chat_id if provided
+    if (telegram_chat_id && telegram_chat_id.trim()) {
+      // Chat IDs can be negative or positive numbers, or strings
+      const normalized = String(telegram_chat_id).trim();
+      if (!normalized || isNaN(Number(normalized))) {
+        return Response.json({ ok: false, error: 'Invalid Telegram chat ID. Must be a valid number (can be negative).' }, { status: 400 });
+      }
     }
 
     // Check if settings exist
