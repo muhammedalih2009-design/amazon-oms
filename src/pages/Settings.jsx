@@ -44,6 +44,7 @@ export default function Settings() {
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [showToken, setShowToken] = useState(false);
+  const [hasSavedToken, setHasSavedToken] = useState(false); // Track if token exists in DB
 
   useEffect(() => {
     if (tenantId) loadSettings();
