@@ -66,6 +66,11 @@ export default function Settings() {
       }
     } catch (error) {
       console.error('Error loading settings:', error);
+      toast({
+        title: 'Error loading settings',
+        description: error.message,
+        variant: 'destructive'
+      });
     } finally {
       setLoading(false);
     }
@@ -79,19 +84,19 @@ export default function Settings() {
         currency_code: currencyCode
       });
 
-      // CRITICAL: Check for explicit ok flag
-      if (data?.ok === false) {
-        throw new Error(data.error || 'Save failed');
+      // Success response is ok:true
+      if (data?.ok === true) {
+        toast({
+          title: t('settings_saved'),
+          description: `${t('currency')}: ${currencyCode}`
+        });
+      } else {
+        throw new Error(data?.error || 'Save failed');
       }
-
-      toast({
-        title: t('settings_saved'),
-        description: `${t('currency')}: ${currencyCode}`
-      });
     } catch (error) {
       toast({
         title: t('settings_error'),
-        description: error.message,
+        description: error.message || 'Failed to save currency settings',
         variant: 'destructive'
       });
     } finally {
@@ -126,19 +131,19 @@ export default function Settings() {
         telegram_chat_id: telegramChatId
       });
 
-      // CRITICAL: Check for explicit ok flag
-      if (data?.ok === false) {
-        throw new Error(data.error || 'Save failed');
+      // Success response is ok:true
+      if (data?.ok === true) {
+        toast({
+          title: t('settings_saved'),
+          description: 'Telegram credentials saved successfully'
+        });
+      } else {
+        throw new Error(data?.error || 'Save failed');
       }
-
-      toast({
-        title: t('settings_saved'),
-        description: 'Telegram credentials saved successfully'
-      });
     } catch (error) {
       toast({
         title: t('settings_error'),
-        description: error.message,
+        description: error.message || 'Failed to save Telegram settings',
         variant: 'destructive'
       });
     } finally {
@@ -150,7 +155,7 @@ export default function Settings() {
     // Validate before testing
     if (!telegramBotToken || telegramBotToken === '************') {
       toast({
-        title: t('telegram_error'),
+        title: 'Validation error',
         description: 'Please enter a valid bot token first',
         variant: 'destructive'
       });
@@ -159,7 +164,7 @@ export default function Settings() {
 
     if (!telegramChatId) {
       toast({
-        title: t('telegram_error'),
+        title: 'Validation error',
         description: 'Please enter a chat ID first',
         variant: 'destructive'
       });
@@ -168,13 +173,13 @@ export default function Settings() {
 
     setTesting(true);
     try {
-      const { data } = await base44.functions.invoke('testTelegram', {
+      const { data } = await base44.functions.invoke('testTelegramNew', {
         workspace_id: tenantId,
         test_token: telegramBotToken,
         test_chat_id: telegramChatId
       });
 
-      if (data.success) {
+      if (data.ok === true && data.success) {
         toast({
           title: 'Connection successful!',
           description: 'Test message sent to Telegram'
@@ -182,14 +187,14 @@ export default function Settings() {
       } else {
         toast({
           title: 'Connection failed',
-          description: data.error,
+          description: data.error || 'Could not connect to Telegram',
           variant: 'destructive'
         });
       }
     } catch (error) {
       toast({
-        title: 'Failed to send test message',
-        description: error.message,
+        title: 'Failed to test connection',
+        description: error.message || 'Network error',
         variant: 'destructive'
       });
     } finally {
