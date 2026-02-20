@@ -155,6 +155,17 @@ export default function UserManagementTab({ allUsers, memberships, workspaces, o
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center justify-end gap-2">
+                          {workspaceCount === 0 && !isOwner && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleAssignWorkspaces(user.email)}
+                              className="text-blue-600 hover:text-blue-700 border-blue-200"
+                            >
+                              <Building2 className="w-4 h-4 mr-1" />
+                              Assign Workspaces
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
