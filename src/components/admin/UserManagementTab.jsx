@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Users, Eye, Trash2, Ban, ShieldOff } from 'lucide-react';
+import { Users, Eye, Trash2, Ban, ShieldOff, Mail, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import UserDetailsDrawer from './UserDetailsDrawer';
 import RefreshButton from '@/components/shared/RefreshButton';
+import InviteUserModal from './InviteUserModal';
+import AssignWorkspacesModal from './AssignWorkspacesModal';
 
 export default function UserManagementTab({ allUsers, memberships, workspaces, onRefresh, ownerEmail }) {
   const { toast } = useToast();
   const [selectedUser, setSelectedUser] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignUserEmail, setAssignUserEmail] = useState(null);
 
   const getUserWorkspaceCount = (userId) => {
     return memberships.filter(m => m.user_id === userId).length;
@@ -28,6 +33,19 @@ export default function UserManagementTab({ allUsers, memberships, workspaces, o
   const handleRefreshAfterAction = () => {
     handleCloseDrawer();
     onRefresh();
+  };
+
+  const handleAssignWorkspaces = (userEmail) => {
+    setAssignUserEmail(userEmail);
+    setAssignModalOpen(true);
+  };
+
+  const handleAssignClose = (success) => {
+    setAssignModalOpen(false);
+    setAssignUserEmail(null);
+    if (success) {
+      onRefresh();
+    }
   };
 
   return (
