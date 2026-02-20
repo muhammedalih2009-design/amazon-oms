@@ -113,20 +113,51 @@ Deno.serve(async (req) => {
       }
 
       case 'delete_user': {
-        // Delete user completely (remove from all workspaces first)
+        // P0: Safe soft delete with cleanup
         const targetUser = await base44.asServiceRole.entities.User.get(user_id);
         
         if (!targetUser) {
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        // First, remove all memberships
+        // P0: PROTECT OWNER
+        if (targetUser.email.toLowerCase() === 'muhammedalih.2009@gmail.com') {
+          return Response.json({ 
+            error: 'Owner account cannot be deleted.' 
+          }, { status: 403 });
+        }
+
+        // 1) Remove all workspace memberships
         const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
         for (const membership of memberships) {
           await base44.asServiceRole.entities.Membership.delete(membership.id);
         }
 
-        // Log audit before deletion
+        // 2) Cancel all running jobs created by this user
+        const runningJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
+          created_by: targetUser.email,
+          status: { $in: ['running', 'queued', 'throttled', 'paused'] }
+        });
+        for (const job of runningJobs) {
+          await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+            status: 'cancelled',
+            finished_at: new Date().toISOString(),
+            progress: {
+              ...job.progress,
+              message: 'Cancelled due to user deletion'
+            }
+          });
+        }
+
+        // 3) Soft delete user (NEVER hard delete)
+        await base44.asServiceRole.entities.User.update(user_id, {
+          deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by: user.email,
+          account_status: 'deleted'
+        });
+
+        // Log audit (DO NOT delete audit logs - keep for compliance)
         await base44.asServiceRole.entities.AuditLog.create({
           action: 'user_deleted',
           entity_type: 'User',
@@ -134,14 +165,16 @@ Deno.serve(async (req) => {
           user_email: user.email,
           metadata: {
             target_email: targetUser.email,
-            memberships_removed: memberships.length
+            memberships_removed: memberships.length,
+            jobs_cancelled: runningJobs.length
           }
         });
 
         return Response.json({ 
           success: true, 
           message: 'User deleted successfully',
-          memberships_removed: memberships.length
+          memberships_removed: memberships.length,
+          jobs_cancelled: runningJobs.length
         });
       }
 
