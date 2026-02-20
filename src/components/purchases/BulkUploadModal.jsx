@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) {
   const { toast } = useToast();
-  const [step, setStep] = useState(1); // 1: Upload, 2: Validate, 3: Progress, 4: Complete
+  const [step, setStep] = useState(1);
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState([]);
   const [validationResult, setValidationResult] = useState(null);
@@ -154,9 +154,9 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       }
 
       setJobId(data.job_id);
-      setJobStatus({ status: 'running', processed: 0, success: 0, failed: 0 });
+      setJobStatus({ status: 'queued', processed_count: 0, total_count: validRows.length, success_count: 0, failed_count: 0, progress_percent: 0 });
 
-      // Start polling job status
+      // Start polling job status every 2 seconds
       const interval = setInterval(() => pollJobStatus(data.job_id), 2000);
       setPollInterval(interval);
     } catch (error) {
@@ -177,45 +177,23 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       const job = await base44.asServiceRole.entities.BackgroundJob.get(id);
       if (!job) return;
 
-      const jobData = JSON.parse(job.job_data || '{}');
-
       setJobStatus({
         status: job.status,
-        processed: job.processed || 0,
-        success: job.success || 0,
-        failed: job.failed || 0,
-        failed_rows: jobData.failed_rows || []
+        processed_count: job.processed_count || 0,
+        total_count: job.total_count || 0,
+        success_count: job.success_count || 0,
+        failed_count: job.failed_count || 0,
+        progress_percent: job.progress_percent || 0,
+        error_message: job.error_message || null
       });
 
       if (job.status === 'completed' || job.status === 'failed') {
-        clearInterval(pollInterval);
+        if (pollInterval) clearInterval(pollInterval);
         setStep(4);
       }
     } catch (error) {
       console.error('Poll error:', error);
     }
-  };
-
-  const downloadFailedRows = () => {
-    if (!jobStatus?.failed_rows || jobStatus.failed_rows.length === 0) {
-      toast({ title: 'No failed rows', variant: 'default' });
-      return;
-    }
-
-    const csv = [
-      ['Row Number', 'SKU Code', 'Reason'].join(','),
-      ...jobStatus.failed_rows.map(r => `${r.row},"${r.sku_code}","${r.reason}"`)
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `failed_rows_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   const handleClose = () => {
@@ -303,7 +281,7 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
                     <AlertDescription>
                       <p className="font-medium mb-2">Errors found (showing first 10):</p>
                       <ul className="space-y-1 text-sm">
-                        {validationResult.errors.map((err, i) => (
+                        {validationResult.errors.slice(0, 10).map((err, i) => (
                           <li key={i}>
                             Row {err.row} ({err.sku_code}): {err.issues}
                           </li>
@@ -332,33 +310,41 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
           <TabsContent value="step3" className="space-y-4">
             {jobStatus && (
               <>
+                {jobStatus.status === 'failed' && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="w-4 h-4" />
+                    <AlertDescription>
+                      <p className="font-medium">Import failed</p>
+                      <p className="text-sm">{jobStatus.error_message || 'Unknown error'}</p>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Progress</span>
                     <span className="font-medium">
-                      {jobStatus.processed} / {validationResult?.valid_count || 0}
+                      {jobStatus.processed_count} / {jobStatus.total_count}
                     </span>
                   </div>
-                  <Progress
-                    value={(jobStatus.processed / (validationResult?.valid_count || 1)) * 100}
-                  />
+                  <Progress value={jobStatus.progress_percent || 0} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-green-50 p-4 rounded-lg">
                     <p className="text-sm text-slate-600">Success</p>
-                    <p className="text-2xl font-bold text-green-600">{jobStatus.success}</p>
+                    <p className="text-2xl font-bold text-green-600">{jobStatus.success_count}</p>
                   </div>
                   <div className="bg-red-50 p-4 rounded-lg">
                     <p className="text-sm text-slate-600">Failed</p>
-                    <p className="text-2xl font-bold text-red-600">{jobStatus.failed}</p>
+                    <p className="text-2xl font-bold text-red-600">{jobStatus.failed_count}</p>
                   </div>
                 </div>
 
                 {jobStatus.status === 'running' && (
-                  <div className="flex items-center justify-center gap-2 text-slate-600">
-                    <Loader className="w-4 h-4 animate-spin" />
-                    Processing...
+                  <div className="flex items-center justify-center py-4">
+                    <Loader className="w-5 h-5 animate-spin text-indigo-600 mr-2" />
+                    <span className="text-sm text-slate-600">Processing...</span>
                   </div>
                 )}
               </>
@@ -369,39 +355,25 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
           <TabsContent value="step4" className="space-y-4">
             {jobStatus && (
               <>
-                <Alert className={jobStatus.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}>
-                  {jobStatus.status === 'completed' ? (
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-600" />
-                  )}
-                  <AlertDescription className={jobStatus.status === 'completed' ? 'text-green-800' : 'text-red-800'}>
-                    {jobStatus.status === 'completed'
-                      ? `Import completed: ${jobStatus.success} successful, ${jobStatus.failed} failed`
-                      : 'Import failed'}
-                  </AlertDescription>
-                </Alert>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <p className="text-sm text-slate-600">Total Processed</p>
-                    <p className="text-2xl font-bold text-blue-600">{jobStatus.success + jobStatus.failed}</p>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <p className="text-sm text-slate-600">Success Rate</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      {((jobStatus.success / (jobStatus.success + jobStatus.failed)) * 100).toFixed(0)}%
+                {jobStatus.status === 'completed' && (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <CheckCircle className="w-12 h-12 text-green-600 mb-4" />
+                    <p className="text-lg font-medium mb-2">Import Completed</p>
+                    <p className="text-sm text-slate-600 text-center">
+                      Successfully imported {jobStatus.success_count} purchases
+                      {jobStatus.failed_count > 0 && ` with ${jobStatus.failed_count} failures`}
                     </p>
                   </div>
-                </div>
-
-                {jobStatus.failed > 0 && (
-                  <Button onClick={downloadFailedRows} variant="outline" className="w-full">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Failed Rows
-                  </Button>
                 )}
-
+                {jobStatus.status === 'failed' && (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <XCircle className="w-12 h-12 text-red-600 mb-4" />
+                    <p className="text-lg font-medium mb-2">Import Failed</p>
+                    <p className="text-sm text-slate-600 text-center">
+                      {jobStatus.error_message || 'An error occurred during import'}
+                    </p>
+                  </div>
+                )}
                 <Button onClick={handleClose} className="w-full">
                   Close
                 </Button>
