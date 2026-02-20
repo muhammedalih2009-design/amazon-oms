@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Upload, Download, AlertCircle, CheckCircle, X, ArrowRight } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { base44 } from '@/api/base44Client';
+import { resolveOrCreateSupplier } from './supplierResolver';
 import { Progress } from '@/components/ui/progress';
 
 export default function BulkUpdateModal({ open, onClose, onComplete, tenantId }) {
