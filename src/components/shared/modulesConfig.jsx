@@ -110,7 +110,7 @@ export const WORKSPACE_MODULES = [
     nameKey: 'backup_data',
     icon: Store,
     page: 'BackupData',
-    hasPermissions: false, // System module, no granular permissions
+    hasPermissions: true, // Now has granular permissions
     adminOnly: true
   },
   {
@@ -118,7 +118,7 @@ export const WORKSPACE_MODULES = [
     nameKey: 'settings',
     icon: Settings,
     page: 'Settings',
-    hasPermissions: false, // System module, no granular permissions
+    hasPermissions: true, // Now has granular permissions
     adminOnly: true
   }
 ];

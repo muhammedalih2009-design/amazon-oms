@@ -10,6 +10,7 @@ import TaskTray from '@/components/shared/TaskTray';
 import BackgroundJobManager from '@/components/shared/BackgroundJobManager';
 import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
 import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
+import WorkspaceRouteGuard from '@/components/shared/WorkspaceRouteGuard';
 import PendingInvitesChecker from '@/components/shared/PendingInvitesChecker';
 import { Toaster } from '@/components/ui/toaster';
 import { getNavigableModules } from '@/components/shared/modulesConfig';
@@ -50,7 +51,7 @@ const adminNavItems = [
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled, noAccess, hasWorkspaceAccess } = useTenant();
   const { t, language, toggleLanguage, isRTL } = useLanguage();
   const { theme, toggleTheme, isDark } = useTheme();
 
@@ -117,47 +118,63 @@ function LayoutContent({ children, currentPageName }) {
 
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => {
-              // Check module access first
-              if (item.moduleKey && !isModuleEnabled(item.moduleKey)) {
-                return null; // Hide disabled modules
-              }
+            {noAccess && !isPlatformAdmin ? (
+              /* No workspace access - show empty state */
+              <div className="px-4 py-6 text-center">
+                <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: 'var(--warning-soft)' }}>
+                  <Shield className="w-6 h-6" style={{ color: 'var(--warning)' }} />
+                </div>
+                <p className="text-sm font-medium mb-2" style={{ color: 'var(--text)' }}>
+                  {t('no_workspaces') || 'No Workspaces'}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {t('contact_admin') || 'Contact administrator for access'}
+                </p>
+              </div>
+            ) : (
+              /* Has workspace access - render navigation */
+              navItems.map((item) => {
+                // Check module access first
+                if (item.moduleKey && !isModuleEnabled(item.moduleKey)) {
+                  return null; // Hide disabled modules
+                }
 
-              // For modules with permissions, check if user has view access
-              if (item.hasPermissions && !isOwner && !canViewPage(item.moduleKey)) {
-                return null;
-              }
+                // For modules with permissions, check if user has view access
+                if (item.hasPermissions && !isOwner && !canViewPage(item.moduleKey)) {
+                  return null;
+                }
 
-              // For admin-only modules, only show to owners
-              if (item.adminOnly && !isOwner) {
-                return null;
-              }
+                // For admin-only modules, only show to owners
+                if (item.adminOnly && !isOwner) {
+                  return null;
+                }
 
-              const isActive = currentPageName === item.page;
-              const Icon = item.icon;
-              
-              return (
-                <Link
-                  key={item.page}
-                  to={createPageUrl(item.page)}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`
-                    flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
-                    ${isRTL ? 'flex-row-reverse' : ''}
-                    ${isActive 
-                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' 
-                      : ''}
-                    ${item.adminOnly && !isActive ? 'border border-slate-200' : ''}
-                  `}
-                  style={!isActive ? { color: 'var(--text-muted)' } : {}}
-                  onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
-                  onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="font-medium">{t(item.nameKey)}</span>
-                </Link>
-              );
-            })}
+                const isActive = currentPageName === item.page;
+                const Icon = item.icon;
+                
+                return (
+                  <Link
+                    key={item.page}
+                    to={createPageUrl(item.page)}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`
+                      flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                      ${isRTL ? 'flex-row-reverse' : ''}
+                      ${isActive 
+                        ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' 
+                        : ''}
+                      ${item.adminOnly && !isActive ? 'border border-slate-200' : ''}
+                    `}
+                    style={!isActive ? { color: 'var(--text-muted)' } : {}}
+                    onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
+                    onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                    <span className="font-medium">{t(item.nameKey)}</span>
+                  </Link>
+                );
+              })
+            )}
 
             {user?.email?.toLowerCase() === APP_OWNER_EMAIL.toLowerCase() && (
               <Link
@@ -287,9 +304,11 @@ export default function Layout({ children, currentPageName }) {
         <TenantProvider>
           <TaskManagerProvider>
             <WorkspaceAccessGuard>
-              <LayoutContent currentPageName={currentPageName}>
-                {children}
-              </LayoutContent>
+              <WorkspaceRouteGuard pageName={currentPageName}>
+                <LayoutContent currentPageName={currentPageName}>
+                  {children}
+                </LayoutContent>
+              </WorkspaceRouteGuard>
             </WorkspaceAccessGuard>
             <PendingInvitesChecker />
             <TaskTray />

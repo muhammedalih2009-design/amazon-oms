@@ -234,6 +234,10 @@ export function TenantProvider({ children }) {
   const isPlatformAdmin = user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
   const isSuperAdmin = isPlatformAdmin;
 
+  // SECURITY: Check if user has any workspace access
+  const hasWorkspaceAccess = isPlatformAdmin || (userMemberships && userMemberships.length > 0);
+  const noAccess = !hasWorkspaceAccess;
+
   const permissions = membership?.permissions || {};
 
   // PERMISSIONS: Check module-level permissions
