@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     // Only include fields that are in the WorkspaceSettings schema
     const updateData = {
       workspace_id,
+      actor_user_id: user.id, // Required for audit trail
       updated_by_user_id: user.id // Track who updated
     };
 
