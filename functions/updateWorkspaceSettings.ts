@@ -78,21 +78,26 @@ Deno.serve(async (req) => {
       result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
     }
 
-    // Audit log
-    await base44.asServiceRole.entities.AuditLog.create({
-      workspace_id,
-      user_id: user.id,
-      user_email: user.email,
-      action: 'workspace_settings_update',
-      entity_type: 'WorkspaceSettings',
-      entity_id: result.id,
-      metadata: {
-        changed_fields: changedFields
-      }
-    });
+    // CRITICAL: Side effects must NOT throw - save already completed successfully
+    try {
+      await base44.asServiceRole.entities.AuditLog.create({
+        workspace_id,
+        user_id: user.id,
+        user_email: user.email,
+        action: 'workspace_settings_update',
+        entity_type: 'WorkspaceSettings',
+        entity_id: result.id,
+        metadata: {
+          changed_fields: changedFields
+        }
+      });
+    } catch (auditError) {
+      console.error('[updateWorkspaceSettings] AuditLog failed (ignored):', auditError);
+    }
 
+    // Always return clean success response
     return Response.json({
-      success: true,
+      ok: true,
       settings: result
     });
   } catch (error) {

@@ -74,10 +74,15 @@ export default function Settings() {
   const handleSaveCurrency = async () => {
     setSaving(true);
     try {
-      await base44.functions.invoke('updateWorkspaceSettings', {
+      const { data } = await base44.functions.invoke('updateWorkspaceSettings', {
         workspace_id: tenantId,
         currency_code: currencyCode
       });
+
+      // CRITICAL: Check for explicit ok flag
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Save failed');
+      }
 
       toast({
         title: t('settings_saved'),
@@ -115,14 +120,20 @@ export default function Settings() {
 
     setSaving(true);
     try {
-      await base44.functions.invoke('updateWorkspaceSettings', {
+      const { data } = await base44.functions.invoke('updateWorkspaceSettings', {
         workspace_id: tenantId,
         telegram_bot_token: telegramBotToken,
         telegram_chat_id: telegramChatId
       });
 
+      // CRITICAL: Check for explicit ok flag
+      if (data?.ok === false) {
+        throw new Error(data.error || 'Save failed');
+      }
+
       toast({
-        title: t('settings_saved')
+        title: t('settings_saved'),
+        description: 'Telegram credentials saved successfully'
       });
     } catch (error) {
       toast({
