@@ -275,7 +275,8 @@ Deno.serve(async (req) => {
       if (job) {
         await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
           status: 'failed',
-          error_message: error.message || 'Unknown error'
+          error_message: error.message || 'Unknown error',
+          completed_at: new Date().toISOString()
         });
       }
     }
