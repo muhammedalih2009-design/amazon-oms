@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess, requireWorkspaceId } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   try {
@@ -9,11 +10,13 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id } = await req.json();
+    const payload = await req.json();
 
-    if (!workspace_id) {
-      return Response.json({ error: 'workspace_id required' }, { status: 400 });
-    }
+    // SECURITY: Require and validate workspace_id
+    const workspace_id = requireWorkspaceId(payload);
+
+    // SECURITY: Verify user has access to this workspace
+    await guardWorkspaceAccess(base44, user, workspace_id);
 
     // Get workspace settings
     const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({

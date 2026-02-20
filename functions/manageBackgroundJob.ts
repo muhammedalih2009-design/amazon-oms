@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -23,6 +24,11 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
     if (!job) {
       return Response.json({ ok: false, error: 'Job not found' }, { status: 404 });
+    }
+
+    // SECURITY: Verify user has access to job's workspace
+    if (job.tenant_id) {
+      await guardWorkspaceAccess(base44, user, job.tenant_id);
     }
 
     let newStatus = job.status;
