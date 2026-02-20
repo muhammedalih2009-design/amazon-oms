@@ -186,6 +186,21 @@ export default function UserManagementTab({ allUsers, memberships, workspaces, o
         </div>
       </div>
 
+      {/* Modals */}
+      <InviteUserModal
+        open={inviteModalOpen}
+        onClose={() => {
+          setInviteModalOpen(false);
+          onRefresh();
+        }}
+      />
+
+      <AssignWorkspacesModal
+        open={assignModalOpen}
+        onClose={handleAssignClose}
+        userEmail={assignUserEmail}
+      />
+
       {/* User Details Drawer */}
       {selectedUser && (
         <UserDetailsDrawer
