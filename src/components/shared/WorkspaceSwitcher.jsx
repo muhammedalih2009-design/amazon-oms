@@ -63,7 +63,22 @@ export default function WorkspaceSwitcher() {
     );
   };
 
-  if (!tenant) return null;
+  // P0 FIX: Show message if user has no workspaces
+  if (!tenant) {
+    return (
+      <div className="w-full px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+        <div className="flex items-start gap-2">
+          <XCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-900">No workspaces assigned</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Contact the app administrator to get workspace access.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DropdownMenu>
