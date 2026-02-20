@@ -63,30 +63,22 @@ export default function MonitoringPage() {
     staleTime: 10000
   });
 
-  // Fetch workspaces for super admin
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces-for-jobs'],
-    queryFn: async () => {
-      if (!isSuperAdmin) return [];
-      const allTenants = await base44.asServiceRole.entities.Tenant.filter({});
-      return allTenants.filter(t => !t.deleted_at);
-    },
-    staleTime: 60000,
-    enabled: isSuperAdmin
-  });
-
-  const workspaceMap = {};
-  workspaces.forEach(ws => {
-    workspaceMap[ws.id] = ws.name || ws.slug || ws.id;
-  });
-
   const { data: jobs = [], refetch: refetchJobs } = useQuery({
-    queryKey: ['background-jobs', tenantId, isSuperAdmin],
+    queryKey: ['background-jobs', isSuperAdmin, jobScope, tenantId, user?.id],
     queryFn: async () => {
-      // Super admin sees ALL jobs; workspace users see only their workspace jobs
-      const query = isSuperAdmin ? {} : { tenant_id: tenantId };
-      const sortBy = '-started_at'; // Descending by started_at
-      return apiClient.list('BackgroundJob', query, sortBy, 200, { useCache: false });
+      // Call backend function with proper scope and permissions
+      const result = await base44.functions.invoke('listMonitoringJobs', {
+        scope: isSuperAdmin ? jobScope : 'workspace',
+        workspace_id: jobScope === 'workspace' ? tenantId : undefined,
+        status_filter: 'all',
+        limit: 200
+      });
+      
+      if (!result.data.ok) {
+        throw new Error(result.data.error || 'Failed to load jobs');
+      }
+      
+      return result.data.jobs || [];
     },
     staleTime: 3000,
     enabled: isSuperAdmin || !!tenantId
