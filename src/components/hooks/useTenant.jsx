@@ -188,14 +188,32 @@ export function TenantProvider({ children }) {
       const newTenant = allWorkspaces.find(t => t.id === workspaceId);
       if (!newTenant) return;
 
-      setTenant(newTenant);
-      localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
-
+      // SECURITY: Verify membership exists before switching
+      const isSuperAdmin = user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
       let newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
       
-      // P0 FIX: REMOVED auto-membership on workspace switch
-      // Admin must use "Repair My Access" to restore memberships
-      
+      if (!newMembership && !isSuperAdmin) {
+        console.error('🚨 SECURITY: Cannot switch to workspace without membership', {
+          workspace_id: workspaceId,
+          user_email: user?.email
+        });
+        
+        // Audit log
+        await base44.entities.AuditLog.create({
+          workspace_id: null,
+          actor_user_id: user?.id,
+          action: 'workspace_switch_blocked',
+          target_type: 'Tenant',
+          target_id: workspaceId,
+          meta: { reason: 'no_membership' }
+        }).catch(() => {});
+        
+        alert('Access denied: You do not have membership in this workspace');
+        return;
+      }
+
+      setTenant(newTenant);
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
       setMembership(newMembership);
 
       const subs = await base44.entities.Subscription.filter({ tenant_id: workspaceId });
