@@ -28,8 +28,11 @@ import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 
 export default function TeamPage() {
-  const { tenantId, isOwner, user } = useTenant();
+  const { tenantId, isOwner, user, canEditPage } = useTenant();
   const { toast } = useToast();
+
+  // SECURITY: Check if user has edit permission for team management
+  const canManageTeam = isOwner || canEditPage('team');
   
   const [members, setMembers] = useState([]);
   const [users, setUsers] = useState([]);
