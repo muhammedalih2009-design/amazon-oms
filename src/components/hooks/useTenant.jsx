@@ -31,17 +31,19 @@ export function TenantProvider({ children }) {
       const memberships = await base44.entities.Membership.filter({ user_email: currentUser.email });
       setUserMemberships(memberships);
 
-      // Load workspaces based on role
+      // Load workspaces based on role (P0 FIX: filter deleted)
       let workspaces = [];
       if (isSuperAdmin) {
-        // Super admin sees ALL workspaces
-        workspaces = await base44.entities.Tenant.filter({});
+        // Super admin sees ALL non-deleted workspaces
+        const allWorkspaces = await base44.entities.Tenant.filter({});
+        workspaces = allWorkspaces.filter(w => !w.deleted_at);
       } else if (memberships.length > 0) {
-        // Regular user sees only their workspaces
+        // Regular user sees only their non-deleted workspaces
         const tenantIds = memberships.map(m => m.tenant_id);
-        workspaces = await base44.entities.Tenant.filter({
+        const allWorkspaces = await base44.entities.Tenant.filter({
           id: { $in: tenantIds }
         });
+        workspaces = allWorkspaces.filter(w => !w.deleted_at);
       }
       setAllWorkspaces(workspaces);
 
@@ -61,73 +63,36 @@ export function TenantProvider({ children }) {
         localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeTenant.id);
       }
 
-      // If no workspaces, create one
+      // P0 FIX: NEVER auto-create workspaces
+      // If no workspaces, user sees "No workspaces assigned"
       if (!activeTenant) {
-        const newTenant = await base44.entities.Tenant.create({
-          name: `${currentUser.full_name || currentUser.email}'s Workspace`,
-          slug: currentUser.email.split('@')[0] + '-' + Date.now()
-        });
+        // Log blocked auto-creation attempt
+        try {
+          await base44.entities.AuditLog.create({
+            workspace_id: null,
+            user_id: currentUser.id,
+            user_email: currentUser.email,
+            action: 'workspace_auto_create_blocked',
+            entity_type: 'Tenant',
+            metadata: {
+              reason: 'P0 security fix: auto-provisioning disabled',
+              is_super_admin: isSuperAdmin
+            }
+          }).catch(() => {}); // Ignore audit log errors
+        } catch (err) {
+          console.error('Failed to log auto-create block:', err);
+        }
 
-        const newMembership = await base44.entities.Membership.create({
-          tenant_id: newTenant.id,
-          user_id: currentUser.id,
-          user_email: currentUser.email,
-          role: 'owner',
-          permissions: {
-            dashboard: { view: true, edit: true },
-            tasks: { view: true, edit: true },
-            skus: { view: true, edit: true },
-            orders: { view: true, edit: true },
-            purchases: { view: true, edit: true },
-            returns: { view: true, edit: true },
-            suppliers: { view: true, edit: true }
-          }
-        });
-
-        const trialEnd = new Date();
-        trialEnd.setDate(trialEnd.getDate() + 14);
-        const newSubscription = await base44.entities.Subscription.create({
-          tenant_id: newTenant.id,
-          plan: 'trial',
-          status: 'active',
-          current_period_end: trialEnd.toISOString().split('T')[0]
-        });
-
-        activeTenant = newTenant;
-        activeMembership = newMembership;
-        setSubscription(newSubscription);
-        setAllWorkspaces([newTenant]);
-        setUserMemberships([newMembership]);
-        localStorage.setItem(ACTIVE_WORKSPACE_KEY, newTenant.id);
+        // User has no workspaces - leave state as null
+        setTenant(null);
+        setMembership(null);
+        setSubscription(null);
       } else {
         // Load membership and subscription for active workspace
         activeMembership = memberships.find(m => m.tenant_id === activeTenant.id);
         
-        // SAFETY: If super admin and no membership exists, auto-create it
-        if (isSuperAdmin && !activeMembership) {
-          try {
-            activeMembership = await base44.entities.Membership.create({
-              tenant_id: activeTenant.id,
-              user_id: currentUser.id,
-              user_email: currentUser.email,
-              role: 'owner',
-              permissions: {
-                dashboard: { view: true, edit: true },
-                tasks: { view: true, edit: true },
-                skus: { view: true, edit: true },
-                orders: { view: true, edit: true },
-                purchases: { view: true, edit: true },
-                returns: { view: true, edit: true },
-                settlement: { view: true, edit: true },
-                suppliers: { view: true, edit: true }
-              }
-            });
-            // Update local state
-            setUserMemberships([...memberships, activeMembership]);
-          } catch (error) {
-            console.error('Failed to auto-create super admin membership:', error);
-          }
-        }
+        // P0 FIX: REMOVED auto-membership creation
+        // Super admin must use "Repair My Access" explicitly
         
         const subs = await base44.entities.Subscription.filter({ tenant_id: activeTenant.id });
         if (subs.length > 0) {
@@ -178,32 +143,8 @@ export function TenantProvider({ children }) {
 
       let newMembership = userMemberships.find(m => m.tenant_id === workspaceId);
       
-      // SAFETY: If super admin and no membership exists, auto-create it before switching
-      const currentUser = user;
-      const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.email === 'admin@amazonoms.com';
-      
-      if (isSuperAdmin && !newMembership) {
-        try {
-          newMembership = await base44.entities.Membership.create({
-            tenant_id: workspaceId,
-            user_id: currentUser.id,
-            user_email: currentUser.email,
-            role: 'owner',
-            permissions: {
-              dashboard: { view: true, edit: true },
-              tasks: { view: true, edit: true },
-              skus: { view: true, edit: true },
-              orders: { view: true, edit: true },
-              purchases: { view: true, edit: true },
-              returns: { view: true, edit: true },
-              settlement: { view: true, edit: true },
-              suppliers: { view: true, edit: true }
-            }
-          });
-        } catch (error) {
-          console.error('Failed to auto-create membership during switch:', error);
-        }
-      }
+      // P0 FIX: REMOVED auto-membership on workspace switch
+      // Admin must use "Repair My Access" to restore memberships
       
       setMembership(newMembership);
 

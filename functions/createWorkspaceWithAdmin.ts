@@ -1,14 +1,17 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const currentUser = await base44.auth.me();
 
-    // Verify platform admin
-    const isPlatformAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@amazonoms.com';
-    if (!isPlatformAdmin) {
-      return Response.json({ error: 'Unauthorized: Platform admin only' }, { status: 403 });
+    // P0 FIX: OWNER-ONLY workspace creation
+    if (currentUser.email.toLowerCase() !== APP_OWNER_EMAIL.toLowerCase()) {
+      return Response.json({ 
+        error: 'Forbidden: Only app owner can create workspaces' 
+      }, { status: 403 });
     }
 
     const payload = await req.json();

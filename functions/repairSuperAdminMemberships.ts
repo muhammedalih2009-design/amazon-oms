@@ -1,40 +1,43 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     
-    // Authenticate and verify super admin
+    // Authenticate and verify app owner ONLY
     const user = await base44.auth.me();
     if (!user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if super admin (strict check)
-    const isSuperAdmin = user.role === 'admin' || user.email === 'admin@amazonoms.com';
-    if (!isSuperAdmin) {
+    // P0 FIX: OWNER-ONLY (never creates workspaces, only repairs owner's memberships)
+    if (user.email.toLowerCase() !== APP_OWNER_EMAIL.toLowerCase()) {
       return Response.json({ 
-        error: 'Forbidden: Only super admin can repair memberships' 
+        error: 'Forbidden: Only app owner can repair memberships' 
       }, { status: 403 });
     }
 
-    // Get all workspaces
-    const workspaces = await base44.asServiceRole.entities.Tenant.filter({});
+    // Get all NON-DELETED workspaces
+    const allWorkspaces = await base44.asServiceRole.entities.Tenant.filter({});
+    const workspaces = allWorkspaces.filter(w => !w.deleted_at);
     
     let created = 0;
     let skipped = 0;
     const errors = [];
 
+    // P0 FIX: ONLY repair OWNER's memberships (never create workspaces)
     for (const workspace of workspaces) {
       try {
-        // Check if super admin already has membership
+        // Check if owner already has membership
         const memberships = await base44.asServiceRole.entities.Membership.filter({
           tenant_id: workspace.id,
           user_id: user.id
         });
 
         if (memberships.length === 0) {
-          // Create membership
+          // Create membership ONLY for owner
           await base44.asServiceRole.entities.Membership.create({
             tenant_id: workspace.id,
             user_id: user.id,
@@ -52,6 +55,19 @@ Deno.serve(async (req) => {
             }
           });
           created++;
+          
+          // Audit log
+          await base44.asServiceRole.entities.AuditLog.create({
+            workspace_id: workspace.id,
+            user_id: user.id,
+            user_email: user.email,
+            action: 'repair_my_access_membership_created',
+            entity_type: 'Membership',
+            metadata: {
+              workspace_name: workspace.name,
+              repaired_by: user.email
+            }
+          });
         } else {
           skipped++;
         }
@@ -63,6 +79,21 @@ Deno.serve(async (req) => {
         });
       }
     }
+
+    // P0 MONITORING: Log repair run
+    await base44.asServiceRole.entities.AuditLog.create({
+      workspace_id: null,
+      user_id: user.id,
+      user_email: user.email,
+      action: 'repair_my_access_run',
+      entity_type: 'System',
+      metadata: {
+        total_workspaces: workspaces.length,
+        memberships_created: created,
+        memberships_skipped: skipped,
+        errors_count: errors.length
+      }
+    });
 
     return Response.json({
       success: true,
