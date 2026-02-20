@@ -65,18 +65,7 @@ export default function UserDetailsDrawer({
           description: `${user.email} removed from ${getWorkspaceName(membership.tenant_id)}`
         });
         
-        // Log audit
-        await base44.entities.AuditLog.create({
-          action: 'membership_removed',
-          entity_type: 'Membership',
-          entity_id: membership.id,
-          user_email: ownerEmail,
-          metadata: {
-            target_email: user.email,
-            workspace_id: membership.tenant_id,
-            workspace_name: getWorkspaceName(membership.tenant_id)
-          }
-        });
+        // Audit log handled by backend
 
         onRefresh();
       } else {
@@ -165,18 +154,7 @@ export default function UserDetailsDrawer({
       if (response.data.success) {
         toast({
           title: 'User deleted',
-          description: `${user.email} has been soft-deleted`
-        });
-
-        // Log audit
-        await base44.entities.AuditLog.create({
-          action: 'user_deleted',
-          entity_type: 'User',
-          entity_id: user.id,
-          user_email: ownerEmail,
-          metadata: {
-            target_email: user.email
-          }
+          description: `${user.email} has been soft-deleted (${response.data.memberships_removed || 0} workspaces removed)`
         });
 
         setShowDeleteConfirm(false);
@@ -217,18 +195,6 @@ export default function UserDetailsDrawer({
         toast({
           title: 'All access removed',
           description: `Removed ${response.data.memberships_removed} workspace memberships`
-        });
-
-        // Log audit
-        await base44.entities.AuditLog.create({
-          action: 'all_memberships_removed',
-          entity_type: 'User',
-          entity_id: user.id,
-          user_email: ownerEmail,
-          metadata: {
-            target_email: user.email,
-            memberships_removed: response.data.memberships_removed
-          }
         });
 
         setShowRemoveAllConfirm(false);

@@ -12,20 +12,26 @@ Deno.serve(async (req) => {
     }
 
     // Only app owner can manage users
-    if (user.email !== APP_OWNER_EMAIL) {
+    if (user.email.toLowerCase() !== APP_OWNER_EMAIL.toLowerCase()) {
       return Response.json({ error: 'Forbidden: Only app owner can manage users' }, { status: 403 });
     }
 
     const { action, user_id, membership_id, workspace_id } = await req.json();
 
-    if (!action || !user_id) {
-      return Response.json({ error: 'Missing required parameters' }, { status: 400 });
+    if (!action) {
+      return Response.json({ error: 'Missing action parameter' }, { status: 400 });
     }
 
-    // Safety check: cannot perform actions on self
-    if (user_id === user.id) {
-      return Response.json({ error: 'Cannot perform this action on yourself' }, { status: 400 });
+    // For most actions, user_id is required
+    if (action !== 'test' && !user_id) {
+      return Response.json({ error: 'Missing user_id parameter' }, { status: 400 });
     }
+
+    // Get current user's PlatformUser record
+    const currentUsers = await base44.asServiceRole.entities.PlatformUser.filter({ 
+      email: user.email 
+    });
+    const currentPlatformUser = currentUsers && currentUsers.length > 0 ? currentUsers[0] : null;
 
     switch (action) {
       case 'remove_membership': {
@@ -33,20 +39,21 @@ Deno.serve(async (req) => {
           return Response.json({ error: 'Missing membership_id' }, { status: 400 });
         }
 
-        // P0: Delete membership using service role
-        await base44.asServiceRole.entities.Membership.delete(membership_id);
+        await base44.asServiceRole.entities.WorkspaceMember.delete(membership_id);
 
-        // Log audit
-        await base44.asServiceRole.entities.AuditLog.create({
-          action: 'membership_removed',
-          entity_type: 'Membership',
-          entity_id: membership_id,
-          user_email: user.email,
-          metadata: {
-            target_user_id: user_id,
-            workspace_id: workspace_id
-          }
-        });
+        if (currentPlatformUser) {
+          await base44.asServiceRole.entities.AuditLog.create({
+            workspace_id: workspace_id || null,
+            actor_user_id: currentPlatformUser.id,
+            action: 'workspace_member_removed',
+            target_type: 'WorkspaceMember',
+            target_id: membership_id,
+            meta: {
+              target_user_id: user_id,
+              workspace_id: workspace_id
+            }
+          });
+        }
 
         return Response.json({ 
           success: true, 
@@ -55,56 +62,54 @@ Deno.serve(async (req) => {
       }
 
       case 'remove_all_memberships': {
-        // Get all memberships for this user
-        const memberships = await base44.asServiceRole.entities.Membership.filter({ user_id });
+        const members = await base44.asServiceRole.entities.WorkspaceMember.filter({ user_id });
 
-        // Delete all memberships
-        for (const membership of memberships) {
-          await base44.asServiceRole.entities.Membership.delete(membership.id);
+        for (const member of members) {
+          await base44.asServiceRole.entities.WorkspaceMember.delete(member.id);
         }
 
-        // Log audit
-        await base44.asServiceRole.entities.AuditLog.create({
-          action: 'all_memberships_removed',
-          entity_type: 'User',
-          entity_id: user_id,
-          user_email: user.email,
-          metadata: {
-            memberships_removed: memberships.length
-          }
-        });
+        if (currentPlatformUser) {
+          await base44.asServiceRole.entities.AuditLog.create({
+            workspace_id: null,
+            actor_user_id: currentPlatformUser.id,
+            action: 'all_workspace_memberships_removed',
+            target_type: 'PlatformUser',
+            target_id: user_id,
+            meta: {
+              memberships_removed: members.length
+            }
+          });
+        }
 
         return Response.json({ 
           success: true, 
-          memberships_removed: memberships.length 
+          memberships_removed: members.length 
         });
       }
 
       case 'disable_user': {
-        // Update user to mark as disabled
-        const targetUser = await base44.asServiceRole.entities.User.get(user_id);
+        const targetUser = await base44.asServiceRole.entities.PlatformUser.get(user_id);
         
         if (!targetUser) {
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        // Mark user as disabled (we'll add a disabled field to User entity)
-        await base44.asServiceRole.entities.User.update(user_id, {
-          is_disabled: true,
-          disabled_at: new Date().toISOString(),
-          disabled_by: user.email
+        await base44.asServiceRole.entities.PlatformUser.update(user_id, {
+          status: 'disabled'
         });
 
-        // Log audit
-        await base44.asServiceRole.entities.AuditLog.create({
-          action: 'user_disabled',
-          entity_type: 'User',
-          entity_id: user_id,
-          user_email: user.email,
-          metadata: {
-            target_email: targetUser.email
-          }
-        });
+        if (currentPlatformUser) {
+          await base44.asServiceRole.entities.AuditLog.create({
+            workspace_id: null,
+            actor_user_id: currentPlatformUser.id,
+            action: 'platform_user_disabled',
+            target_type: 'PlatformUser',
+            target_id: user_id,
+            meta: {
+              target_email: targetUser.email
+            }
+          });
+        }
 
         return Response.json({ 
           success: true, 
@@ -115,7 +120,6 @@ Deno.serve(async (req) => {
       case 'delete_user': {
         let step = 'initialization';
         try {
-          // Fetch target PlatformUser
           step = 'fetch_user';
           const targetUser = await base44.asServiceRole.entities.PlatformUser.get(user_id);
           
@@ -123,14 +127,12 @@ Deno.serve(async (req) => {
             return Response.json({ error: 'User not found' }, { status: 404 });
           }
 
-          // PROTECT OWNER
           if (targetUser.email.toLowerCase() === APP_OWNER_EMAIL.toLowerCase()) {
             return Response.json({ 
               error: 'Owner account cannot be deleted.' 
             }, { status: 403 });
           }
 
-          // Idempotent: if already deleted, return success
           if (targetUser.deleted_at) {
             return Response.json({ 
               success: true, 
@@ -139,82 +141,97 @@ Deno.serve(async (req) => {
             });
           }
 
-          // Step 1: Disable immediately
           step = 'disable_user';
           await base44.asServiceRole.entities.PlatformUser.update(user_id, {
             status: 'disabled'
           });
 
-          // Step 2: Remove all workspace memberships
           step = 'remove_memberships';
           const members = await base44.asServiceRole.entities.WorkspaceMember.filter({ user_id });
+          let memberCount = 0;
           for (const member of members) {
-            await base44.asServiceRole.entities.WorkspaceMember.delete(member.id);
+            try {
+              await base44.asServiceRole.entities.WorkspaceMember.delete(member.id);
+              memberCount++;
+            } catch (e) {
+              console.error(`Failed to delete member ${member.id}:`, e);
+            }
           }
 
-          // Step 3: Revoke workspace invites
           step = 'revoke_invites';
           const invites = await base44.asServiceRole.entities.WorkspaceInvite.filter({ 
             email: targetUser.email,
             status: 'pending'
           });
+          let inviteCount = 0;
           for (const invite of invites) {
-            await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
-              status: 'revoked'
-            });
+            try {
+              await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
+                status: 'revoked'
+              });
+              inviteCount++;
+            } catch (e) {
+              console.error(`Failed to revoke invite ${invite.id}:`, e);
+            }
           }
 
-          // Step 4: Cancel running jobs
           step = 'cancel_jobs';
-          const runningJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
-            created_by: user_id,
+          const jobs = await base44.asServiceRole.entities.BackgroundJob.filter({
             status: { $in: ['running', 'queued', 'paused'] }
           });
-          for (const job of runningJobs) {
-            await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-              status: 'cancelled',
-              finished_at: new Date().toISOString(),
-              progress: {
-                ...job.progress,
-                message: 'Cancelled due to user deletion'
-              }
-            });
+          let jobCount = 0;
+          for (const job of jobs) {
+            try {
+              await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+                status: 'cancelled',
+                cancel_requested: true,
+                finished_at: new Date().toISOString()
+              });
+              jobCount++;
+            } catch (e) {
+              console.error(`Failed to cancel job ${job.id}:`, e);
+            }
           }
 
-          // Step 5: Soft delete
           step = 'soft_delete';
           await base44.asServiceRole.entities.PlatformUser.update(user_id, {
             deleted_at: new Date().toISOString()
           });
 
-          // Step 6: Log audit
           step = 'audit_log';
-          await base44.asServiceRole.entities.AuditLog.create({
-            workspace_id: null,
-            actor_user_id: user.id,
-            action: 'platform_user_deleted',
-            target_type: 'PlatformUser',
-            target_id: user_id,
-            meta: {
-              target_email: targetUser.email,
-              memberships_removed: members.length,
-              invites_revoked: invites.length,
-              jobs_cancelled: runningJobs.length
+          if (currentPlatformUser) {
+            try {
+              await base44.asServiceRole.entities.AuditLog.create({
+                workspace_id: null,
+                actor_user_id: currentPlatformUser.id,
+                action: 'platform_user_soft_deleted',
+                target_type: 'PlatformUser',
+                target_id: user_id,
+                meta: {
+                  target_email: targetUser.email,
+                  memberships_removed: memberCount,
+                  invites_revoked: inviteCount,
+                  jobs_cancelled: jobCount
+                }
+              });
+            } catch (e) {
+              console.error('Failed to create audit log:', e);
             }
-          });
+          }
 
           return Response.json({ 
             success: true, 
             message: 'User disabled and access removed successfully',
-            memberships_removed: members.length,
-            invites_revoked: invites.length,
-            jobs_cancelled: runningJobs.length
+            memberships_removed: memberCount,
+            invites_revoked: inviteCount,
+            jobs_cancelled: jobCount
           });
         } catch (error) {
           console.error(`Delete user failed at step: ${step}`, error);
           return Response.json({ 
-            error: `Failed at ${step}: ${error.message}`,
-            step
+            error: `Failed at step ${step}: ${error.message}`,
+            step,
+            details: error.stack
           }, { status: 500 });
         }
       }

@@ -41,7 +41,7 @@ export default function UserManagementTab({ allUsers, memberships, workspaces, o
               <div>
                 <p className="text-sm text-slate-500">Total Users</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {allUsers.filter(u => u.deleted !== true).length}
+                  {allUsers.filter(u => !u.deleted_at).length}
                 </p>
               </div>
             </div>
