@@ -53,28 +53,13 @@ export default function TeamPage() {
       setLoading(true);
     }
     try {
+      // CANONICAL: Load from Membership only
       const membersData = await base44.entities.Membership.filter({ tenant_id: tenantId });
       
-      // Fetch user details for each member (exclude 'pending' user_ids)
-      // Only fetch users if we actually have user_ids
-      const userIds = membersData
-        .map(m => m.user_id)
-        .filter(id => id && id !== 'pending');
-      
-      let usersData = [];
-      if (userIds.length > 0) {
-        try {
-          // Try to fetch users - will fail for non-platform-admins
-          usersData = await base44.entities.User.filter({ id: { $in: userIds } });
-        } catch (error) {
-          // If User listing fails (permission denied), skip it
-          // We'll use user_email from membership instead
-          console.log('Cannot list users (expected for workspace admins)');
-        }
-      }
-      
+      // Use user_email from Membership - no need to query User entity
+      // This avoids ACL issues and ensures workspace isolation
       setMembers(membersData);
-      setUsers(usersData);
+      setUsers([]); // Not needed - we use user_email from membership
     } catch (error) {
       toast({
         title: 'Error loading team',

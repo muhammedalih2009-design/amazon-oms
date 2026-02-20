@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { checkCancellation, finalizeJob } from './helpers/checkCancellation.js';
 
 const BATCH_SIZE = 15; // Small batches for stability
 const MAX_RETRIES = 5;
@@ -19,6 +20,12 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.RestoreJob.get(restoreJobId);
     if (!job) {
       return Response.json({ error: 'Restore job not found' }, { status: 404 });
+    }
+
+    // Check cancellation before starting
+    if (await checkCancellation(base44, restoreJobId, 'RestoreJob')) {
+      await finalizeJob(base44, restoreJobId, 'RestoreJob', 'cancelled');
+      return Response.json({ ok: true, cancelled: true });
     }
 
     // Parse backup data

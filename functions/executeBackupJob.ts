@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { checkCancellation, finalizeJob } from './helpers/checkCancellation.js';
 
 Deno.serve(async (req) => {
   let jobId, tenantId;
@@ -11,6 +12,12 @@ Deno.serve(async (req) => {
 
     if (!jobId || !tenantId) {
       return Response.json({ error: 'Missing jobId or tenantId' }, { status: 400 });
+    }
+
+    // Check cancellation before starting
+    if (await checkCancellation(base44, jobId, 'BackupJob')) {
+      await finalizeJob(base44, jobId, 'BackupJob', 'cancelled');
+      return Response.json({ ok: true, cancelled: true });
     }
 
     // Update job status to processing

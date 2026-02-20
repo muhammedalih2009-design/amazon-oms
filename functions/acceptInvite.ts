@@ -37,8 +37,17 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invite has expired' }, { status: 400 });
     }
 
+    // Canonical email field: invited_email (with fallback to email for legacy invites)
+    const inviteEmail = invite.invited_email || invite.email;
+    
+    if (!inviteEmail) {
+      return Response.json({ 
+        error: 'Invalid invite: missing email' 
+      }, { status: 400 });
+    }
+
     // Email must match
-    if (user.email.toLowerCase() !== invite.email.toLowerCase()) {
+    if (user.email.toLowerCase() !== inviteEmail.toLowerCase()) {
       return Response.json({ 
         error: 'Email mismatch: Invite sent to different email address' 
       }, { status: 403 });
@@ -61,17 +70,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check if already member
-    const existingMembers = await base44.asServiceRole.entities.WorkspaceMember.filter({
-      workspace_id: invite.workspace_id,
+    // Check if already member (Membership is canonical)
+    const existingMemberships = await base44.asServiceRole.entities.Membership.filter({
+      tenant_id: invite.workspace_id,
       user_id: platformUser.id
     });
 
-    if (existingMembers && existingMembers.length > 0) {
+    if (existingMemberships && existingMemberships.length > 0) {
       // Already a member, just mark invite as accepted
       await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
         status: 'accepted',
-        accepted_at: new Date().toISOString()
+        accepted_at: new Date().toISOString(),
+        accepted_by_user_id: platformUser.id
       });
 
       return Response.json({
@@ -81,42 +91,44 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create WorkspaceMember
-    await base44.asServiceRole.entities.WorkspaceMember.create({
-      workspace_id: invite.workspace_id,
+    // CANONICAL: Create Membership (not WorkspaceMember)
+    const defaultPermissions = {
+      dashboard: { view: true, edit: invite.role === 'owner' || invite.role === 'admin' },
+      tasks: { view: true, edit: true },
+      skus: { view: true, edit: true },
+      orders: { view: true, edit: true },
+      purchases: { view: true, edit: true },
+      returns: { view: true, edit: invite.role === 'owner' || invite.role === 'admin' },
+      suppliers: { view: true, edit: invite.role === 'owner' || invite.role === 'admin' },
+      settlement: { view: true, edit: invite.role === 'owner' || invite.role === 'admin' }
+    };
+
+    await base44.asServiceRole.entities.Membership.create({
+      tenant_id: invite.workspace_id,
       user_id: platformUser.id,
       user_email: user.email,
       role: invite.role,
-      enabled_modules: invite.enabled_modules || {
-        dashboard: true,
-        stores: false,
-        skus_products: false,
-        orders: false,
-        purchase_requests: false,
-        purchases: false,
-        suppliers: false,
-        returns: false,
-        profitability: false,
-        tasks: false
-      }
+      permissions: defaultPermissions
     });
 
-    // Mark invite as accepted
+    // Mark invite as accepted (idempotent)
     await base44.asServiceRole.entities.WorkspaceInvite.update(invite.id, {
       status: 'accepted',
-      accepted_at: new Date().toISOString()
+      accepted_at: new Date().toISOString(),
+      accepted_by_user_id: platformUser.id
     });
 
     // Log audit
     await base44.asServiceRole.entities.AuditLog.create({
       workspace_id: invite.workspace_id,
       actor_user_id: platformUser.id,
-      action: 'invite_accepted',
-      target_type: 'WorkspaceInvite',
-      target_id: invite.id,
+      action: 'membership_created_via_invite',
+      target_type: 'Membership',
+      target_id: null,
       meta: {
         email: user.email,
-        role: invite.role
+        role: invite.role,
+        invite_id: invite.id
       }
     });
 
