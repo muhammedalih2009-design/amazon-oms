@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess, requireWorkspaceId } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   try {
@@ -9,11 +10,15 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id, email, role } = await req.json();
+    const payload = await req.json();
+    const { workspace_id, email, role } = payload;
 
-    if (!workspace_id || !email || !role) {
+    if (!email || !role) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    // SECURITY: Require and validate workspace_id
+    const validatedWorkspaceId = requireWorkspaceId(payload);
 
     // Normalize email
     const normalizedEmail = email.toLowerCase().trim();
@@ -24,18 +29,11 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid email format' }, { status: 400 });
     }
 
-    // Check permission: platform admin OR workspace owner/admin
-    const isPlatformAdmin = user.email === 'admin@amazonoms.com' || user.role === 'admin';
+    // SECURITY: Verify user has access and is admin/owner
+    const membership = await guardWorkspaceAccess(base44, user, validatedWorkspaceId);
     
-    if (!isPlatformAdmin) {
-      const membership = await base44.entities.Membership.filter({
-        tenant_id: workspace_id,
-        user_email: user.email
-      });
-
-      if (membership.length === 0 || !['owner', 'admin'].includes(membership[0].role)) {
-        return Response.json({ error: 'Forbidden: Only workspace owner/admin can invite' }, { status: 403 });
-      }
+    if (!['owner', 'admin'].includes(membership.role)) {
+      return Response.json({ error: 'Forbidden: Only workspace owner/admin can invite' }, { status: 403 });
     }
 
     // Check if already a member

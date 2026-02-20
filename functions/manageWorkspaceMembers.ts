@@ -1,17 +1,10 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess, requireWorkspaceId } from './helpers/guardWorkspaceAccess.js';
 
 /**
  * Workspace Member Management
  * 
- * Actions:
- * - list: List all members of a workspace
- * - add: Add a user to workspace
- * - update_role: Change member's role
- * - remove: Remove member from workspace
- * 
- * Permissions:
- * - super_admin: can manage any workspace
- * - workspace_admin/owner: can manage their workspace only
+ * SECURITY: Enforces strict workspace isolation
  */
 
 Deno.serve(async (req) => {
@@ -23,23 +16,20 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { action, workspace_id, user_email, user_id, member_id, role } = await req.json();
+    const payload = await req.json();
+    const { action, workspace_id, user_email, user_id, member_id, role } = payload;
 
-    // Check if user is super admin
-    const isSuperAdmin = user.role === 'admin' || user.email === 'admin@amazonoms.com';
+    // SECURITY: Require workspace_id for all operations
+    const validatedWorkspaceId = requireWorkspaceId(payload);
 
-    // For non-super-admin, verify they are admin/owner of the workspace
-    if (!isSuperAdmin && workspace_id) {
-      const membership = await db.entities.Membership.filter({
-        workspace_id,
-        user_id: user.id
-      });
+    // SECURITY: Verify user has access to this workspace
+    const membership = await guardWorkspaceAccess(db, user, validatedWorkspaceId);
 
-      if (membership.length === 0 || !['owner', 'admin'].includes(membership[0].role)) {
-        return Response.json({
-          error: 'Forbidden: Only workspace admin/owner can manage members'
-        }, { status: 403 });
-      }
+    // Check if user is admin/owner of this workspace
+    if (!['owner', 'admin'].includes(membership.role)) {
+      return Response.json({
+        error: 'Forbidden: Only workspace admin/owner can manage members'
+      }, { status: 403 });
     }
 
     // Handle actions
