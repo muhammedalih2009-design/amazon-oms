@@ -12,19 +12,41 @@ import { Switch } from '@/components/ui/switch';
 import { CheckCircle2, XCircle, Filter, Eye, Edit } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getPermissionModules } from '@/components/shared/modulesConfig';
+import { useLanguage } from '@/components/contexts/LanguageContext';
 
-  const PAGES = [
-    { key: 'dashboard', label: 'Dashboard', category: 'General Access' },
-    { key: 'tasks', label: 'Tasks', category: 'Task Management' },
-    { key: 'skus', label: 'SKUs / Products', category: 'Inventory & Suppliers' },
-    { key: 'suppliers', label: 'Suppliers', category: 'Inventory & Suppliers' },
-    { key: 'orders', label: 'Orders', category: 'Operations' },
-    { key: 'purchases', label: 'Purchases', category: 'Operations' },
-    { key: 'returns', label: 'Returns', category: 'Operations' },
-    { key: 'settlement', label: 'Settlement', category: 'Financial Data' },
-  ];
+// DYNAMIC: Fetch modules from single source of truth
+const getPages = (t) => {
+  const modules = getPermissionModules();
+  
+  // Group modules by category
+  const categories = {
+    'General Access': ['dashboard'],
+    'Task Management': ['tasks', 'team'],
+    'Inventory & Suppliers': ['skus_products', 'suppliers'],
+    'Operations': ['orders', 'profitability', 'purchase_requests', 'purchases', 'returns']
+  };
+
+  return modules.map(module => {
+    // Find category for this module
+    let category = 'Other';
+    for (const [cat, keys] of Object.entries(categories)) {
+      if (keys.includes(module.moduleKey)) {
+        category = cat;
+        break;
+      }
+    }
+
+    return {
+      key: module.moduleKey,
+      label: t(module.nameKey),
+      category: category
+    };
+  });
+};
 
 export default function PermissionsModal({ open, onClose, member, onUpdate }) {
+  const { t } = useLanguage();
   const [permissions, setPermissions] = useState({});
   const [originalPermissions, setOriginalPermissions] = useState({});
   const [filterMode, setFilterMode] = useState('all');
@@ -37,6 +59,8 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
   }, [member]);
 
   if (!member) return null;
+
+  const PAGES = getPages(t);
 
   const handleToggleView = (pageKey) => {
     setPermissions(prev => {

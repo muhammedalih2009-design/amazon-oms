@@ -12,25 +12,15 @@ import WorkspaceSwitcher from '@/components/shared/WorkspaceSwitcher';
 import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
 import PendingInvitesChecker from '@/components/shared/PendingInvitesChecker';
 import { Toaster } from '@/components/ui/toaster';
+import { getNavigableModules } from '@/components/shared/modulesConfig';
 import {
-  LayoutDashboard,
-  Package,
-  ShoppingCart,
-  ClipboardList,
-  Truck,
-  RotateCcw,
-  Users,
   Menu,
   X,
   ChevronDown,
   LogOut,
-  Settings,
   Moon,
   Sun,
   Shield,
-  CheckSquare,
-  Store,
-  TrendingUp,
   Activity,
   Languages,
   BookOpen
@@ -46,17 +36,8 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const navItems = [
-  { nameKey: 'dashboard', icon: LayoutDashboard, page: 'Dashboard', pageKey: 'dashboard', moduleKey: 'dashboard' },
-  { nameKey: 'skus_products', icon: Package, page: 'SKUs', pageKey: 'skus', moduleKey: 'skus_products' },
-  { nameKey: 'orders', icon: ShoppingCart, page: 'Orders', pageKey: 'orders', moduleKey: 'orders' },
-  { nameKey: 'profitability', icon: TrendingUp, page: 'Profitability', pageKey: 'orders', moduleKey: 'profitability' },
-  { nameKey: 'purchase_requests', icon: ClipboardList, page: 'PurchaseRequests', pageKey: 'orders', moduleKey: 'purchase_requests' },
-  { nameKey: 'purchases', icon: Truck, page: 'Purchases', pageKey: 'purchases', moduleKey: 'purchases' },
-  { nameKey: 'returns', icon: RotateCcw, page: 'Returns', pageKey: 'returns', moduleKey: 'returns' },
-  { nameKey: 'suppliers', icon: Users, page: 'SuppliersStores', pageKey: 'suppliers', moduleKey: 'suppliers' },
-  { nameKey: 'tasks', icon: CheckSquare, page: 'Tasks', pageKey: 'tasks', moduleKey: 'tasks' },
-];
+// DYNAMIC: Load nav items from single source of truth
+const navItems = getNavigableModules();
 
 const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
 
@@ -142,12 +123,19 @@ function LayoutContent({ children, currentPageName }) {
                 return null; // Hide disabled modules
               }
 
-              // Hide menu item if user doesn't have view permission (skip for owners)
-              if (!isOwner && item.pageKey && !canViewPage(item.pageKey)) {
+              // For modules with permissions, check if user has view access
+              if (item.hasPermissions && !isOwner && !canViewPage(item.moduleKey)) {
+                return null;
+              }
+
+              // For admin-only modules, only show to owners
+              if (item.adminOnly && !isOwner) {
                 return null;
               }
 
               const isActive = currentPageName === item.page;
+              const Icon = item.icon;
+              
               return (
                 <Link
                   key={item.page}
@@ -159,76 +147,17 @@ function LayoutContent({ children, currentPageName }) {
                     ${isActive 
                       ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' 
                       : ''}
+                    ${item.adminOnly && !isActive ? 'border border-slate-200' : ''}
                   `}
                   style={!isActive ? { color: 'var(--text-muted)' } : {}}
                   onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
                   onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  <item.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                   <span className="font-medium">{t(item.nameKey)}</span>
                 </Link>
               );
             })}
-
-            {isOwner && isModuleEnabled('team') && (
-              <Link
-                to={createPageUrl('Team')}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mt-4
-                  ${isRTL ? 'flex-row-reverse' : ''}
-                  ${currentPageName === 'Team'
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : ''}
-                `}
-                style={currentPageName !== 'Team' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
-                onMouseEnter={(e) => currentPageName !== 'Team' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
-                onMouseLeave={(e) => currentPageName !== 'Team' && (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <Users className="w-5 h-5" />
-                <span className="font-medium">{t('team')}</span>
-              </Link>
-            )}
-
-            {isModuleEnabled('stores') && (
-              <Link
-                to={createPageUrl('BackupData')}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
-                  ${isRTL ? 'flex-row-reverse' : ''}
-                  ${currentPageName === 'BackupData'
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : ''}
-                `}
-                style={currentPageName !== 'BackupData' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
-                onMouseEnter={(e) => currentPageName !== 'BackupData' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
-                onMouseLeave={(e) => currentPageName !== 'BackupData' && (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <Store className="w-5 h-5" />
-                <span className="font-medium">{t('backup_data') || 'Backup & Data'}</span>
-              </Link>
-            )}
-
-            {isModuleEnabled('settings') && (
-              <Link
-                to={createPageUrl('Settings')}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
-                  ${isRTL ? 'flex-row-reverse' : ''}
-                  ${currentPageName === 'Settings'
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg'
-                    : ''}
-                `}
-                style={currentPageName !== 'Settings' ? { color: 'var(--text-muted)', borderColor: 'var(--border)', borderWidth: '1px', borderStyle: 'solid' } : {}}
-                onMouseEnter={(e) => currentPageName !== 'Settings' && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
-                onMouseLeave={(e) => currentPageName !== 'Settings' && (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <Settings className="w-5 h-5" />
-                <span className="font-medium">{t('settings')}</span>
-              </Link>
-            )}
 
             {user?.email?.toLowerCase() === APP_OWNER_EMAIL.toLowerCase() && (
               <Link
