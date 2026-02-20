@@ -294,7 +294,7 @@ export function useTenant() {
   return context;
 }
 
-// Module key mapping for pages
+// Module key mapping for pages (SINGLE SOURCE OF TRUTH)
 export const PAGE_MODULE_MAP = {
   'Dashboard': 'dashboard',
   'Stores': 'stores',
@@ -305,8 +305,14 @@ export const PAGE_MODULE_MAP = {
   'Purchases': 'purchases',
   'Returns': 'returns',
   'Suppliers': 'suppliers',
+  'SuppliersStores': 'suppliers',
   'Tasks': 'tasks',
-  'Team': 'team'
+  'Team': 'team',
+  'BackupData': 'backup_data',
+  'Settings': 'settings',
+  // Legacy key support
+  'skus': 'skus_products',
+  'suppliers_stores': 'suppliers'
 };
 
 export default useTenant;
