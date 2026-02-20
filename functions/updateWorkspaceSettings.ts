@@ -55,19 +55,25 @@ Deno.serve(async (req) => {
 
     let result;
 
-    if (existing.length > 0) {
-      // Update existing
-      result = await base44.asServiceRole.entities.WorkspaceSettings.update(
-        existing[0].id,
-        updateData
-      );
-    } else {
-      // Create new
-      result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
+    try {
+      if (existing.length > 0) {
+        // Update existing
+        result = await base44.asServiceRole.entities.WorkspaceSettings.update(
+          existing[0].id,
+          updateData
+        );
+      } else {
+        // Create new
+        result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
+      }
+    } catch (dbError) {
+      // DB save failed - return error but don't retry
+      console.error('[updateWorkspaceSettings] Database error:', dbError.message);
+      throw dbError;
     }
 
     // SUCCESS: Always return after DB update succeeds
-    // Never throw or call other APIs that could fail
+    // Never throw or call other APIs that could fail after this point
     return Response.json({
       ok: true,
       settings: result
