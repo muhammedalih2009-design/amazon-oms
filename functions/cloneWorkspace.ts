@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { isPlatformOwner } from './helpers/guardWorkspaceAccess.js';
 
 const BATCH_SIZE = 500;
 
@@ -7,8 +8,9 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
 
-    if (!user || (user.role !== 'admin' && user.email !== 'admin@amazonoms.com')) {
-      return Response.json({ error: 'Only platform admins can clone workspaces' }, { status: 403 });
+    // SECURITY: Only platform owner can clone workspaces
+    if (!user || !isPlatformOwner(user)) {
+      return Response.json({ error: 'Only platform owner can clone workspaces' }, { status: 403 });
     }
 
     const { source_workspace_id, target_workspace_name, target_workspace_slug, options } = await req.json();
