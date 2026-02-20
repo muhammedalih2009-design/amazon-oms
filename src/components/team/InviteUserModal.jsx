@@ -157,8 +157,8 @@ export default function InviteUserModal({ open, onClose, onInvite, workspaceId }
 
       if (data.ok) {
         if (data.mode === 'invite_created' && data.token) {
-          // Build invite link with current app domain
-          const inviteLink = `${window.location.origin}/AcceptInvite?token=${data.token}`;
+          // CANONICAL: Use production domain for invite links
+          const inviteLink = `https://app.amazon-oms.com/AcceptInvite?token=${data.token}`;
           
           toast({
             title: 'Invite Created',
