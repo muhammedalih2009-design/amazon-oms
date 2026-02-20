@@ -600,8 +600,8 @@ export default function PurchaseRequests() {
             <h3 className="font-semibold text-slate-900">Order Date Range</h3>
             <p className="text-sm text-slate-500">Calculate needs for pending orders in this period</p>
           </div>
-          <div className="flex items-center gap-4">
-            <Popover>
+          <div className="flex items-center gap-2">
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
               <PopoverTrigger asChild>
                 <Button variant="outline">
                   <CalendarIcon className="w-4 h-4 mr-2" />
@@ -611,7 +611,7 @@ export default function PurchaseRequests() {
                         {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
                       </>
                     ) : (
-                      format(dateRange.from, 'MMM d, yyyy')
+                      <span className="text-amber-600">Select end date: {format(dateRange.from, 'MMM d, yyyy')}</span>
                     )
                   ) : (
                     'Pick dates'
@@ -622,11 +622,30 @@ export default function PurchaseRequests() {
                 <Calendar
                   mode="range"
                   selected={dateRange}
-                  onSelect={setDateRange}
+                  onSelect={(range) => {
+                    setDateRange(range);
+                    // Only close if both dates are selected
+                    if (range?.to) {
+                      setCalendarOpen(false);
+                    }
+                  }}
                   numberOfMonths={2}
                 />
               </PopoverContent>
             </Popover>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => {
+                const now = new Date();
+                const week = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                setDateRange({ from: now, to: week });
+                setCalendarOpen(false);
+              }}
+              className="text-slate-600 hover:text-slate-900"
+            >
+              Reset
+            </Button>
           </div>
         </div>
       </div>
