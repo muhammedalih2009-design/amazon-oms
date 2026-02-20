@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   try {
@@ -13,6 +14,14 @@ Deno.serve(async (req) => {
 
     if (!tenantId) {
       return Response.json({ error: 'Missing tenantId' }, { status: 400 });
+    }
+
+    // SECURITY: Verify user has access to this workspace
+    const membership = await guardWorkspaceAccess(base44, user, tenantId);
+
+    // Only owner/admin can create backups
+    if (!['owner', 'admin'].includes(membership.role)) {
+      return Response.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     // Get tenant info
