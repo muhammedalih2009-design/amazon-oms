@@ -15,34 +15,15 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getPermissionModules, WORKSPACE_MODULES } from '@/components/shared/modulesConfig';
 import { useLanguage } from '@/components/contexts/LanguageContext';
 
-// DYNAMIC: Fetch modules from single source of truth
-const getPages = (t) => {
+// DYNAMIC: Build permission list from single source of truth
+const getPages = () => {
   const modules = getPermissionModules();
   
-  // Group modules by category
-  const categories = {
-    'General Access': ['dashboard'],
-    'Task Management': ['tasks', 'team'],
-    'Inventory & Suppliers': ['skus_products', 'suppliers'],
-    'Operations': ['orders', 'profitability', 'purchase_requests', 'purchases', 'returns']
-  };
-
-  return modules.map(module => {
-    // Find category for this module
-    let category = 'Other';
-    for (const [cat, keys] of Object.entries(categories)) {
-      if (keys.includes(module.moduleKey)) {
-        category = cat;
-        break;
-      }
-    }
-
-    return {
-      key: module.moduleKey,
-      label: t(module.nameKey),
-      category: category
-    };
-  });
+  return modules.map(module => ({
+    key: module.key,
+    label: module.label,
+    category: module.group
+  }));
 };
 
 export default function PermissionsModal({ open, onClose, member, onUpdate }) {
@@ -60,7 +41,7 @@ export default function PermissionsModal({ open, onClose, member, onUpdate }) {
 
   if (!member) return null;
 
-  const PAGES = getPages(t);
+  const PAGES = getPages();
 
   const handleToggleView = (pageKey) => {
     setPermissions(prev => {

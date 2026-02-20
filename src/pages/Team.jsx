@@ -154,11 +154,11 @@ export default function TeamPage() {
 
   const getAccessCoverage = (member) => {
     if (member.role === 'owner') {
-      return { granted: 10, total: 10, percentage: 100 };
+      return { granted: 12, total: 12, percentage: 100 };
     }
 
-    // DYNAMIC: Use all modules that have permissions
-    const pages = ['dashboard', 'tasks', 'skus_products', 'orders', 'profitability', 'purchase_requests', 'purchases', 'returns', 'suppliers', 'team'];
+    // DYNAMIC: Use all modules that have permissions from single source of truth
+    const pages = ['dashboard', 'tasks', 'skus_products', 'orders', 'profitability', 'purchase_requests', 'purchases', 'returns', 'suppliers', 'team', 'backup_data', 'settings'];
     const granted = pages.filter(page => member.permissions?.[page]?.view).length;
     
     return {
