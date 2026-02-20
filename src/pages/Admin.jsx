@@ -104,8 +104,8 @@ export default function AdminPage() {
         w.status !== 'ghost'
       );
       
-      // Filter out deleted users
-      const activeUsers = usersData.filter(u => !u.deleted && u.account_status !== 'deleted');
+      // Filter out soft-deleted platform users
+      const activeUsers = platformUsersData.filter(u => !u.deleted_at);
       
       setWorkspaces(activeWorkspaces);
       setAllUsers(activeUsers);
