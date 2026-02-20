@@ -52,10 +52,23 @@ import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 
 export default function SKUsPage() {
-  const { tenantId, subscription, isActive, tenant, canEditPage } = useTenant();
+  const { tenantId, subscription, isActive, tenant, permissions, membership } = useTenant();
   const { toast } = useToast();
   
-  const canEdit = canEditPage('skus');
+  // FIX: Use correct module key "skus_products"
+  const canView = permissions?.skus_products?.view === true;
+  const canEdit = permissions?.skus_products?.edit === true;
+  
+  // DEBUG: Log permissions on load (TEMP - remove after fix confirmed)
+  useEffect(() => {
+    console.log('[SKUs DEBUG]', {
+      workspace_id: tenantId,
+      membership_id: membership?.id,
+      permissions: permissions,
+      skus_products_view: canView,
+      skus_products_edit: canEdit
+    });
+  }, [tenantId, membership, permissions, canView, canEdit]);
   
   const [skus, setSkus] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
