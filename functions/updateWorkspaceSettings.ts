@@ -92,12 +92,15 @@ Deno.serve(async (req) => {
 
     // SUCCESS: Always return after DB update succeeds
     // Never throw or call other APIs that could fail after this point
+    console.log(`[updateWorkspaceSettings] SUCCESS workspace_id=${workspace_id}`);
     return Response.json({
       ok: true,
       settings: result
     });
   } catch (error) {
-    console.error('Error updating workspace settings:', error.message);
-    return Response.json({ ok: false, error: error.message }, { status: 400 });
+    console.error('[updateWorkspaceSettings] Error:', error.message);
+    const statusCode = error.status || 500;
+    const errorMessage = error.message || 'Failed to update workspace settings';
+    return Response.json({ ok: false, error: errorMessage }, { status: statusCode });
   }
 });
