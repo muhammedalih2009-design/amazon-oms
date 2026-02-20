@@ -18,7 +18,8 @@ async function checkCancellation(base44, job_id, startTime, processedCount) {
     console.log(`[Job ${job_id}] Cancelling detected, terminating immediately`);
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'cancelled',
-      finished_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      progress_percent: currentJob.progress_percent || 0,
       progress: {
         ...currentJob.progress,
         message: `Cancelled after processing ${processedCount} items`
