@@ -23,8 +23,7 @@ Deno.serve(async (req) => {
     }
 
     const { tenant_id } = job;
-    const jobData = JSON.parse(job.job_data || '{}');
-    const rows = jobData.rows || [];
+    const rows = job.params?.rows || (job.params?.rows_json ? JSON.parse(job.params.rows_json) : []);
 
     // Preload data once
     const [skus, suppliers, allPurchases, currentStock] = await Promise.all([
