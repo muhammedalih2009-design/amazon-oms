@@ -37,15 +37,17 @@ export default function TelegramExportModal({
         const response = await base44.functions.invoke('getTelegramExportStatus', { jobId });
         setStatus(response.data);
 
+        // Check if job is complete
         if (response.data.status === 'completed' || response.data.status === 'failed') {
           setStep('completed');
           setPolling(false);
           clearInterval(interval);
         }
       } catch (error) {
-        console.error('Polling error:', error);
+        console.error('[Telegram Modal] Polling error:', error);
+        // Don't stop polling on error - keep trying
       }
-    }, 1000);
+    }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(interval);
   };
