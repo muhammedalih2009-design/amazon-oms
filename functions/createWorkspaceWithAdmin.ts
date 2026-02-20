@@ -1,14 +1,42 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+const AUTO_WORKSPACE_PROVISIONING = false; // P0 SECURITY: HARD BLOCK
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const currentUser = await base44.auth.me();
 
+    // P0 HARD BLOCK: Verify this is explicit creation by owner, not auto-provisioning
+    if (AUTO_WORKSPACE_PROVISIONING === true) {
+      // Log critical security violation
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'workspace_creation_blocked_security_violation',
+        entity_type: 'System',
+        user_email: currentUser.email,
+        metadata: {
+          reason: 'AUTO_WORKSPACE_PROVISIONING flag was true - security violation',
+          attempted_by: currentUser.email
+        }
+      });
+      return Response.json({ 
+        error: 'Security violation: Auto-provisioning must be disabled' 
+      }, { status: 403 });
+    }
+
     // P0 FIX: OWNER-ONLY workspace creation
     if (currentUser.email.toLowerCase() !== APP_OWNER_EMAIL.toLowerCase()) {
+      // Log unauthorized attempt
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'workspace_creation_blocked_unauthorized',
+        entity_type: 'Tenant',
+        user_email: currentUser.email,
+        metadata: {
+          reason: 'Only app owner can create workspaces',
+          attempted_by: currentUser.email
+        }
+      });
       return Response.json({ 
         error: 'Forbidden: Only app owner can create workspaces' 
       }, { status: 403 });

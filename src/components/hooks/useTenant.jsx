@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { base44 } from '@/api/base44Client';
+import { AUTO_WORKSPACE_PROVISIONING } from '@/lib/constants';
 
 const TenantContext = createContext(null);
 const ACTIVE_WORKSPACE_KEY = 'active_workspace_id';
@@ -66,6 +67,11 @@ export function TenantProvider({ children }) {
       // P0 FIX: NEVER auto-create workspaces
       // If no workspaces, user sees "No workspaces assigned"
       if (!activeTenant) {
+        // HARD BLOCK: Verify auto-provisioning is disabled
+        if (AUTO_WORKSPACE_PROVISIONING === true) {
+          console.error('CRITICAL: AUTO_WORKSPACE_PROVISIONING must be false!');
+        }
+
         // Log blocked auto-creation attempt
         try {
           await base44.entities.AuditLog.create({
@@ -75,8 +81,9 @@ export function TenantProvider({ children }) {
             action: 'workspace_auto_create_blocked',
             entity_type: 'Tenant',
             metadata: {
-              reason: 'P0 security fix: auto-provisioning disabled',
-              is_super_admin: isSuperAdmin
+              reason: 'P0 security fix: auto-provisioning disabled globally',
+              is_super_admin: isSuperAdmin,
+              auto_provisioning_flag: AUTO_WORKSPACE_PROVISIONING
             }
           }).catch(() => {}); // Ignore audit log errors
         } catch (err) {

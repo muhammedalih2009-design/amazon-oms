@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+const AUTO_WORKSPACE_PROVISIONING = false; // P0 SECURITY: HARD BLOCK
 
 Deno.serve(async (req) => {
   try {
@@ -10,6 +11,21 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // P0 SECURITY: Verify auto-provisioning is disabled
+    if (AUTO_WORKSPACE_PROVISIONING === true) {
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'repair_my_access_blocked_security',
+        entity_type: 'System',
+        user_email: user.email,
+        metadata: {
+          reason: 'AUTO_WORKSPACE_PROVISIONING must be false'
+        }
+      });
+      return Response.json({ 
+        error: 'Security violation: Auto-provisioning must be disabled' 
+      }, { status: 403 });
     }
 
     // P0 FIX: OWNER-ONLY (never creates workspaces, only repairs owner's memberships)
