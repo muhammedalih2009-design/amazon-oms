@@ -290,6 +290,8 @@ export function TenantProvider({ children }) {
     isAdmin,
     isSuperAdmin,
     isPlatformAdmin,
+    hasWorkspaceAccess,
+    noAccess,
     tenantId: tenant?.id,
     permissions,
     canViewPage,
