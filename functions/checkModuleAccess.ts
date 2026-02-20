@@ -1,8 +1,9 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess, requireWorkspaceId } from './helpers/guardWorkspaceAccess.js';
 
 /**
  * Server-side module access enforcement
- * Call this at the start of any backend function that needs workspace-specific module access
+ * SECURITY: Enforces workspace isolation before checking module access
  */
 
 const PAGE_MODULE_MAP = {
@@ -33,14 +34,14 @@ Deno.serve(async (req) => {
       }, { status: 401 });
     }
 
-    const { workspace_id, module_key, page_name } = await req.json();
+    const payload = await req.json();
+    const { module_key, page_name } = payload;
 
-    if (!workspace_id) {
-      return Response.json({ 
-        ok: false, 
-        error: 'workspace_id required' 
-      }, { status: 400 });
-    }
+    // SECURITY: Require and validate workspace_id
+    const workspace_id = requireWorkspaceId(payload);
+
+    // SECURITY: Verify workspace access FIRST
+    await guardWorkspaceAccess(base44, user, workspace_id);
 
     // Determine module key from page name if provided
     let checkModuleKey = module_key;

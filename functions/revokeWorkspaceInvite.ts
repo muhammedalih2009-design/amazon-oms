@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { guardWorkspaceAccess } from './helpers/guardWorkspaceAccess.js';
 
 Deno.serve(async (req) => {
   try {
@@ -16,25 +17,19 @@ Deno.serve(async (req) => {
     }
 
     // Get invite
-    const invites = await base44.entities.WorkspaceInvite.filter({ id: invite_id });
+    const invites = await base44.asServiceRole.entities.WorkspaceInvite.filter({ id: invite_id });
     if (invites.length === 0) {
       return Response.json({ error: 'Invite not found' }, { status: 404 });
     }
 
     const invite = invites[0];
 
-    // Check permission
-    const isPlatformAdmin = user.email === 'admin@amazonoms.com' || user.role === 'admin';
-    
-    if (!isPlatformAdmin) {
-      const membership = await base44.entities.Membership.filter({
-        tenant_id: invite.workspace_id,
-        user_email: user.email
-      });
+    // SECURITY: Verify user has access to invite's workspace
+    const membership = await guardWorkspaceAccess(base44, user, invite.workspace_id);
 
-      if (membership.length === 0 || !['owner', 'admin'].includes(membership[0].role)) {
-        return Response.json({ error: 'Forbidden: Only workspace owner/admin can revoke invites' }, { status: 403 });
-      }
+    // Check if user is admin/owner
+    if (!['owner', 'admin'].includes(membership.role)) {
+      return Response.json({ error: 'Forbidden: Only workspace owner/admin can revoke invites' }, { status: 403 });
     }
 
     // Update invite status
