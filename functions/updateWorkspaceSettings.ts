@@ -77,33 +77,22 @@ Deno.serve(async (req) => {
 
     try {
       if (existing.length > 0) {
-        // Use raw SDK call with no audit logging to avoid validation errors
+        // Update existing
         const entityId = existing[0].id;
         console.log(`[updateWorkspaceSettings] Updating existing ID=${entityId}`);
         
         result = await base44.asServiceRole.entities.WorkspaceSettings.update(
           entityId,
-          updateData,
-          { skip_audit_log: true } // Skip audit log to avoid 422 errors
+          updateData
         );
       } else {
         // Create new
         console.log(`[updateWorkspaceSettings] Creating new WorkspaceSettings`);
-        result = await base44.asServiceRole.entities.WorkspaceSettings.create(
-          updateData,
-          { skip_audit_log: true } // Skip audit log to avoid 422 errors
-        );
+        result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
       }
     } catch (dbError) {
       console.error('[updateWorkspaceSettings] Database error:', dbError.message, dbError.status || dbError.code);
-      // If it's an audit log error, log but continue (data was saved)
-      if (dbError.message?.includes('actor_user_id') || dbError.message?.includes('audit')) {
-        console.warn('[updateWorkspaceSettings] Audit log validation failed but data saved - ignoring');
-        // Return success anyway since DB operation succeeded
-        result = { workspace_id, ...updateData };
-      } else {
-        throw dbError;
-      }
+      throw dbError;
     }
 
     // SUCCESS: Always return after DB update succeeds
