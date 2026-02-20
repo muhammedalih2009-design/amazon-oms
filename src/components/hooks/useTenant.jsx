@@ -236,14 +236,15 @@ export function TenantProvider({ children }) {
 
   const permissions = membership?.permissions || {};
 
-  const canViewPage = (pageKey) => {
+  // PERMISSIONS: Check module-level permissions
+  const canViewPage = (moduleKey) => {
     if (isOwner) return true;
-    return permissions[pageKey]?.view === true;
+    return permissions[moduleKey]?.view === true;
   };
 
-  const canEditPage = (pageKey) => {
+  const canEditPage = (moduleKey) => {
     if (isOwner) return true;
-    return permissions[pageKey]?.edit === true;
+    return permissions[moduleKey]?.edit === true;
   };
 
   const isModuleEnabled = (moduleKey) => {
