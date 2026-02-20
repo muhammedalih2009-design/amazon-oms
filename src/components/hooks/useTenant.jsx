@@ -229,8 +229,10 @@ export function TenantProvider({ children }) {
   const isActive = subscription?.status === 'active';
   const isOwner = membership?.role === 'owner';
   const isAdmin = membership?.role === 'owner' || membership?.role === 'admin';
-  const isSuperAdmin = user?.email === 'admin@amazonoms.com' || user?.role === 'admin';
-  const isPlatformAdmin = isSuperAdmin;
+  
+  // SECURITY: Platform admin ONLY by exact email match
+  const isPlatformAdmin = user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
+  const isSuperAdmin = isPlatformAdmin;
 
   const permissions = membership?.permissions || {};
 
