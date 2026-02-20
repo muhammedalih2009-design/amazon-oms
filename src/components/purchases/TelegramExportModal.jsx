@@ -218,36 +218,75 @@ export default function TelegramExportModal({
         {step === 'completed' && status && (
           <>
             <DialogHeader>
-              <DialogTitle>Export Complete</DialogTitle>
+              <DialogTitle>
+                {status.status === 'failed' ? '❌ Export Failed' : '✅ Export Complete'}
+              </DialogTitle>
+              <DialogDescription>Job ID: {jobId?.slice(0, 8)}...</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Status indicator */}
               <div className="flex items-center justify-center">
-                {status.failedItems === 0 ? (
+                {status.status === 'completed' && status.failedItems === 0 ? (
                   <div className="text-center space-y-2">
                     <CheckCircle2 className="w-16 h-16 text-emerald-600 mx-auto" />
                     <p className="text-lg font-semibold text-slate-900">
                       All items sent successfully!
                     </p>
-                    <div className="text-sm text-slate-600 space-y-1">
-                      <p>📸 Photos: {status.photoSentCount || 0}</p>
-                      <p>📝 Text: {status.textFallbackCount || 0}</p>
-                    </div>
                   </div>
-                ) : (
+                ) : status.status === 'completed' && status.failedItems > 0 ? (
                   <div className="text-center space-y-2">
                     <AlertCircle className="w-16 h-16 text-amber-600 mx-auto" />
                     <p className="text-lg font-semibold text-slate-900">
-                      Export completed with errors
+                      Export completed with {status.failedItems} failure(s)
                     </p>
-                    <div className="text-sm text-slate-600 space-y-1">
-                      <p>📸 Photos: {status.photoSentCount || 0}</p>
-                      <p>📝 Text: {status.textFallbackCount || 0}</p>
-                      <p>✗ Failed: {status.failedItems} items</p>
-                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-2">
+                    <AlertCircle className="w-16 h-16 text-red-600 mx-auto" />
+                    <p className="text-lg font-semibold text-slate-900">
+                      Export failed
+                    </p>
+                    {status.errorMessage && (
+                      <p className="text-sm text-red-600">{status.errorMessage}</p>
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-3">
+                <div className="text-center">
+                  <p className="text-xs text-slate-600">Total Items</p>
+                  <p className="text-xl font-bold text-slate-900">{status.totalItems}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-slate-600">Sent</p>
+                  <p className="text-xl font-bold text-green-600">{status.sentItems || 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-slate-600">Failed</p>
+                  <p className="text-xl font-bold text-red-600">{status.failedItems || 0}</p>
+                </div>
+              </div>
+
+              {/* Failed items - show errors */}
+              {status.failedItems > 0 && status.failedItemsLog && status.failedItemsLog.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 max-h-48 overflow-y-auto">
+                  <p className="text-sm font-semibold text-red-900 mb-2">Failed Items:</p>
+                  <div className="space-y-1">
+                    {status.failedItemsLog.slice(0, 10).map((item, idx) => (
+                      <div key={idx} className="text-xs text-red-800">
+                        <p className="font-mono">SKU: {item.sku_code}</p>
+                        <p className="text-red-700 ml-2">{item.error_message}</p>
+                      </div>
+                    ))}
+                    {status.failedItemsLog.length > 10 && (
+                      <p className="text-xs text-red-700 italic">...and {status.failedItemsLog.length - 10} more</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {status.failedItems > 0 && (
                 <Button
