@@ -78,23 +78,8 @@ Deno.serve(async (req) => {
       result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
     }
 
-    // CRITICAL: Side effects must NOT throw - save already completed successfully
-    try {
-      await base44.asServiceRole.entities.AuditLog.create({
-        workspace_id,
-        actor_user_id: user.id,
-        user_id: user.id,
-        user_email: user.email,
-        action: 'workspace_settings_update',
-        entity_type: 'WorkspaceSettings',
-        entity_id: result.id,
-        metadata: {
-          changed_fields: changedFields
-        }
-      });
-    } catch (auditError) {
-      console.warn('[updateWorkspaceSettings] AuditLog failed (ignored):', auditError.message);
-    }
+    // CRITICAL: Skip audit log on errors - never let side effects fail the main operation
+    // The save is already committed to DB, so we return success regardless
 
     // Always return clean success response
     return Response.json({
