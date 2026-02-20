@@ -94,11 +94,21 @@ export default function AdminPage() {
         base44.entities.Subscription.filter({})
       ]);
 
-      // P0 FIX: Filter out deleted workspaces
-      const activeWorkspaces = tenantsData.filter(w => !w.deleted_at);
+      // P0 FIX: Filter out deleted/inactive workspaces - UNIFIED SOURCE OF TRUTH
+      // Only show active, non-deleted workspaces
+      const activeWorkspaces = tenantsData.filter(w => 
+        !w.deleted_at && 
+        !w.deleted &&
+        w.status !== 'creating' && 
+        w.status !== 'failed' && 
+        w.status !== 'ghost'
+      );
+      
+      // Filter out deleted users
+      const activeUsers = usersData.filter(u => !u.deleted && u.account_status !== 'deleted');
       
       setWorkspaces(activeWorkspaces);
-      setAllUsers(usersData);
+      setAllUsers(activeUsers);
       setMemberships(membershipsData);
       setSubscriptions(subscriptionsData);
     } catch (error) {
@@ -466,7 +476,34 @@ export default function AdminPage() {
         </TabsList>
 
         <TabsContent value="workspaces" className="space-y-6">
-          {/* Stats */}
+          {/* Debug Info - Owner Only */}
+          {user?.email === 'muhammedalih.2009@gmail.com' && (
+            <details className="bg-slate-50 rounded-lg border border-slate-200 p-4">
+              <summary className="text-sm font-medium text-slate-700 cursor-pointer">Debug: Workspace Counts</summary>
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Total All:</span>
+                  <span className="ml-2 font-semibold">{subscriptions.length > 0 ? subscriptions.map(s => s.tenant_id).filter((v, i, a) => a.indexOf(v) === i).length : memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length}</span>
+                </div>
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Deleted:</span>
+                  <span className="ml-2 font-semibold text-red-600">
+                    {memberships.filter((m, i, arr) => arr.findIndex(x => x.tenant_id === m.tenant_id) === i).length - workspaces.length}
+                  </span>
+                </div>
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Active:</span>
+                  <span className="ml-2 font-semibold text-green-600">{workspaces.length}</span>
+                </div>
+                <div className="bg-white p-2 rounded border">
+                  <span className="text-slate-500">Active Users:</span>
+                  <span className="ml-2 font-semibold">{allUsers.length}</span>
+                </div>
+              </div>
+            </details>
+          )}
+
+          {/* Stats - UNIFIED WITH TABLE FILTERING */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <div className="flex items-center gap-3">
@@ -492,7 +529,7 @@ export default function AdminPage() {
             <div>
               <p className="text-sm text-slate-500">Active Subscriptions</p>
               <p className="text-2xl font-bold text-slate-900">
-                {subscriptions.filter(s => s.status === 'active').length}
+                {subscriptions.filter(s => s.status === 'active' && workspaces.find(w => w.id === s.tenant_id)).length}
               </p>
             </div>
           </div>
