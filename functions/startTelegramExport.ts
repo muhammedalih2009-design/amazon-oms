@@ -19,20 +19,21 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.BackgroundJob.create({
       tenant_id: tenantId,
       job_type: 'telegram_export',
-      status: 'running',
+      status: 'queued',
       priority: 'normal',
       total_count: rows.length,
       processed_count: 0,
       success_count: 0,
       failed_count: 0,
       progress_percent: 0,
+      actor_user_id: user.id,
+      started_by: user.email,
       params: {
         rows,
         dateRange,
         createdBy: user.email
       },
-      started_at: new Date().toISOString(),
-      started_by: user.email
+      started_at: new Date().toISOString()
     });
 
     console.log(`[Telegram Export] Job created: ${job.id} for tenant ${tenantId}`);
