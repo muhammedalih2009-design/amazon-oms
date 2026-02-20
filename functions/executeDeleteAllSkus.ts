@@ -239,7 +239,11 @@ Deno.serve(async (req) => {
     // Mark job as completed
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'completed',
-      finished_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      progress_percent: 100,
+      processed_count: processedCount,
+      success_count: deletedCount,
+      failed_count: errorCount,
       progress: {
         current: processedCount,
         total: job.params.total_skus,
