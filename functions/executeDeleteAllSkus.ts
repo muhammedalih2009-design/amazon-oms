@@ -178,6 +178,7 @@ Deno.serve(async (req) => {
     console.log(`[Execute Delete All SKUs] Cleaning up related entities...`);
 
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+      progress_percent: 95,
       progress: {
         current: processedCount,
         total: job.params.total_skus,
