@@ -37,6 +37,7 @@ import ExportSettings from '@/components/admin/ExportSettings';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
 import CloneWorkspaceModal from '@/components/admin/CloneWorkspaceModal';
 import ModuleSelector from '@/components/admin/ModuleSelector';
+import RecentWorkspacesMonitor from '@/components/admin/RecentWorkspacesMonitor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function AdminPage() {
@@ -494,7 +495,11 @@ export default function AdminPage() {
       {/* Workspaces Table */}
       <div className="bg-white rounded-xl border border-slate-200">
         <div className="p-6 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Workspaces</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Workspaces</h2>
+          </div>
+          {/* P0 MONITORING: Recent workspace creations */}
+          <RecentWorkspacesMonitor />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
