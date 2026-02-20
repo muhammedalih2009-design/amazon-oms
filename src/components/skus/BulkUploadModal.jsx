@@ -366,6 +366,14 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
     });
 
     try {
+      // Pre-fetch all suppliers in workspace once (for caching)
+      const allSuppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
+      const supplierCache = new Map();
+      allSuppliers.forEach(sup => {
+        supplierCache.set(sup.id, sup);
+        supplierCache.set(sup.supplier_name.toLowerCase(), sup);
+      });
+
       // Helper function to process a single batch
       const processBatch = async (batch, batchIndex) => {
         const batchNum = batchIndex + 1;
