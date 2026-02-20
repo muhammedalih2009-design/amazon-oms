@@ -60,6 +60,8 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
       'productname': 'product_name',
       'cost': 'cost',
       'supplier': 'supplier',
+      'suppliername': 'supplier',
+      'supplierid': 'supplier',
       'stock': 'stock',
       'initialstock': 'stock',
       'imageurl': 'image_url'
