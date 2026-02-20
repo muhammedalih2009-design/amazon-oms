@@ -231,28 +231,22 @@ export default function AdminPage() {
 
   const handleDeleteWorkspace = async (workspace) => {
     try {
-      // Delete memberships
-      const workspaceMemberships = memberships.filter(m => m.tenant_id === workspace.id);
-      for (const membership of workspaceMemberships) {
-        await base44.entities.Membership.delete(membership.id);
-      }
-
-      // Delete subscription
-      const sub = subscriptions.find(s => s.tenant_id === workspace.id);
-      if (sub) {
-        await base44.entities.Subscription.delete(sub.id);
-      }
-
-      // Delete tenant
-      await base44.entities.Tenant.delete(workspace.id);
-
-      toast({
-        title: 'Workspace deleted',
-        description: `${workspace.name} has been deleted`
+      // P0 FIX: Use proper soft-delete function
+      const response = await base44.functions.invoke('deleteWorkspace', {
+        workspace_id: workspace.id
       });
 
-      setShowDeleteConfirm(null);
-      loadData(true);
+      if (response.data.success) {
+        toast({
+          title: 'Workspace deleted',
+          description: `${workspace.name} has been deleted (${response.data.memberships_removed} memberships removed)`
+        });
+
+        setShowDeleteConfirm(null);
+        loadData(true);
+      } else {
+        throw new Error(response.data.error || 'Deletion failed');
+      }
     } catch (error) {
       toast({
         title: 'Failed to delete workspace',
