@@ -87,15 +87,15 @@ export default function AdminPage() {
     }
 
     try {
-      const [tenantsData, usersData, membershipsData, subscriptionsData] = await Promise.all([
+      // CANONICAL: Use PlatformUser for user management
+      const [tenantsData, platformUsersData, membershipsData, subscriptionsData] = await Promise.all([
         base44.entities.Tenant.filter({}),
-        base44.entities.User.filter({}),
+        base44.entities.PlatformUser.filter({}),
         base44.entities.Membership.filter({}),
         base44.entities.Subscription.filter({})
       ]);
 
-      // P0 FIX: Filter out deleted/inactive workspaces - UNIFIED SOURCE OF TRUTH
-      // Only show active, non-deleted workspaces
+      // P0 FIX: Filter out deleted/inactive workspaces and users
       const activeWorkspaces = tenantsData.filter(w => 
         !w.deleted_at && 
         !w.deleted &&
