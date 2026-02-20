@@ -1,113 +1,81 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-
 /**
- * Universal job runner wrapper.
- * Ensures all operations create and track BackgroundJob records.
+ * runAsJob - Unified wrapper for all long-running operations
  * 
- * Usage:
- * const result = await runAsJob(req, {
- *   workspace_id,
- *   job_type: 'sku_bulk_upload',
- *   total_items: 150,
- *   meta: { filename: 'test.csv' }
- * }, async (job, updateProgress) => {
- *   // your work here
- *   for (let i = 0; i < items.length; i++) {
- *     // process item
- *     await updateProgress(i + 1, 1, 0); // processed, success, failed
- *   }
- *   return { summary: '...' };
- * });
+ * Ensures every background operation:
+ * 1) Creates a BackgroundJob record
+ * 2) Tracks progress (processed_count, success_count, failed_count)
+ * 3) Sets final status (completed/failed/cancelled)
+ * 4) Never silently fails
  */
-export async function runAsJob(req, jobConfig, worker) {
-  const base44 = createClientFromRequest(req);
-  
+
+export async function runAsJob(base44, config, workerFn) {
   const {
-    workspace_id,
+    tenant_id,
     job_type,
     total_items = 0,
+    actor_user_id,
     meta = {},
-    started_by = null
-  } = jobConfig;
+    params = {}
+  } = config;
 
-  if (!workspace_id || !job_type) {
-    throw new Error('workspace_id and job_type required');
-  }
-
-  const user = await base44.auth.me();
-  if (!user) {
-    throw new Error('Unauthorized');
+  if (!tenant_id || !job_type) {
+    throw new Error('runAsJob: tenant_id and job_type required');
   }
 
   let job = null;
+  let error = null;
 
   try {
-    // Create job record
+    // 1) Create job in queued state
     job = await base44.asServiceRole.entities.BackgroundJob.create({
-      tenant_id: workspace_id,
+      tenant_id,
       job_type,
-      status: 'running',
-      total_count: total_items,
+      status: 'queued',
+      started_at: new Date().toISOString(),
+      progress_percent: 0,
       processed_count: 0,
+      total_count: total_items,
       success_count: 0,
       failed_count: 0,
-      started_at: new Date().toISOString(),
-      started_by: started_by || user.email,
-      actor_user_id: user.id,
-      meta
+      actor_user_id,
+      meta: meta || {},
+      params: params || {}
     });
 
-    console.log(`[runAsJob] Created job ${job.id} (${job_type})`);
+    // 2) Update to running
+    await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+      status: 'running'
+    });
 
-    // Progress updater
-    const updateProgress = async (processed, success, failed, progressMsg = '') => {
-      if (!job) return;
-      const progressPercent = total_items > 0 ? (processed / total_items) * 100 : 0;
-      await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-        processed_count: processed,
-        success_count: success,
-        failed_count: failed,
-        progress_percent: progressPercent,
-        progress: {
-          current: processed,
-          total: total_items,
-          percent: progressPercent,
-          message: progressMsg
-        },
-        last_heartbeat_at: new Date().toISOString()
-      });
+    // 3) Execute worker with progress callback
+    const progressCallback = async (progress) => {
+      await base44.asServiceRole.entities.BackgroundJob.update(job.id, progress);
     };
 
-    // Run worker
-    const result = await worker(job, updateProgress);
+    const result = await workerFn(job, progressCallback);
 
-    // Mark completed
+    // 4) Mark as completed
     await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
       status: 'completed',
       completed_at: new Date().toISOString(),
-      result
+      result: result || {}
     });
 
-    console.log(`[runAsJob] Job ${job.id} completed`);
+    return { success: true, job_id: job.id, result };
 
-    return {
-      ok: true,
-      job_id: job.id,
-      result
-    };
+  } catch (err) {
+    error = err;
 
-  } catch (error) {
-    console.error(`[runAsJob] Job failed:`, error);
-
+    // 5) Mark as failed
     if (job) {
       await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
         status: 'failed',
-        error_message: error.message || 'Unknown error',
-        completed_at: new Date().toISOString()
-      }).catch(err => console.error('Failed to update job status:', err));
+        completed_at: new Date().toISOString(),
+        error_message: err.message || String(err)
+      }).catch(() => {}); // Ignore update errors, we're already in error state
     }
 
-    throw error;
+    throw new Error(`[${job_type}] Job failed: ${err.message}`);
   }
 }
 
