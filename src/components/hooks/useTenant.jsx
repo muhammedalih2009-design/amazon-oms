@@ -23,6 +23,14 @@ export function TenantProvider({ children }) {
   const loadTenantData = async () => {
     try {
       const currentUser = await base44.auth.me();
+
+      // P0: Block deleted users from logging in
+      if (currentUser.deleted === true || currentUser.account_status === 'deleted') {
+        base44.auth.logout();
+        alert('Account has been removed.');
+        return;
+      }
+
       setUser(currentUser);
 
       // Check if super admin (strict check)
