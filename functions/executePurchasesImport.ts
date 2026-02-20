@@ -233,17 +233,29 @@ Deno.serve(async (req) => {
         })
       });
 
-      // Check cancellation
+      // Check cancellation & update progress
       const updatedJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
       if (updatedJob.status === 'cancelled') {
         return Response.json({ ok: true, message: 'Import cancelled' });
       }
+      
+      // Update job progress
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        processed_count: successCount + failCount,
+        success_count: successCount,
+        failed_count: failCount,
+        progress_percent: Math.round(((successCount + failCount) / rows.length) * 100)
+      });
     }
 
     // Mark complete
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'completed',
-      completed_at: new Date().toISOString()
+      completed_at: new Date().toISOString(),
+      processed_count: successCount + failCount,
+      success_count: successCount,
+      failed_count: failCount,
+      progress_percent: 100
     });
 
     return Response.json({
