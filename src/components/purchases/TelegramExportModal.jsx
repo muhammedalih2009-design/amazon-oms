@@ -54,6 +54,7 @@ export default function TelegramExportModal({
 
   const handleStart = async () => {
     try {
+      // Create background job and get job ID
       const response = await base44.functions.invoke('startTelegramExport', {
         tenantId,
         rows: items.map(item => ({
@@ -67,17 +68,22 @@ export default function TelegramExportModal({
         dateRange
       });
 
+      if (!response.data.jobId) {
+        throw new Error('No job ID returned from server');
+      }
+
       setJobId(response.data.jobId);
       setStep('processing');
       
       toast({
         title: 'Export Started',
-        description: 'Sending items to Telegram...'
+        description: `Job ${response.data.jobId.slice(0, 8)}... created. Sending ${response.data.totalItems} items to Telegram...`
       });
     } catch (error) {
+      console.error('[Telegram Modal] Start error:', error);
       toast({
         title: 'Failed to Start Export',
-        description: error.message,
+        description: error.message || 'Unknown error occurred',
         variant: 'destructive'
       });
     }
