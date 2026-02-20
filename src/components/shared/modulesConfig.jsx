@@ -65,6 +65,15 @@ export const WORKSPACE_MODULES = [
     adminOnly: false
   },
   {
+    key: "orders",
+    label: "Orders",
+    route: "Orders",
+    icon: ShoppingCart,
+    group: "Operations",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  {
     key: "purchase_requests",
     label: "Purchase Requests",
     route: "PurchaseRequests",
@@ -79,15 +88,6 @@ export const WORKSPACE_MODULES = [
     route: "Purchases",
     icon: Truck,
     group: "Inventory",
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    key: "orders",
-    label: "Orders",
-    route: "Orders",
-    icon: ShoppingCart,
-    group: "Operations",
     hasPermissions: true,
     adminOnly: false
   },
