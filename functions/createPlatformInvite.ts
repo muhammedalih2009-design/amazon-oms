@@ -59,9 +59,9 @@ Deno.serve(async (req) => {
       expires_at: expiresAt.toISOString()
     });
 
-    // Generate invite link
-    const origin = new URL(req.url).origin;
-    const inviteLink = `${origin}/AcceptPlatformInvite?token=${token}`;
+    // Generate invite link - MUST use canonical app domain
+    const APP_PUBLIC_BASE_URL = "https://amazon-oms-4b169a10.base44.app";
+    const inviteLink = `${APP_PUBLIC_BASE_URL}/AcceptPlatformInvite?token=${token}`;
 
     return Response.json({
       success: true,

@@ -107,33 +107,11 @@ export function TenantProvider({ children }) {
         }
       }
 
-      // P0 FIX: NEVER auto-create workspaces
-      // If no workspaces, user sees "No workspaces assigned"
+      // CRITICAL FIX #3: NEVER auto-create workspaces for ANY user
+      // Platform admin creates workspaces manually via Admin page
       if (!activeTenant) {
-        // HARD BLOCK: Verify auto-provisioning is disabled
-        if (AUTO_WORKSPACE_PROVISIONING === true) {
-          console.error('CRITICAL: AUTO_WORKSPACE_PROVISIONING must be false!');
-        }
-
-        // Log blocked auto-creation attempt
-        try {
-          await base44.entities.AuditLog.create({
-            workspace_id: null,
-            user_id: currentUser.id,
-            user_email: currentUser.email,
-            action: 'workspace_auto_create_blocked',
-            entity_type: 'Tenant',
-            metadata: {
-              reason: 'P0 security fix: auto-provisioning disabled globally',
-              is_super_admin: isSuperAdmin,
-              auto_provisioning_flag: AUTO_WORKSPACE_PROVISIONING
-            }
-          }).catch(() => {}); // Ignore audit log errors
-        } catch (err) {
-          console.error('Failed to log auto-create block:', err);
-        }
-
         // User has no workspaces - leave state as null
+        // Layout will show /no-access screen
         setTenant(null);
         setMembership(null);
         setSubscription(null);

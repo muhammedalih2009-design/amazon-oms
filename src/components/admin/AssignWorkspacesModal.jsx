@@ -32,10 +32,17 @@ export default function AssignWorkspacesModal({ open, onClose, userEmail }) {
 
   const loadWorkspaces = async () => {
     try {
-      const allWorkspaces = await base44.asServiceRole.entities.Tenant.filter({});
-      setWorkspaces(allWorkspaces.filter(w => !w.deleted_at));
+      // Use admin-only backend function to list all workspaces
+      const response = await base44.functions.invoke('listAllWorkspaces', {});
+      if (response.data.success) {
+        setWorkspaces(response.data.workspaces);
+      } else {
+        console.error('Load workspaces error:', response.data.error);
+        setWorkspaces([]);
+      }
     } catch (error) {
       console.error('Load workspaces error:', error);
+      setWorkspaces([]);
     } finally {
       setLoadingWorkspaces(false);
     }
@@ -139,6 +146,12 @@ export default function AssignWorkspacesModal({ open, onClose, userEmail }) {
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Loading workspaces...
+              </div>
+            ) : workspaces.length === 0 ? (
+              <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-lg">
+                <Building2 className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                <p className="text-slate-600 font-medium">No workspaces yet</p>
+                <p className="text-sm text-slate-500 mt-1">Create a workspace first before assigning users</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-2">
