@@ -57,12 +57,19 @@ Deno.serve(async (req) => {
     if (currency_code !== undefined) {
       updateData.currency_code = currency_code;
     }
-    if (telegram_bot_token !== undefined) {
-      updateData.telegram_bot_token = telegram_bot_token;
+    // Only include token if it was explicitly provided by the frontend (new/changed)
+    if (telegram_bot_token !== undefined && telegram_bot_token.trim()) {
+      updateData.telegram_bot_token = telegram_bot_token.trim();
     }
-    if (telegram_chat_id !== undefined) {
-      updateData.telegram_chat_id = telegram_chat_id;
+    if (telegram_chat_id !== undefined && telegram_chat_id.trim()) {
+      updateData.telegram_chat_id = telegram_chat_id.trim();
     }
+
+    console.log(`[updateWorkspaceSettings] workspace_id=${workspace_id} user=${user.email} updating:`, {
+      currency: updateData.currency_code || 'unchanged',
+      token: updateData.telegram_bot_token ? `length=${updateData.telegram_bot_token.length}` : 'not provided',
+      chatId: updateData.telegram_chat_id ? `first3chars=${updateData.telegram_chat_id.substring(0, 3)}...` : 'not provided'
+    });
 
     let result;
 
