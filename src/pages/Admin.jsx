@@ -790,7 +790,7 @@ export default function AdminPage() {
                   {creatingWorkspace ? 'Creating...' : 'Create Workspace'}
                 </Button>
               </div>
-            </form>
+          </form>
         </DialogContent>
       </Dialog>
 
