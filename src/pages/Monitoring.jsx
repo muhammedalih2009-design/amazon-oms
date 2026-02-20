@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,13 +32,16 @@ import {
   StopCircle
 } from 'lucide-react';
 
+const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
+
 export default function MonitoringPage() {
-  const { isPlatformAdmin, tenantId } = useTenant();
+  const { isPlatformAdmin, tenantId, user } = useTenant();
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [actioningJob, setActioningJob] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [jobFilter, setJobFilter] = useState('active'); // all | active | completed
+  const isSuperAdmin = user?.email?.toLowerCase() === APP_OWNER_EMAIL.toLowerCase();
 
   const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
     queryKey: ['error-logs'],
@@ -57,12 +61,29 @@ export default function MonitoringPage() {
     staleTime: 10000
   });
 
-  const { data: jobs = [], refetch: refetchJobs } = useQuery({
-    queryKey: ['background-jobs', tenantId, isPlatformAdmin],
+  // Fetch workspaces for super admin
+  const { data: workspaces = [] } = useQuery({
+    queryKey: ['workspaces-for-jobs'],
     queryFn: async () => {
-      // Filter by workspace if not platform admin
-      const query = isPlatformAdmin ? {} : { tenant_id: tenantId };
-      return apiClient.list('BackgroundJob', query, '-created_date', 100, { useCache: false });
+      if (!isSuperAdmin) return [];
+      const allTenants = await base44.asServiceRole.entities.Tenant.filter({});
+      return allTenants.filter(t => !t.deleted_at);
+    },
+    staleTime: 60000,
+    enabled: isSuperAdmin
+  });
+
+  const workspaceMap = {};
+  workspaces.forEach(ws => {
+    workspaceMap[ws.id] = ws.name || ws.slug || ws.id;
+  });
+
+  const { data: jobs = [], refetch: refetchJobs } = useQuery({
+    queryKey: ['background-jobs', tenantId, isSuperAdmin],
+    queryFn: async () => {
+      // Super admin sees ALL jobs; workspace users see only their workspace jobs
+      const query = isSuperAdmin ? {} : { tenant_id: tenantId };
+      return apiClient.list('BackgroundJob', query, '-started_at', 100, { useCache: false });
     },
     staleTime: 3000,
     enabled: !!tenantId
