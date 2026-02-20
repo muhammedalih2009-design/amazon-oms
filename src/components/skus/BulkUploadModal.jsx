@@ -403,14 +403,30 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
           const toUpdate = [];
           const toSkip = [];
 
-          batch.forEach(row => {
+          for (const row of batch) {
             const existing = existingMap[row.sku_code];
+            
+            // Resolve supplier to supplier_id (async within loop)
+            let supplierId = null;
+            if (row.supplier) {
+              try {
+                supplierId = await resolveOrCreateSupplier(tenantId, row.supplier, supplierCache);
+              } catch (err) {
+                batchResults.failed.push({
+                  sku_code: row.sku_code,
+                  product_name: row.product_name,
+                  error_reason: `Supplier error: ${err.message}`
+                });
+                continue;
+              }
+            }
+
             const skuData = {
               tenant_id: tenantId,
               sku_code: row.sku_code,
               product_name: row.product_name,
               cost_price: parseFloat(row.cost),
-              supplier_id: row.supplier || null,
+              supplier_id: supplierId,
               image_url: row.image_url || null,
               _stock: parseInt(row.stock) || 0
             };
@@ -424,7 +440,7 @@ export default function BulkUploadModal({ open, onClose, onComplete }) {
             } else {
               toCreate.push(skuData);
             }
-          });
+          }
 
           // Bulk create new SKUs
           if (toCreate.length > 0) {
