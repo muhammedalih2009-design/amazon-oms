@@ -152,6 +152,10 @@ Deno.serve(async (req) => {
       const percent = Math.round((processedCount / job.params.total_skus) * 100);
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         status: currentDelay === THROTTLED_DELAY ? 'throttled' : 'running',
+        progress_percent: percent,
+        processed_count: processedCount,
+        success_count: deletedCount,
+        failed_count: errorCount,
         progress: {
           current: processedCount,
           total: job.params.total_skus,
