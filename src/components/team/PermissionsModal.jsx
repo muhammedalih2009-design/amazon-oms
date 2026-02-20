@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { CheckCircle2, XCircle, Filter, Eye, Edit } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { getPermissionModules } from '@/components/shared/modulesConfig';
+import { getPermissionModules, WORKSPACE_MODULES } from '@/components/shared/modulesConfig';
 import { useLanguage } from '@/components/contexts/LanguageContext';
 
 // DYNAMIC: Fetch modules from single source of truth

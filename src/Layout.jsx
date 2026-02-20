@@ -13,7 +13,7 @@ import WorkspaceAccessGuard from '@/components/shared/WorkspaceAccessGuard';
 import WorkspaceRouteGuard from '@/components/shared/WorkspaceRouteGuard';
 import PendingInvitesChecker from '@/components/shared/PendingInvitesChecker';
 import { Toaster } from '@/components/ui/toaster';
-import { getNavigableModules } from '@/components/shared/modulesConfig';
+import { getSidebarItems } from '@/components/shared/modulesConfig';
 import {
   Menu,
   X,
@@ -37,8 +37,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// DYNAMIC: Load nav items from single source of truth
-const navItems = getNavigableModules();
+// REMOVED: navItems are now computed dynamically per user
 
 const APP_OWNER_EMAIL = 'muhammedalih.2009@gmail.com';
 
@@ -51,9 +50,12 @@ const adminNavItems = [
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin, canViewPage, isOwner, isModuleEnabled, noAccess, hasWorkspaceAccess } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, permissions, isOwner, isModuleEnabled, noAccess, hasWorkspaceAccess } = useTenant();
   const { t, language, toggleLanguage, isRTL } = useLanguage();
   const { theme, toggleTheme, isDark } = useTheme();
+
+  // DYNAMIC: Compute sidebar items based on user permissions
+  const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin);
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -119,43 +121,28 @@ function LayoutContent({ children, currentPageName }) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             {noAccess && !isPlatformAdmin ? (
-              /* No workspace access - show empty state */
+              /* SECURITY: No workspace access - show empty state ONLY */
               <div className="px-4 py-6 text-center">
                 <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: 'var(--warning-soft)' }}>
                   <Shield className="w-6 h-6" style={{ color: 'var(--warning)' }} />
                 </div>
                 <p className="text-sm font-medium mb-2" style={{ color: 'var(--text)' }}>
-                  {t('no_workspaces') || 'No Workspaces'}
+                  No Workspaces Assigned
                 </p>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {t('contact_admin') || 'Contact administrator for access'}
+                  Contact the app administrator to request workspace access
                 </p>
               </div>
             ) : (
-              /* Has workspace access - render navigation */
+              /* Has workspace access - render items from single source of truth */
               navItems.map((item) => {
-                // Check module access first
-                if (item.moduleKey && !isModuleEnabled(item.moduleKey)) {
-                  return null; // Hide disabled modules
-                }
-
-                // For modules with permissions, check if user has view access
-                if (item.hasPermissions && !isOwner && !canViewPage(item.moduleKey)) {
-                  return null;
-                }
-
-                // For admin-only modules, only show to owners
-                if (item.adminOnly && !isOwner) {
-                  return null;
-                }
-
-                const isActive = currentPageName === item.page;
+                const isActive = currentPageName === item.route;
                 const Icon = item.icon;
                 
                 return (
                   <Link
-                    key={item.page}
-                    to={createPageUrl(item.page)}
+                    key={item.key}
+                    to={createPageUrl(item.route)}
                     onClick={() => setSidebarOpen(false)}
                     className={`
                       flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
@@ -163,14 +150,13 @@ function LayoutContent({ children, currentPageName }) {
                       ${isActive 
                         ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' 
                         : ''}
-                      ${item.adminOnly && !isActive ? 'border border-slate-200' : ''}
                     `}
                     style={!isActive ? { color: 'var(--text-muted)' } : {}}
                     onMouseEnter={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'var(--hover-bg)')}
                     onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                    <span className="font-medium">{t(item.nameKey)}</span>
+                    <span className="font-medium">{item.label}</span>
                   </Link>
                 );
               })

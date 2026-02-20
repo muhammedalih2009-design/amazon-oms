@@ -9,119 +9,159 @@ import {
   Users,
   CheckSquare,
   Store,
-  Settings
+  Settings,
+  UsersRound,
+  Database
 } from 'lucide-react';
 
 /**
+ * ============================================================
  * SINGLE SOURCE OF TRUTH FOR ALL WORKSPACE MODULES
+ * ============================================================
  * 
- * Every module must be defined here with:
- * - moduleKey: unique identifier (matches WorkspaceModule.module_key)
- * - nameKey: translation key for display
+ * RULES:
+ * 1. This is the ONLY place to define workspace modules
+ * 2. Sidebar navigation is built EXCLUSIVELY from this config
+ * 3. Permission checks are driven by this config
+ * 4. NO hardcoded module lists anywhere else
+ * 
+ * Each module has:
+ * - key: unique identifier (matches Membership.permissions[key])
+ * - label: display name (English)
+ * - route: page route (for navigation)
  * - icon: Lucide icon component
- * - page: React Router page name (if navigable)
- * - hasPermissions: whether this module supports view/edit permissions
- * - adminOnly: whether only owners can manage access (e.g., team, settings)
+ * - group: category for sidebar grouping
+ * - hasPermissions: whether this module has view/edit permissions
+ * - adminOnly: whether only owners can see this module
  */
 
 export const WORKSPACE_MODULES = [
+  // General
   {
-    moduleKey: 'dashboard',
-    nameKey: 'dashboard',
+    key: "dashboard",
+    label: "Dashboard",
+    route: "Dashboard",
     icon: LayoutDashboard,
-    page: 'Dashboard',
+    group: "General",
     hasPermissions: true,
     adminOnly: false
   },
+  
+  // Inventory
   {
-    moduleKey: 'skus_products',
-    nameKey: 'skus_products',
+    key: "skus_products",
+    label: "SKUs / Products",
+    route: "SKUs",
     icon: Package,
-    page: 'SKUs',
+    group: "Inventory",
     hasPermissions: true,
     adminOnly: false
   },
   {
-    moduleKey: 'orders',
-    nameKey: 'orders',
-    icon: ShoppingCart,
-    page: 'Orders',
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    moduleKey: 'profitability',
-    nameKey: 'profitability',
-    icon: TrendingUp,
-    page: 'Profitability',
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    moduleKey: 'purchase_requests',
-    nameKey: 'purchase_requests',
+    key: "purchase_requests",
+    label: "Purchase Requests",
+    route: "PurchaseRequests",
     icon: ClipboardList,
-    page: 'PurchaseRequests',
+    group: "Inventory",
     hasPermissions: true,
     adminOnly: false
   },
   {
-    moduleKey: 'purchases',
-    nameKey: 'purchases',
+    key: "purchases",
+    label: "Purchases",
+    route: "Purchases",
     icon: Truck,
-    page: 'Purchases',
+    group: "Inventory",
     hasPermissions: true,
     adminOnly: false
   },
   {
-    moduleKey: 'returns',
-    nameKey: 'returns',
-    icon: RotateCcw,
-    page: 'Returns',
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    moduleKey: 'suppliers',
-    nameKey: 'suppliers',
-    icon: Users,
-    page: 'SuppliersStores',
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    moduleKey: 'tasks',
-    nameKey: 'tasks',
-    icon: CheckSquare,
-    page: 'Tasks',
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
-    moduleKey: 'team',
-    nameKey: 'team',
-    icon: Users,
-    page: 'Team',
-    hasPermissions: true,
-    adminOnly: true // Only owners can grant team access
-  },
-  {
-    moduleKey: 'backup_data',
-    nameKey: 'backup_data',
+    key: "suppliers",
+    label: "Suppliers & Stores",
+    route: "SuppliersStores",
     icon: Store,
-    page: 'BackupData',
-    hasPermissions: true, // Now has granular permissions
+    group: "Inventory",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  
+  // Operations
+  {
+    key: "orders",
+    label: "Orders",
+    route: "Orders",
+    icon: ShoppingCart,
+    group: "Operations",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  {
+    key: "returns",
+    label: "Returns",
+    route: "Returns",
+    icon: RotateCcw,
+    group: "Operations",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  
+  // Finance
+  {
+    key: "profitability",
+    label: "Profitability",
+    route: "Profitability",
+    icon: TrendingUp,
+    group: "Finance",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  
+  // Task Management
+  {
+    key: "tasks",
+    label: "Tasks",
+    route: "Tasks",
+    icon: CheckSquare,
+    group: "Task Mgmt",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  
+  // Admin
+  {
+    key: "team",
+    label: "Team",
+    route: "Team",
+    icon: UsersRound,
+    group: "Admin",
+    hasPermissions: true,
     adminOnly: true
   },
   {
-    moduleKey: 'settings',
-    nameKey: 'settings',
+    key: "backup_data",
+    label: "Backup Data",
+    route: "BackupData",
+    icon: Database,
+    group: "Admin",
+    hasPermissions: true,
+    adminOnly: true
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    route: "Settings",
     icon: Settings,
-    page: 'Settings',
-    hasPermissions: true, // Now has granular permissions
+    group: "Admin",
+    hasPermissions: true,
     adminOnly: true
   }
 ];
+
+/**
+ * ============================================================
+ * HELPER FUNCTIONS
+ * ============================================================
+ */
 
 /**
  * Get default permissions object for a new member
@@ -132,8 +172,8 @@ export function getDefaultPermissions() {
   
   WORKSPACE_MODULES.forEach(module => {
     if (module.hasPermissions) {
-      permissions[module.moduleKey] = {
-        view: module.moduleKey === 'dashboard', // Dashboard view enabled by default
+      permissions[module.key] = {
+        view: module.key === 'dashboard', // Dashboard view enabled by default
         edit: false
       };
     }
@@ -150,17 +190,17 @@ export function getPermissionModules() {
 }
 
 /**
- * Get navigable modules (for sidebar)
+ * Get navigable modules (for sidebar rendering)
  */
 export function getNavigableModules() {
-  return WORKSPACE_MODULES.filter(m => m.page);
+  return WORKSPACE_MODULES.filter(m => m.route);
 }
 
 /**
  * Get module config by key
  */
 export function getModuleByKey(moduleKey) {
-  return WORKSPACE_MODULES.find(m => m.moduleKey === moduleKey);
+  return WORKSPACE_MODULES.find(m => m.key === moduleKey);
 }
 
 /**
@@ -173,4 +213,31 @@ export function hasModulePermission(permissions, moduleKey, permissionType = 'vi
   if (!modulePerms) return false;
   
   return modulePerms[permissionType] === true;
+}
+
+/**
+ * Get sidebar nav items filtered by user permissions
+ * SECURITY: Returns empty array if noAccess=true
+ */
+export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin) {
+  // HARD BLOCK: No workspace access = no sidebar items
+  if (noAccess && !isPlatformAdmin) {
+    return [];
+  }
+
+  return WORKSPACE_MODULES
+    .filter(module => {
+      // Must have a route to be navigable
+      if (!module.route) return false;
+
+      // Owner sees everything (no permission checks)
+      if (isOwner) return true;
+
+      // If module has permissions, check view access
+      if (module.hasPermissions) {
+        return permissions[module.key]?.view === true;
+      }
+
+      return true;
+    });
 }
