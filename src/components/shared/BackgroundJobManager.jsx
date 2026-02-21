@@ -98,13 +98,24 @@ export default function BackgroundJobManager() {
   };
 
   useEffect(() => {
+    if (!tenantId) return;
+
     fetchJobs();
     
-    if (jobs.length > 0) {
-      const interval = setInterval(fetchJobs, pollInterval);
-      return () => clearInterval(interval);
+    // Only poll if there are active jobs
+    const interval = setInterval(() => {
+      fetchJobs();
+    }, pollInterval);
+
+    return () => clearInterval(interval);
+  }, [tenantId, pollInterval]);
+  
+  // Stop polling when no jobs exist
+  useEffect(() => {
+    if (jobs.length === 0) {
+      setPollInterval(10000); // Reset to default
     }
-  }, [tenantId, jobs.length, pollInterval]);
+  }, [jobs.length]);
 
   if (jobs.length === 0) return null;
 
