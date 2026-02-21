@@ -94,26 +94,24 @@ Deno.serve(async (req) => {
       throw dbError;
     }
 
-    // Create audit log (non-blocking - don't fail the request if this fails)
-    try {
-      await base44.asServiceRole.entities.AuditLog.create({
-        workspace_id,
-        actor_user_id: user.id,
-        action: 'update_workspace_settings',
-        target_type: 'WorkspaceSettings',
-        target_id: result.id,
-        meta: {
-          currency_code: updateData.currency_code || null,
-          telegram_updated: !!(updateData.telegram_bot_token || updateData.telegram_chat_id)
-        }
-      });
-    } catch (auditError) {
-      console.warn('[updateWorkspaceSettings] Audit log failed (non-blocking):', auditError.message);
-      // Don't throw - audit log failure should not block settings update
-    }
-
-    // SUCCESS: Always return after DB update succeeds
+    // SUCCESS: Return immediately after DB update succeeds
     console.log(`[updateWorkspaceSettings] SUCCESS workspace_id=${workspace_id}`);
+    
+    // Create audit log asynchronously (don't await - fire and forget)
+    base44.asServiceRole.entities.AuditLog.create({
+      workspace_id,
+      actor_user_id: user.id,
+      action: 'update_workspace_settings',
+      target_type: 'WorkspaceSettings',
+      target_id: result.id,
+      meta: {
+        currency_code: updateData.currency_code || null,
+        telegram_updated: !!(updateData.telegram_bot_token || updateData.telegram_chat_id)
+      }
+    }).catch(auditError => {
+      console.warn('[updateWorkspaceSettings] Audit log failed (non-blocking):', auditError.message);
+    });
+    
     return Response.json({
       ok: true,
       settings: result
