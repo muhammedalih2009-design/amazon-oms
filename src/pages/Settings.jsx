@@ -167,7 +167,7 @@ export default function Settings() {
       const { data, status } = await base44.functions.invoke('updateWorkspaceSettings', payload);
 
       // Success: check both data.ok and HTTP status
-      if (status === 200 && data?.ok === true) {
+      if (status === 200 && (data?.ok === true || data?.success === true)) {
         // Mark as saved and reload to confirm persistence
         setHasSavedToken(true);
         setTelegramBotToken(''); // Clear token field after save
