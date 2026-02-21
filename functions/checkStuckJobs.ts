@@ -1,8 +1,8 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 /**
- * Failsafe function to cancel jobs stuck in "cancelling" state
- * Should be called periodically (e.g., via automation every 5 minutes)
+ * CRITICAL FAILSAFE: Cancel jobs stuck in "cancelling" OR dead jobs with no heartbeat
+ * Runs every 5 minutes via automation
  * Super Admin only
  */
 
@@ -17,54 +17,83 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Platform admin access required' }, { status: 403 });
     }
 
-    console.log('[checkStuckJobs] Starting stuck jobs check...');
+    console.log('[checkStuckJobs] Starting aggressive stuck jobs cleanup...');
 
-    // Find jobs stuck in "cancelling" for more than 2 minutes
-    const stuckCancelTimeout = 2 * 60 * 1000; // 2 minutes
     const now = Date.now();
+    const stuckTimeout = 2 * 60 * 1000; // 2 minutes
 
-    const allCancellingJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
-      status: 'cancelling'
+    // Find ALL non-terminal jobs
+    const activeJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
+      status: { $in: ['cancelling', 'running', 'queued', 'paused', 'throttled'] }
     });
 
-    console.log(`[checkStuckJobs] Found ${allCancellingJobs.length} cancelling jobs`);
+    console.log(`[checkStuckJobs] Found ${activeJobs.length} active jobs to check`);
 
     let fixedCount = 0;
+    const fixes = [];
 
-    for (const job of allCancellingJobs) {
-      const cancelRequestedAt = job.cancel_requested_at ? new Date(job.cancel_requested_at).getTime() : null;
-      
-      if (!cancelRequestedAt) {
-        // No timestamp, mark as cancelled immediately
-        console.log(`[checkStuckJobs] Fixing job ${job.id} (no cancel timestamp)`);
-        await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString(),
-          error_message: 'Cancelled by failsafe (stuck in cancelling state)'
-        });
-        fixedCount++;
-        continue;
+    for (const job of activeJobs) {
+      let shouldFix = false;
+      let reason = '';
+
+      // CASE 1: Stuck in "cancelling" for > 2 minutes
+      if (job.status === 'cancelling') {
+        const cancelRequestedAt = job.cancel_requested_at ? new Date(job.cancel_requested_at).getTime() : null;
+        
+        if (!cancelRequestedAt) {
+          shouldFix = true;
+          reason = 'stuck_in_cancelling_no_timestamp';
+        } else {
+          const timeInCancelling = now - cancelRequestedAt;
+          if (timeInCancelling > stuckTimeout) {
+            shouldFix = true;
+            reason = `stuck_in_cancelling_${Math.round(timeInCancelling / 1000)}s`;
+          }
+        }
       }
 
-      const timeInCancelling = now - cancelRequestedAt;
-      
-      if (timeInCancelling > stuckCancelTimeout) {
-        console.log(`[checkStuckJobs] Fixing job ${job.id} (stuck for ${Math.round(timeInCancelling / 1000)}s)`);
-        await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString(),
-          error_message: 'Cancelled by failsafe (timeout in cancelling state)'
-        });
-        fixedCount++;
+      // CASE 2: Running/queued but no heartbeat for > 2 minutes
+      if (['running', 'queued'].includes(job.status)) {
+        const lastUpdate = job.last_heartbeat_at || job.updated_date || job.created_date;
+        const timeSinceUpdate = now - new Date(lastUpdate).getTime();
+        
+        if (timeSinceUpdate > stuckTimeout) {
+          shouldFix = true;
+          reason = `no_heartbeat_${Math.round(timeSinceUpdate / 1000)}s`;
+        }
+      }
+
+      if (shouldFix) {
+        console.log(`[checkStuckJobs] Fixing job ${job.id} (${job.job_type}): ${reason}`);
+        
+        try {
+          await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+            status: 'cancelled',
+            completed_at: new Date().toISOString(),
+            error_message: `Auto-cancelled by failsafe: ${reason}`,
+            progress_percent: job.progress_percent || 0
+          });
+
+          fixedCount++;
+          fixes.push({
+            job_id: job.id,
+            job_type: job.job_type,
+            previous_status: job.status,
+            reason
+          });
+        } catch (error) {
+          console.error(`[checkStuckJobs] Failed to fix job ${job.id}:`, error);
+        }
       }
     }
 
-    console.log(`[checkStuckJobs] Fixed ${fixedCount} stuck jobs`);
+    console.log(`[checkStuckJobs] Fixed ${fixedCount} stuck jobs:`, fixes);
 
     return Response.json({
       ok: true,
-      checked: allCancellingJobs.length,
-      fixed: fixedCount
+      checked: activeJobs.length,
+      fixed: fixedCount,
+      fixes
     });
   } catch (error) {
     console.error('[checkStuckJobs] Error:', error);

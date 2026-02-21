@@ -39,11 +39,12 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, cancelled: true });
     }
 
-    // Update job to running
+    // Update job to running with heartbeat
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
       status: 'running',
       started_at: new Date().toISOString(),
-      progress_percent: 0
+      progress_percent: 0,
+      last_heartbeat_at: new Date().toISOString()
     });
 
     // Fetch all current stock records
@@ -161,14 +162,15 @@ Deno.serve(async (req) => {
           totalProcessed++;
         }
 
-        // Update progress every 5 items
+        // Update progress every 5 items with heartbeat
         if (totalProcessed % 5 === 0) {
           const percent = Math.floor((totalProcessed / totalSteps) * 100);
           await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
             processed_count: totalProcessed,
             success_count: successCount,
             failed_count: failedCount,
-            progress_percent: percent
+            progress_percent: percent,
+            last_heartbeat_at: new Date().toISOString()
           });
         }
       }

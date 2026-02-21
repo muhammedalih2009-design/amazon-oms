@@ -39,9 +39,11 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, cancelled: true });
     }
 
-    // Update status to running
+    // Update status to running with heartbeat
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-      status: 'running'
+      status: 'running',
+      started_at: new Date().toISOString(),
+      last_heartbeat_at: new Date().toISOString()
     });
 
     const { tenant_id } = job;
@@ -206,12 +208,13 @@ Deno.serve(async (req) => {
 
       currentIndex = chunkEnd;
       
-      // Update job progress with standard fields
+      // Update job progress with standard fields and heartbeat
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         processed_count: successCount + failCount,
         success_count: successCount,
         failed_count: failCount,
-        progress_percent: Math.round(((successCount + failCount) / rows.length) * 100)
+        progress_percent: Math.round(((successCount + failCount) / rows.length) * 100),
+        last_heartbeat_at: new Date().toISOString()
       });
     }
 
