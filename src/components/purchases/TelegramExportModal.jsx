@@ -18,6 +18,7 @@ export default function TelegramExportModal({
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
   const [polling, setPolling] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   const supplierCount = [...new Set(items.map(i => i.supplier || 'Unassigned'))].length;
 
@@ -86,6 +87,34 @@ export default function TelegramExportModal({
         description: error.message || 'Unknown error occurred',
         variant: 'destructive'
       });
+    }
+  };
+
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      await base44.functions.invoke('resumeTelegramExport', {
+        jobId,
+        tenantId
+      });
+      
+      // Reset to processing step and restart polling
+      setStep('processing');
+      setStatus(null);
+      
+      toast({
+        title: 'Export Resumed',
+        description: 'Continuing from where it stopped...'
+      });
+    } catch (error) {
+      console.error('[Resume] Error:', error);
+      toast({
+        title: 'Failed to Resume',
+        description: error.message || 'Unknown error occurred',
+        variant: 'destructive'
+      });
+    } finally {
+      setResuming(false);
     }
   };
 
@@ -245,11 +274,14 @@ export default function TelegramExportModal({
                   <div className="text-center space-y-2">
                     <AlertCircle className="w-16 h-16 text-red-600 mx-auto" />
                     <p className="text-lg font-semibold text-slate-900">
-                      Export failed
+                      Export stopped
                     </p>
                     {status.errorMessage && (
-                      <p className="text-sm text-red-600">{status.errorMessage}</p>
+                      <p className="text-sm text-red-600 mb-2">{status.errorMessage}</p>
                     )}
+                    <p className="text-sm text-slate-600">
+                      Completed: {status.sentItems}/{status.totalItems} items ({status.progressPercent}%)
+                    </p>
                   </div>
                 )}
               </div>
@@ -298,12 +330,36 @@ export default function TelegramExportModal({
                   Download Failed Items CSV
                 </Button>
               )}
+
+              {status.status === 'failed' && (
+                <Button
+                  onClick={handleResume}
+                  disabled={resuming}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {resuming ? (
+                    <>
+                      <Loader className="w-4 h-4 mr-2 animate-spin" />
+                      Resuming...
+                    </>
+                  ) : (
+                    '▶️ Resume Export'
+                  )}
+                </Button>
+              )}
             </div>
 
-            <div className="flex justify-end">
-              <Button onClick={onClose}>
-                Close
-              </Button>
+            <div className="flex justify-end gap-2">
+              {status.status === 'failed' && (
+                <Button variant="outline" onClick={onClose}>
+                  Close & Resume Later
+                </Button>
+              )}
+              {status.status !== 'failed' && (
+                <Button onClick={onClose}>
+                  Close
+                </Button>
+              )}
             </div>
           </>
         )}
