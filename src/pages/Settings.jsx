@@ -385,6 +385,13 @@ export default function Settings() {
           </div>
         </div>
       </PremiumCollapsibleSection>
+
+      <ModuleManagementModal
+        open={showModuleModal}
+        onClose={() => setShowModuleModal(false)}
+        workspaceId={tenant?.id}
+        workspaceName={tenant?.name}
+      />
     </div>
   );
 }
