@@ -4,7 +4,7 @@ import { useTenant } from '@/components/hooks/useTenant';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { X, Pause, Play, Ban, Loader2, AlertTriangle, RotateCcw } from 'lucide-react';
+import { X, Pause, Play, Ban, Loader2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function BackgroundJobManager() {
@@ -300,33 +300,6 @@ export default function BackgroundJobManager() {
     setDismissedJobIds(prev => new Set([...prev, jobId]));
   };
 
-  const revertJob = async (jobId, jobType) => {
-    try {
-      const { data } = await base44.functions.invoke('revertBackgroundJob', {
-        job_id: jobId,
-        job_type: jobType
-      });
-
-      if (data.ok) {
-        toast({
-          title: 'Revert started',
-          description: 'Reverting changes from this job...',
-          duration: 3000
-        });
-        fetchJobs();
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (error) {
-      console.error('[Job Manager] Revert error:', error);
-      toast({
-        title: 'Revert failed',
-        description: error.message || 'Failed to revert job',
-        variant: 'destructive'
-      });
-    }
-  };
-
   return (
     <div className="fixed bottom-4 right-4 z-50 w-96 space-y-2">
       {jobs.map(job => (
@@ -437,19 +410,6 @@ export default function BackgroundJobManager() {
                 </>
               )}
             </div>
-
-            {['sku_bulk_upload', 'purchases_bulk_upload', 'reset_stock'].includes(job.job_type) && 
-             ['completed', 'failed'].includes(job.status) && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => revertJob(job.id, job.job_type)}
-                className="w-full text-amber-600 border-amber-200 hover:bg-amber-50"
-              >
-                <RotateCcw className="w-3 h-3 mr-1" />
-                Revert Changes
-              </Button>
-            )}
 
             <p className="text-xs text-slate-500">
               Polling every 5s • Workspace: {job.tenant_id?.slice(0, 8)}
