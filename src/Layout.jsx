@@ -54,12 +54,20 @@ function LayoutContent({ children, currentPageName }) {
   const { t, language, toggleLanguage, isRTL } = useLanguage();
   const { theme, toggleTheme, isDark } = useTheme();
 
-  // B) DYNAMIC: Compute sidebar items based on permissions AND enabled modules
-  const enabledModuleKeys = isModuleEnabled ? 
-    (workspaceModules?.map(m => m.module_key).filter(k => {
-      const mod = workspaceModules.find(wm => wm.module_key === k);
-      return mod?.enabled === true;
-    }) || null) : null;
+  // B) DYNAMIC: Compute enabled modules list for sidebar filtering
+  const enabledModuleKeys = React.useMemo(() => {
+    if (isPlatformAdmin) return null; // Platform admin sees all
+    if (!tenant?.id) return null;
+    if (!isModuleEnabled) return null;
+    
+    // If no modules configured, all are enabled by default
+    if (!workspaceModules || workspaceModules.length === 0) return null;
+    
+    // Return only enabled module keys
+    return workspaceModules
+      .filter(m => m.enabled === true)
+      .map(m => m.module_key);
+  }, [isPlatformAdmin, tenant, workspaceModules, isModuleEnabled]);
   
   const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModuleKeys);
 
