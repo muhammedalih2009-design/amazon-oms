@@ -98,6 +98,7 @@ Deno.serve(async (req) => {
     console.log(`[updateWorkspaceSettings] SUCCESS workspace_id=${workspace_id} user=${user.email}`);
     
     return Response.json({
+      success: true,
       ok: true,
       settings: result
     });
