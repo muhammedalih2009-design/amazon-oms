@@ -42,7 +42,7 @@ export default function SKUKPICards({ skus, currentStock, loading, lowStockThres
     },
     {
       title: 'Stock Value',
-      value: `$${stockValue.toFixed(2)}`,
+      value: formatCurrency(stockValue, currency, locale),
       icon: DollarSign,
       iconBg: 'bg-green-100',
       iconColor: 'text-green-600'
