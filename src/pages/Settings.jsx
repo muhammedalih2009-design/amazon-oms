@@ -94,7 +94,7 @@ export default function Settings() {
       });
 
       // Success: check both data.ok and HTTP status
-      if (status === 200 && data?.ok === true) {
+      if (status === 200 && (data?.ok === true || data?.success === true)) {
         toast({
           title: t('settings.settings_saved'),
           description: `${t('settings.currency')}: ${currencyCode}`
