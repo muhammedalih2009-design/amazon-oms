@@ -29,16 +29,25 @@ export default function BackgroundJobManager() {
         { useCache: false }
       );
 
-      // Filter out invalid/stale jobs
+      // Filter out invalid/stale jobs - be very strict
       const validJobs = activeJobs.filter(job => {
         // Must have a valid job_type
-        if (!job.job_type) return false;
+        if (!job.job_type) {
+          console.log('[Job Manager] Filtering out job without job_type:', job.id);
+          return false;
+        }
         
-        // Must have valid total_count (not 0)
-        if (!job.total_count || job.total_count === 0) return false;
+        // Must have valid total_count (must exist and be > 0)
+        const totalCount = job.total_count || job.progress?.total || 0;
+        if (totalCount === 0) {
+          console.log('[Job Manager] Filtering out job with 0 total_count:', job.id, job.job_type);
+          return false;
+        }
         
-        // If progress exists, ensure it has valid data
-        if (job.progress && job.progress.total === 0 && job.progress.current === 0) {
+        // Additional safety: if both processed and total are 0, skip it
+        const processedCount = job.processed_count || job.progress?.current || 0;
+        if (totalCount === 0 && processedCount === 0) {
+          console.log('[Job Manager] Filtering out job with 0/0 progress:', job.id);
           return false;
         }
         
@@ -133,7 +142,8 @@ export default function BackgroundJobManager() {
     }
   }, [jobs.length]);
 
-  if (jobs.length === 0) return null;
+  // Don't render if no valid jobs exist
+  if (!jobs || jobs.length === 0) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-96 space-y-2">
