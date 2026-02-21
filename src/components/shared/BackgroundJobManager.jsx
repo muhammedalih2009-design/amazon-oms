@@ -11,24 +11,16 @@ export default function BackgroundJobManager() {
   const { tenant, isPlatformAdmin, user } = useTenant();
   const { toast } = useToast();
   
-  // CRITICAL: Move all hooks BEFORE any conditional returns (React rules of hooks)
+  // CRITICAL: ALL hooks BEFORE any conditional logic
   const tenantId = tenant?.id;
   const [jobs, setJobs] = useState([]);
   const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
   const pollIntervalRef = useRef(null);
   
-  // Check platform admin AFTER all hooks
+  // Check platform admin status
   const isSuperAdmin = isPlatformAdmin || user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
   
-  // SECURITY: Early return AFTER all hooks (fixes hooks order warning)
-  if (!isSuperAdmin) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[Job Manager] Access denied - not platform admin');
-    }
-    return null;
-  }
-  
-  // Debug logging (only in dev)
+  // Debug logging (MUST be before early return)
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production') {
       console.log('[Job Manager] User access check:', {
@@ -40,6 +32,109 @@ export default function BackgroundJobManager() {
       });
     }
   }, [user, isPlatformAdmin, isSuperAdmin]);
+
+  // Main polling effect (MUST be before early return)
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      console.log('[Job Manager] Not super admin - no polling');
+      setJobs([]);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Fetch function defined inline to avoid dependency issues
+    const fetchJobs = async () => {
+      try {
+        const { data } = await base44.functions.invoke('listBackgroundJobs', {});
+        
+        if (!data.ok) {
+          throw new Error(data.error || 'Failed to fetch jobs');
+        }
+
+        const activeJobs = data.jobs || [];
+        console.log('[Job Manager] Fetched jobs:', activeJobs.length);
+
+        // Validate jobs
+        const validJobs = activeJobs.filter(job => {
+          if (!job.job_type || !job.total_count || job.total_count === 0) return false;
+          const jobAge = Date.now() - new Date(job.created_date).getTime();
+          const hoursSinceCreated = jobAge / (1000 * 60 * 60);
+          return !(hoursSinceCreated > 24 && job.status === 'running');
+        });
+
+        // De-duplicate
+        const uniqueJobs = [];
+        const seenIds = new Set();
+        for (const job of validJobs) {
+          if (!seenIds.has(job.id)) {
+            seenIds.add(job.id);
+            uniqueJobs.push(job);
+          }
+        }
+
+        // Filter dismissed
+        const visibleJobs = uniqueJobs.filter(job => !dismissedJobIds.has(job.id));
+        setJobs(visibleJobs);
+
+        // Clean up dismissed IDs
+        const activeJobIds = new Set(validJobs.map(j => j.id));
+        const newDismissedIds = new Set([...dismissedJobIds].filter(id => activeJobIds.has(id)));
+        if (newDismissedIds.size !== dismissedJobIds.size) {
+          setDismissedJobIds(newDismissedIds);
+        }
+
+        // Stop polling if no jobs
+        if (uniqueJobs.length === 0) {
+          console.log('[Job Manager] No jobs - stopping polling');
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+        }
+      } catch (error) {
+        console.error('[Job Manager] Fetch error:', error);
+        if (error.response?.status === 403 || error.status === 403) {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+        }
+        setJobs([]);
+      }
+    };
+
+    // Initial fetch
+    console.log('[Job Manager] Initial fetch');
+    fetchJobs();
+
+    // Start polling
+    if (!pollIntervalRef.current) {
+      console.log('[Job Manager] Starting polling');
+      pollIntervalRef.current = setInterval(fetchJobs, 5000);
+    }
+
+    // Cleanup
+    return () => {
+      console.log('[Job Manager] Cleanup');
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [isSuperAdmin, dismissedJobIds]);
+
+  // SECURITY: Early return AFTER all hooks
+  if (!isSuperAdmin) {
+    return null;
+  }
+
+  // Don't render if no jobs
+  if (!jobs || jobs.length === 0) {
+    return null;
+  }
 
   const fetchJobs = async () => {
     if (!isSuperAdmin) {
@@ -199,48 +294,6 @@ export default function BackgroundJobManager() {
       });
     }
   };
-
-  // Main effect: Start/stop polling based on super admin status
-  useEffect(() => {
-    if (!isSuperAdmin) {
-      console.log('[Job Manager] Not super admin - no polling');
-      setJobs([]);
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // Initial fetch
-    console.log('[Job Manager] Initial fetch (super admin)');
-    fetchJobs();
-
-    // Start polling every 5 seconds for faster updates
-    if (!pollIntervalRef.current) {
-      console.log('[Job Manager] Starting polling (5s interval)');
-      pollIntervalRef.current = setInterval(() => {
-        fetchJobs();
-      }, 5000);
-    }
-
-    // Cleanup on unmount
-    return () => {
-      console.log('[Job Manager] Cleaning up polling interval');
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [isSuperAdmin]);
-
-  // Don't render if no valid jobs exist
-  if (!jobs || jobs.length === 0) {
-    console.log('[Job Manager] Not rendering - no jobs');
-    return null;
-  }
-
-  console.log('[Job Manager] Rendering', jobs.length, 'job(s)');
 
   const dismissJob = (jobId) => {
     console.log('[Job Manager] Dismissing job:', jobId);
