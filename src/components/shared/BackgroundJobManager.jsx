@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/components/utils/apiClient';
 import { useTenant } from '@/components/hooks/useTenant';
 import { Card } from '@/components/ui/card';
@@ -11,11 +11,14 @@ export default function BackgroundJobManager() {
   const { tenant } = useTenant();
   const tenantId = tenant?.id;
   const [jobs, setJobs] = useState([]);
-  const [pollInterval, setPollInterval] = useState(10000); // Start at 10s
   const { toast } = useToast();
+  const pollIntervalRef = useRef(null);
 
   const fetchJobs = async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      console.log('[Job Manager] No tenantId - skipping fetch');
+      return;
+    }
 
     try {
       const activeJobs = await apiClient.list(
@@ -29,14 +32,7 @@ export default function BackgroundJobManager() {
         { useCache: false }
       );
 
-      console.log('[Job Manager] Fetched jobs:', activeJobs.length, activeJobs.map(j => ({
-        id: j.id,
-        type: j.job_type,
-        status: j.status,
-        total: j.total_count,
-        processed: j.processed_count,
-        created: j.created_date
-      })));
+      console.log('[Job Manager] Fetched jobs from API:', activeJobs.length);
 
       // STRICT VALIDATION: Filter out any invalid/stale jobs
       const validJobs = activeJobs.filter(job => {
@@ -64,26 +60,22 @@ export default function BackgroundJobManager() {
         return true;
       });
 
+      // ALWAYS set jobs, even if empty - this clears stale UI state
+      console.log('[Job Manager] Setting jobs state:', validJobs.length);
       setJobs(validJobs);
 
-      // If no valid jobs, clear the list completely
-      if (validJobs.length === 0 && jobs.length > 0) {
-        console.log('[Job Manager] Clearing all jobs - none are valid');
-        setJobs([]);
-      }
-
-      // Reset poll interval if jobs exist
-      if (validJobs.length > 0) {
-        setPollInterval(10000);
+      // Stop polling if no jobs exist
+      if (validJobs.length === 0) {
+        console.log('[Job Manager] No valid jobs - stopping polling');
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
       }
     } catch (error) {
       console.error('[Job Manager] Fetch error:', error);
-      
-      // If rate limited, exponentially back off
-      if (error.message?.toLowerCase().includes('rate limit')) {
-        setPollInterval(prev => Math.min(prev * 2, 60000));
-        console.log(`[Job Manager] Rate limited, increasing poll interval to ${pollInterval}ms`);
-      }
+      // On error, clear jobs to avoid showing stale data
+      setJobs([]);
     }
   };
 
@@ -138,28 +130,47 @@ export default function BackgroundJobManager() {
     }
   };
 
+  // Main effect: Start/stop polling based on tenantId and jobs
   useEffect(() => {
-    if (!tenantId) return;
-
-    fetchJobs();
-    
-    // Only poll if there are active jobs
-    const interval = setInterval(() => {
-      fetchJobs();
-    }, pollInterval);
-
-    return () => clearInterval(interval);
-  }, [tenantId, pollInterval]);
-  
-  // Stop polling when no jobs exist
-  useEffect(() => {
-    if (jobs.length === 0) {
-      setPollInterval(10000); // Reset to default
+    if (!tenantId) {
+      console.log('[Job Manager] No tenantId - clearing jobs and stopping poll');
+      setJobs([]);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
     }
-  }, [jobs.length]);
+
+    // Initial fetch
+    console.log('[Job Manager] Initial fetch for tenant:', tenantId);
+    fetchJobs();
+
+    // Start polling every 10 seconds
+    if (!pollIntervalRef.current) {
+      console.log('[Job Manager] Starting polling (10s interval)');
+      pollIntervalRef.current = setInterval(() => {
+        fetchJobs();
+      }, 10000);
+    }
+
+    // Cleanup on unmount or tenant change
+    return () => {
+      console.log('[Job Manager] Cleaning up polling interval');
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [tenantId]);
 
   // Don't render if no valid jobs exist
-  if (!jobs || jobs.length === 0) return null;
+  if (!jobs || jobs.length === 0) {
+    console.log('[Job Manager] Not rendering - no jobs');
+    return null;
+  }
+
+  console.log('[Job Manager] Rendering', jobs.length, 'job(s)');
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-96 space-y-2">
@@ -180,9 +191,14 @@ export default function BackgroundJobManager() {
                 <div>
                   <p className="font-semibold text-sm text-slate-900">
                     {job.job_type === 'delete_all_skus' && 'Deleting All SKUs'}
+                    {job.job_type === 'reset_stock' && 'Resetting Stock to Zero'}
+                    {job.job_type === 'sku_bulk_upload' && 'Bulk Upload SKUs'}
+                    {job.job_type === 'purchases_bulk_upload' && 'Bulk Upload Purchases'}
+                    {job.job_type === 'telegram_export' && 'Telegram Export'}
+                    {!['delete_all_skus', 'reset_stock', 'sku_bulk_upload', 'purchases_bulk_upload', 'telegram_export'].includes(job.job_type) && (job.job_type || 'Processing')}
                   </p>
                   <p className={`text-xs ${job.status === 'cancelling' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
-                    {job.status === 'cancelling' ? 'Stopping...' : job.progress?.message}
+                    {job.status === 'cancelling' ? 'Stopping...' : (job.progress?.message || job.status)}
                   </p>
                 </div>
               </div>
@@ -190,10 +206,10 @@ export default function BackgroundJobManager() {
 
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs text-slate-600">
-                <span>{job.progress?.current || 0} / {job.progress?.total || 0}</span>
-                <span>{job.progress?.percent || 0}%</span>
+                <span>{job.processed_count || 0} / {job.total_count || 0}</span>
+                <span>{job.progress_percent || 0}%</span>
               </div>
-              <Progress value={job.progress?.percent || 0} className="h-2" />
+              <Progress value={job.progress_percent || 0} className="h-2" />
             </div>
 
             {job.status === 'throttled' && (
@@ -259,7 +275,7 @@ export default function BackgroundJobManager() {
             </div>
 
             <p className="text-xs text-slate-500">
-              Polling every {pollInterval / 1000}s
+              Polling every 10s
             </p>
           </div>
         </Card>
