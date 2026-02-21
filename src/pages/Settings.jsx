@@ -64,14 +64,13 @@ export default function Settings() {
       // Check if token exists in DB
       if (data.telegram_config_present) {
         setHasSavedToken(true);
-        // Don't load actual token - only show placeholder
         setTelegramBotToken('');
-        // Show masked chat_id or leave empty for user to re-enter
+        // Always show the saved chat_id when loaded
         setTelegramChatId(data.telegram_chat_id_display || '');
       } else {
         setHasSavedToken(false);
         setTelegramBotToken('');
-        setTelegramChatId('');
+        setTelegramChatId(data.telegram_chat_id_display || '');
       }
     } catch (error) {
       console.error('Error loading settings:', error);
