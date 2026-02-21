@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
-import { format, parseISO, isWithinInterval } from 'date-fns';
+import { format, parseISO, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays } from 'date-fns';
 import { createPageUrl } from '@/utils';
 import { ClipboardList, ShoppingCart, Check, Calculator, FileDown, Loader, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import RefreshButton from '@/components/shared/RefreshButton';
@@ -596,63 +596,151 @@ export default function PurchaseRequests() {
 
       {/* Date Range Filter */}
       <div className="bg-white rounded-2xl border border-slate-100 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 className="font-semibold text-slate-900">Order Date Range</h3>
-            <p className="text-sm text-slate-500">Calculate needs for pending orders in this period</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline">
-                  <CalendarIcon className="w-4 h-4 mr-2" />
-                  {dateRange?.from ? (
-                    dateRange.to ? (
-                      <>
-                        {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
-                      </>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold text-slate-900">Order Date Range</h3>
+              <p className="text-sm text-slate-500">Calculate needs for pending orders in this period</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline">
+                    <CalendarIcon className="w-4 h-4 mr-2" />
+                    {dateRange?.from ? (
+                      dateRange.to ? (
+                        <>
+                          {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
+                        </>
+                      ) : (
+                        <span className="text-amber-600">Select end date: {format(dateRange.from, 'MMM d, yyyy')}</span>
+                      )
                     ) : (
-                      <span className="text-amber-600">Select end date: {format(dateRange.from, 'MMM d, yyyy')}</span>
-                    )
-                  ) : (
-                    'Pick dates'
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-4" align="end" onPointerDownOutside={(e) => {
-                // Only allow outside close if both dates are selected
-                if (!dateRange?.to) {
-                  e.preventDefault();
-                }
-              }}>
-                <div className="space-y-3">
-                  <Calendar
-                    mode="range"
-                    selected={dateRange}
-                    onSelect={(range) => {
-                      setDateRange(range);
-                      // Keep calendar open - don't close on date selection
-                    }}
-                    month={calendarMonth}
-                    onMonthChange={setCalendarMonth}
-                    numberOfMonths={2}
-                    disabled={false}
-                    defaultMonth={calendarMonth}
-                  />
-                  <Button
-                    onClick={() => {
-                      if (dateRange?.from && dateRange?.to) {
-                        setCalendarOpen(false);
-                      }
-                    }}
-                    disabled={!dateRange?.from || !dateRange?.to}
-                    className="w-full"
-                  >
-                    Done
+                      'Pick dates'
+                    )}
                   </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-4" align="end" onPointerDownOutside={(e) => {
+                  // Only allow outside close if both dates are selected
+                  if (!dateRange?.to) {
+                    e.preventDefault();
+                  }
+                }}>
+                  <div className="space-y-3">
+                    <Calendar
+                      mode="range"
+                      selected={dateRange}
+                      onSelect={(range) => {
+                        setDateRange(range);
+                        // Keep calendar open - don't close on date selection
+                      }}
+                      month={calendarMonth}
+                      onMonthChange={setCalendarMonth}
+                      numberOfMonths={2}
+                      disabled={false}
+                      defaultMonth={calendarMonth}
+                    />
+                    <Button
+                      onClick={() => {
+                        if (dateRange?.from && dateRange?.to) {
+                          setCalendarOpen(false);
+                        }
+                      }}
+                      disabled={!dateRange?.from || !dateRange?.to}
+                      className="w-full"
+                    >
+                      Done
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          
+          {/* Quick Filter Buttons */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = startOfDay(new Date());
+                setDateRange({ from: today, to: endOfDay(new Date()) });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = new Date();
+                const yesterday = startOfDay(subDays(today, 1));
+                setDateRange({ from: yesterday, to: endOfDay(yesterday) });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              Yesterday
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = new Date();
+                const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+                const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+                setDateRange({ from: weekStart, to: weekEnd });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              This Week
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = new Date();
+                const lastWeekStart = startOfWeek(subDays(today, 7), { weekStartsOn: 1 });
+                const lastWeekEnd = endOfWeek(subDays(today, 7), { weekStartsOn: 1 });
+                setDateRange({ from: lastWeekStart, to: lastWeekEnd });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              Last Week
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = new Date();
+                const monthStart = startOfMonth(today);
+                const monthEnd = endOfMonth(today);
+                setDateRange({ from: monthStart, to: monthEnd });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              This Month
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const today = new Date();
+                const lastMonth = subDays(today, 30);
+                const lastMonthStart = startOfMonth(lastMonth);
+                const lastMonthEnd = endOfMonth(lastMonth);
+                setDateRange({ from: lastMonthStart, to: lastMonthEnd });
+                setCalendarOpen(false);
+              }}
+              className="text-xs"
+            >
+              Last Month
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
