@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { AlertTriangle, CheckCircle, Search, Download, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Search, Download, RefreshCw, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
