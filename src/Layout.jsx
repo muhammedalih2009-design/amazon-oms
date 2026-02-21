@@ -174,7 +174,7 @@ function LayoutContent({ children, currentPageName }) {
                     onMouseLeave={(e) => !isActive && (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium">{t(item.translationKey || item.label.toLowerCase().replace(/\s+/g, '_'))}</span>
                   </Link>
                 );
               })
