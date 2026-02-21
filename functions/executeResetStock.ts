@@ -1,5 +1,15 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
+// Cancellation check helper
+async function checkCancellation(base44, jobId) {
+  try {
+    const job = await base44.asServiceRole.entities.BackgroundJob.get(jobId);
+    return job?.status === 'cancelling' || job?.cancel_requested_at;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -16,6 +26,17 @@ Deno.serve(async (req) => {
     const job = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
     if (!job) {
       return Response.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    // Check if already cancelled
+    if (await checkCancellation(base44, job_id)) {
+      console.log(`[executeResetStock] Job ${job_id} cancelled before start`);
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        error_message: 'Cancelled by user'
+      });
+      return Response.json({ ok: true, cancelled: true });
     }
 
     // Update job to running
@@ -48,6 +69,20 @@ Deno.serve(async (req) => {
 
     // Phase 1: Archive all existing movements in batches
     for (let i = 0; i < allMovements.length; i += BATCH_SIZE) {
+      // Check for cancellation every batch
+      if (await checkCancellation(base44, job_id)) {
+        console.log(`[executeResetStock] Job ${job_id} cancelled during archive`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          processed_count: totalProcessed,
+          success_count: successCount,
+          failed_count: failedCount,
+          error_message: 'Cancelled by user during archiving'
+        });
+        return Response.json({ ok: true, cancelled: true });
+      }
+
       const batch = allMovements.slice(i, i + BATCH_SIZE);
       for (const movement of batch) {
         try {
@@ -83,6 +118,20 @@ Deno.serve(async (req) => {
 
     // Phase 2: Reset all stock to 0 in batches
     for (let i = 0; i < allStock.length; i += BATCH_SIZE) {
+      // Check for cancellation every batch
+      if (await checkCancellation(base44, job_id)) {
+        console.log(`[executeResetStock] Job ${job_id} cancelled during reset`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          processed_count: totalProcessed,
+          success_count: successCount,
+          failed_count: failedCount,
+          error_message: 'Cancelled by user during stock reset'
+        });
+        return Response.json({ ok: true, cancelled: true });
+      }
+
       const batch = allStock.slice(i, i + BATCH_SIZE);
       for (const stock of batch) {
         try {

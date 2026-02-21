@@ -3,6 +3,16 @@ import { parse as parseDate } from 'npm:date-fns@3.6.0';
 
 const CHUNK_SIZE = 50;
 
+// Cancellation check helper
+async function checkCancellation(base44, jobId) {
+  try {
+    const job = await base44.asServiceRole.entities.BackgroundJob.get(jobId);
+    return job?.status === 'cancelling' || job?.cancel_requested_at;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -18,8 +28,15 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    if (job.status === 'cancelled') {
-      return Response.json({ ok: true, message: 'Job cancelled' });
+    // Check if already cancelled
+    if (await checkCancellation(base44, job_id)) {
+      console.log(`[executePurchasesImport] Job ${job_id} cancelled before start`);
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        error_message: 'Cancelled by user'
+      });
+      return Response.json({ ok: true, cancelled: true });
     }
 
     // Update status to running
@@ -77,6 +94,20 @@ Deno.serve(async (req) => {
 
     // Process rows in chunks
     while (currentIndex < rows.length) {
+      // Check for cancellation every chunk
+      if (await checkCancellation(base44, job_id)) {
+        console.log(`[executePurchasesImport] Job ${job_id} cancelled during processing`);
+        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+          status: 'cancelled',
+          completed_at: new Date().toISOString(),
+          processed_count: successCount + failCount,
+          success_count: successCount,
+          failed_count: failCount,
+          error_message: 'Cancelled by user during import'
+        });
+        return Response.json({ ok: true, cancelled: true });
+      }
+
       const chunkEnd = Math.min(currentIndex + CHUNK_SIZE, rows.length);
       const chunk = rows.slice(currentIndex, chunkEnd);
 
@@ -174,16 +205,6 @@ Deno.serve(async (req) => {
       }
 
       currentIndex = chunkEnd;
-
-      // Check cancellation
-      const updatedJob = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
-      if (updatedJob.status === 'cancelled') {
-        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-          status: 'cancelled',
-          completed_at: new Date().toISOString()
-        });
-        return Response.json({ ok: true, message: 'Import cancelled' });
-      }
       
       // Update job progress with standard fields
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
