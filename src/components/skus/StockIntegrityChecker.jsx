@@ -337,6 +337,62 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     }
   };
 
+  const handleBulkReconcile = async () => {
+    if (!results || results.issues.length === 0) return;
+
+    const stockValue = parseInt(reconcileStock, 10);
+    if (isNaN(stockValue)) {
+      toast({
+        title: 'Invalid input',
+        description: 'Please enter a valid number',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setReconciling(true);
+    const affectedSkus = [...new Set(results.issues.map(i => i.sku_code))];
+
+    try {
+      const { data } = await base44.functions.invoke('bulkReconcileStock', {
+        workspace_id: tenantId,
+        target_stock: stockValue,
+        sku_codes: affectedSkus
+      });
+
+      if (data.ok) {
+        toast({
+          title: '✓ Bulk Reconciliation Complete',
+          description: `Reconciled ${data.reconciled_count} SKUs to stock level ${stockValue}`,
+          duration: 5000
+        });
+
+        setReconcileOpen(false);
+        setReconcileStock('0');
+
+        // Recheck after 5 seconds
+        setTimeout(async () => {
+          const newResults = await runIntegrityCheckSilent();
+          if (newResults) {
+            setResults(newResults);
+          }
+        }, 5000);
+      } else {
+        throw new Error(data.error || 'Reconciliation failed');
+      }
+    } catch (error) {
+      console.error('[UI] Bulk reconcile error:', error);
+      toast({
+        title: 'Reconciliation failed',
+        description: error.message || 'Unknown error',
+        variant: 'destructive',
+        duration: 5000
+      });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-4xl max-h-[80vh] overflow-y-auto">
