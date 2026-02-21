@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
           processed_count: totalProcessed,
           success_count: successCount,
           failed_count: failedCount,
+          progress_percent: Math.floor((totalProcessed / totalSteps) * 100),
           error_message: 'Cancelled by user during archiving'
         });
         return Response.json({ ok: true, cancelled: true });
@@ -128,6 +129,7 @@ Deno.serve(async (req) => {
           processed_count: totalProcessed,
           success_count: successCount,
           failed_count: failedCount,
+          progress_percent: Math.floor((totalProcessed / totalSteps) * 100),
           error_message: 'Cancelled by user during stock reset'
         });
         return Response.json({ ok: true, cancelled: true });

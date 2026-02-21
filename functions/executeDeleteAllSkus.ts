@@ -90,11 +90,23 @@ Deno.serve(async (req) => {
     const workspace_id = job.tenant_id;
     const startTime = Date.now();
 
+    // Check if already cancelled before starting
+    if (job.status === 'cancelling' || job.cancel_requested_at) {
+      console.log(`[Execute Delete All SKUs] Job ${job_id} cancelled before start`);
+      await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+        status: 'cancelled',
+        completed_at: new Date().toISOString(),
+        error_message: 'Cancelled before execution started'
+      });
+      return Response.json({ ok: true, cancelled: true });
+    }
+
     // Update job to running if it was queued
     if (job.status === 'queued') {
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         status: 'running',
-        started_at: new Date().toISOString()
+        started_at: new Date().toISOString(),
+        last_heartbeat_at: new Date().toISOString()
       });
     }
 
@@ -149,7 +161,7 @@ Deno.serve(async (req) => {
         processedCount++;
       }
 
-      // Update progress
+      // Update progress with heartbeat
       const percent = Math.round((processedCount / job.params.total_skus) * 100);
       await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
         status: currentDelay === THROTTLED_DELAY ? 'throttled' : 'running',
@@ -157,6 +169,7 @@ Deno.serve(async (req) => {
         processed_count: processedCount,
         success_count: deletedCount,
         failed_count: errorCount,
+        last_heartbeat_at: new Date().toISOString(),
         progress: {
           current: processedCount,
           total: job.params.total_skus,

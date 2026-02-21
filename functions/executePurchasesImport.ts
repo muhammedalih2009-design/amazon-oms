@@ -105,6 +105,7 @@ Deno.serve(async (req) => {
           processed_count: successCount + failCount,
           success_count: successCount,
           failed_count: failCount,
+          progress_percent: Math.round(((successCount + failCount) / rows.length) * 100),
           error_message: 'Cancelled by user during import'
         });
         return Response.json({ ok: true, cancelled: true });
