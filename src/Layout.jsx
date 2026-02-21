@@ -58,7 +58,6 @@ function LayoutContent({ children, currentPageName }) {
   const enabledModuleKeys = React.useMemo(() => {
     if (isPlatformAdmin) return null; // Platform admin sees all
     if (!tenant?.id) return null;
-    if (!isModuleEnabled) return null;
     
     // If no modules configured, all are enabled by default
     if (!workspaceModules || workspaceModules.length === 0) return null;
@@ -67,7 +66,7 @@ function LayoutContent({ children, currentPageName }) {
     return workspaceModules
       .filter(m => m.enabled === true)
       .map(m => m.module_key);
-  }, [isPlatformAdmin, tenant, workspaceModules, isModuleEnabled]);
+  }, [isPlatformAdmin, tenant, workspaceModules]);
   
   const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModuleKeys);
 

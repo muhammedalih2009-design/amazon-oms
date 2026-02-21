@@ -239,16 +239,21 @@ export function TenantProvider({ children }) {
     // Platform admin can see all modules
     if (isPlatformAdmin) return true;
     
-    // If no modules configured, assume all enabled
-    if (workspaceModules.length === 0) return true;
+    // If no modules configured, assume all enabled (backward compatibility)
+    if (!workspaceModules || workspaceModules.length === 0) return true;
     
     const module = workspaceModules.find(m => m.module_key === moduleKey);
-    return module ? module.enabled : false;
+    // B) If module not found in config, default to enabled for backward compatibility
+    return module ? module.enabled === true : true;
   };
 
   const canAccessModule = (pageName) => {
+    // Platform admin bypasses all checks
+    if (isPlatformAdmin) return true;
+    
     const moduleKey = PAGE_MODULE_MAP[pageName];
     if (!moduleKey) return true; // Unknown pages allowed by default
+    
     return isModuleEnabled(moduleKey);
   };
 
