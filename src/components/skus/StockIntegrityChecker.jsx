@@ -429,25 +429,46 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                                   </span>
                                   <span className="font-semibold text-slate-900">{issue.sku_code}</span>
                                 </div>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleFixSingleSku(issue.sku_code)}
-                                  disabled={isFixing}
-                                  className={`${
-                                    issue.severity === 'high'
-                                      ? 'bg-red-600 hover:bg-red-700'
-                                      : 'bg-yellow-600 hover:bg-yellow-700'
-                                  } text-white text-xs px-3 py-1`}
-                                >
-                                  {isFixing ? (
-                                    <>
-                                      <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                                      Fixing...
-                                    </>
-                                  ) : (
-                                    'FIX NOW'
-                                  )}
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleFixSingleSku(issue.sku_code)}
+                                    disabled={isFixing}
+                                    className={`${
+                                      issue.severity === 'high'
+                                        ? 'bg-red-600 hover:bg-red-700'
+                                        : 'bg-yellow-600 hover:bg-yellow-700'
+                                    } text-white text-xs px-3 py-1`}
+                                  >
+                                    {isFixing ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                        Fixing...
+                                      </>
+                                    ) : (
+                                      'FIX NOW'
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleFixSingleSku(issue.sku_code)}
+                                    disabled={isFixing}
+                                    variant="outline"
+                                    className="text-xs px-3 py-1"
+                                  >
+                                    {isFixing ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                                        Reconciling...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RotateCcw className="w-3 h-3 mr-1" />
+                                        Reconcile
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
                               </div>
                               <p className="text-sm text-slate-700">{issue.description}</p>
                               
