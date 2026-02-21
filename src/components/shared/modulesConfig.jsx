@@ -211,6 +211,7 @@ export function hasModulePermission(permissions, moduleKey, permissionType = 'vi
  * Get sidebar nav items filtered by user permissions AND module enablement
  * SECURITY: Returns empty array if noAccess=true
  * B) FIX: Respects workspace-level module enablement
+ * C) Returns translationKey for i18n support
  */
 export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModules = null) {
   // HARD BLOCK: No workspace access = no sidebar items
@@ -245,6 +246,7 @@ export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin,
     .map(module => ({
       key: module.key,
       label: module.label,
+      translationKey: `sidebar.${module.key}`, // i18n key
       route: module.route,
       icon: module.icon
     }));
