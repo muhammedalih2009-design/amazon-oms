@@ -240,13 +240,87 @@ export default function TelegramExportModal({
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={handleStart} className="bg-indigo-600 hover:bg-indigo-700">
+              <Button onClick={handleProceedToSuppliers} disabled={loadingSuppliers} className="bg-indigo-600 hover:bg-indigo-700">
+                {loadingSuppliers ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  'Next Step'
+                )}
+              </Button>
+            </div>
+            </>
+            )}
+
+            {step === 'suppliers' && (
+            <>
+            <DialogHeader>
+              <DialogTitle>Select Suppliers to Export</DialogTitle>
+              <DialogDescription>
+                Choose which suppliers to send to Telegram
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold">
+                        <input
+                          type="checkbox"
+                          checked={selectedSuppliers.size === suppliers.length && suppliers.length > 0}
+                          onChange={() => {
+                            if (selectedSuppliers.size === suppliers.length) {
+                              setSelectedSuppliers(new Set());
+                            } else {
+                              setSelectedSuppliers(new Set(suppliers.map(s => s.name)));
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-4 py-2 text-left font-semibold">Supplier</th>
+                      <th className="px-4 py-2 text-right font-semibold">SKUs</th>
+                      <th className="px-4 py-2 text-right font-semibold">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suppliers.map((supplier) => (
+                      <tr key={supplier.name} className="border-t hover:bg-slate-50">
+                        <td className="px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedSuppliers.has(supplier.name)}
+                            onChange={() => toggleSupplier(supplier.name)}
+                          />
+                        </td>
+                        <td className="px-4 py-2 font-medium">{supplier.name}</td>
+                        <td className="px-4 py-2 text-right text-slate-600">{supplier.skus}</td>
+                        <td className="px-4 py-2 text-right text-slate-600">{supplier.qty}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-900">
+                {selectedSuppliers.size} of {suppliers.length} suppliers selected
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setStep('confirm')}>
+                Back
+              </Button>
+              <Button onClick={handleStart} disabled={selectedSuppliers.size === 0} className="bg-indigo-600 hover:bg-indigo-700">
                 <Send className="w-4 h-4 mr-2" />
                 Send to Telegram
               </Button>
             </div>
-          </>
-        )}
+            </>
+            )}
 
         {step === 'processing' && status && (
           <>
