@@ -636,7 +636,7 @@ export default function PurchaseRequests() {
                     month={calendarMonth}
                     onMonthChange={setCalendarMonth}
                     numberOfMonths={2}
-                    disabled={(date) => false}
+                    disabled={false}
                     defaultMonth={calendarMonth}
                   />
                   <Button
