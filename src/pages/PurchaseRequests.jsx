@@ -32,6 +32,7 @@ export default function PurchaseRequests() {
     to: new Date(new Date().setDate(new Date().getDate() + 7))
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [debugMode, setDebugMode] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [preparingPrint, setPreparingPrint] = useState(false);
@@ -631,6 +632,8 @@ export default function PurchaseRequests() {
                     onSelect={(range) => {
                       setDateRange(range);
                     }}
+                    month={calendarMonth}
+                    onMonthChange={setCalendarMonth}
                     numberOfMonths={2}
                     disabled={(date) => false}
                   />
