@@ -11,6 +11,7 @@ export default function BackgroundJobManager() {
   const { tenant } = useTenant();
   const tenantId = tenant?.id;
   const [jobs, setJobs] = useState([]);
+  const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
   const { toast } = useToast();
   const pollIntervalRef = useRef(null);
 
@@ -60,12 +61,32 @@ export default function BackgroundJobManager() {
         return true;
       });
 
+      // De-duplicate by job_id
+      const uniqueJobs = [];
+      const seenIds = new Set();
+      for (const job of validJobs) {
+        if (!seenIds.has(job.id)) {
+          seenIds.add(job.id);
+          uniqueJobs.push(job);
+        }
+      }
+
+      // Filter out dismissed jobs (unless they're still active)
+      const visibleJobs = uniqueJobs.filter(job => !dismissedJobIds.has(job.id));
+
       // ALWAYS set jobs, even if empty - this clears stale UI state
-      console.log('[Job Manager] Setting jobs state:', validJobs.length);
-      setJobs(validJobs);
+      console.log('[Job Manager] Setting jobs state:', visibleJobs.length, '(total:', uniqueJobs.length, ')');
+      setJobs(visibleJobs);
+
+      // Auto-clear dismissed IDs if those jobs no longer exist
+      const activeJobIds = new Set(validJobs.map(j => j.id));
+      const newDismissedIds = new Set([...dismissedJobIds].filter(id => activeJobIds.has(id)));
+      if (newDismissedIds.size !== dismissedJobIds.size) {
+        setDismissedJobIds(newDismissedIds);
+      }
 
       // Stop polling if no jobs exist
-      if (validJobs.length === 0) {
+      if (uniqueJobs.length === 0) {
         console.log('[Job Manager] No valid jobs - stopping polling');
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
@@ -80,12 +101,26 @@ export default function BackgroundJobManager() {
   };
 
   const forceStop = async (jobId) => {
-    try {
-      const result = await apiClient.invokeFunction('forceStopJob', {
-        job_id: jobId
+    if (!jobId) {
+      console.error('[Job Manager] Force stop: missing job_id');
+      toast({
+        title: 'Force stop failed',
+        description: 'Job ID is missing',
+        variant: 'destructive'
       });
+      return;
+    }
 
-      if (result.success) {
+    console.log('[Job Manager] Force stop requested for job:', jobId);
+
+    try {
+      const payload = { job_id: jobId };
+      console.log('[Job Manager] Force stop payload:', payload);
+
+      const result = await apiClient.invokeFunction('forceStopJob', payload);
+      console.log('[Job Manager] Force stop response:', result);
+
+      if (result.success || result.ok) {
         toast({
           title: 'Force stop requested',
           description: 'Job is being terminated...',
@@ -93,12 +128,14 @@ export default function BackgroundJobManager() {
         });
         fetchJobs();
       } else {
-        throw new Error(result.error);
+        throw new Error(result.error || 'Unknown error');
       }
     } catch (error) {
+      console.error('[Job Manager] Force stop error:', error);
+      console.error('[Job Manager] Error response:', error.response?.data);
       toast({
         title: 'Force stop failed',
-        description: error.message,
+        description: error.response?.data?.error || error.message || 'Failed to stop job',
         variant: 'destructive'
       });
     }
@@ -172,6 +209,11 @@ export default function BackgroundJobManager() {
 
   console.log('[Job Manager] Rendering', jobs.length, 'job(s)');
 
+  const dismissJob = (jobId) => {
+    console.log('[Job Manager] Dismissing job:', jobId);
+    setDismissedJobIds(prev => new Set([...prev, jobId]));
+  };
+
   return (
     <div className="fixed bottom-4 right-4 z-50 w-96 space-y-2">
       {jobs.map(job => (
@@ -200,9 +242,18 @@ export default function BackgroundJobManager() {
                   <p className={`text-xs ${job.status === 'cancelling' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
                     {job.status === 'cancelling' ? 'Stopping...' : (job.progress?.message || job.status)}
                   </p>
-                </div>
-              </div>
-            </div>
+                  </div>
+                  </div>
+                  <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 rounded-full hover:bg-slate-100"
+                  onClick={() => dismissJob(job.id)}
+                  title="Hide this job card"
+                  >
+                  <X className="w-4 h-4 text-slate-400" />
+                  </Button>
+                  </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs text-slate-600">
