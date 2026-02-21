@@ -21,13 +21,24 @@ Deno.serve(async (req) => {
     console.log(`[Fix SKU] Starting fix for ${sku_code} in workspace ${workspace_id}`);
 
     // Fetch all data for this SKU
-    const [skus, currentStock, movements, orders, orderLines] = await Promise.all([
+    const [skus, currentStock, movements, purchases] = await Promise.all([
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id, sku_code }),
       base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id, sku_code }),
       base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id, sku_code, is_archived: false }),
-      base44.asServiceRole.entities.Order.filter({ tenant_id: workspace_id, status: 'fulfilled' }),
-      base44.asServiceRole.entities.OrderLine.filter({ tenant_id: workspace_id, sku_code, is_returned: false })
+      base44.asServiceRole.entities.Purchase.filter({ tenant_id: workspace_id, sku_code })
     ]);
+
+    // Fetch all orders (not just fulfilled) and their lines
+    const orders = await base44.asServiceRole.entities.Order.filter({ 
+      tenant_id: workspace_id,
+      is_deleted: false 
+    });
+    
+    const orderLines = await base44.asServiceRole.entities.OrderLine.filter({ 
+      tenant_id: workspace_id,
+      sku_code,
+      is_returned: false 
+    });
 
     const sku = skus[0];
     if (!sku) {
