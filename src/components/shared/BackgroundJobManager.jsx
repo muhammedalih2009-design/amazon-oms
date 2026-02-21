@@ -29,10 +29,26 @@ export default function BackgroundJobManager() {
         { useCache: false }
       );
 
-      setJobs(activeJobs);
+      // Filter out invalid/stale jobs
+      const validJobs = activeJobs.filter(job => {
+        // Must have a valid job_type
+        if (!job.job_type) return false;
+        
+        // Must have valid total_count (not 0)
+        if (!job.total_count || job.total_count === 0) return false;
+        
+        // If progress exists, ensure it has valid data
+        if (job.progress && job.progress.total === 0 && job.progress.current === 0) {
+          return false;
+        }
+        
+        return true;
+      });
+
+      setJobs(validJobs);
 
       // Reset poll interval if jobs exist
-      if (activeJobs.length > 0) {
+      if (validJobs.length > 0) {
         setPollInterval(10000);
       }
     } catch (error) {
