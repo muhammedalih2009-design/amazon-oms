@@ -631,11 +631,13 @@ export default function PurchaseRequests() {
                     selected={dateRange}
                     onSelect={(range) => {
                       setDateRange(range);
+                      // Keep calendar open - don't close on date selection
                     }}
                     month={calendarMonth}
                     onMonthChange={setCalendarMonth}
                     numberOfMonths={2}
                     disabled={(date) => false}
+                    defaultMonth={calendarMonth}
                   />
                   <Button
                     onClick={() => {
