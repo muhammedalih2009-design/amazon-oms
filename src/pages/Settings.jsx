@@ -94,15 +94,15 @@ export default function Settings() {
       // Success response is ok:true
       if (data?.ok === true) {
         toast({
-          title: t('settings_saved'),
-          description: `${t('currency')}: ${currencyCode}`
+          title: t('settings.settings_saved'),
+          description: `${t('settings.currency')}: ${currencyCode}`
         });
       } else {
         throw new Error(data?.error || 'Save failed');
       }
     } catch (error) {
       toast({
-        title: t('settings_error'),
+        title: t('settings.settings_error'),
         description: error.message || 'Failed to save currency settings',
         variant: 'destructive'
       });
@@ -115,7 +115,7 @@ export default function Settings() {
     // Don't allow saving if no new token entered and none previously saved
     if (!telegramBotToken && !hasSavedToken) {
       toast({
-        title: t('settings_error'),
+        title: t('settings.settings_error'),
         description: 'Please enter a bot token',
         variant: 'destructive'
       });
@@ -127,7 +127,7 @@ export default function Settings() {
     if (telegramBotToken && telegramBotToken.trim()) {
       if (!telegramBotToken.includes(':') || telegramBotToken.length < 10) {
         toast({
-          title: t('settings_error'),
+          title: t('settings.settings_error'),
           description: 'Invalid token format. Token should contain ":" and be at least 10 characters',
           variant: 'destructive'
         });
@@ -137,7 +137,7 @@ export default function Settings() {
 
     if (!telegramChatId || !telegramChatId.trim()) {
       toast({
-        title: t('settings_error'),
+        title: t('settings.settings_error'),
         description: 'Please enter a chat ID',
         variant: 'destructive'
       });
@@ -165,7 +165,7 @@ export default function Settings() {
         setTelegramBotToken(''); // Clear token field after save
         
         toast({
-          title: t('settings_saved'),
+          title: t('settings.settings_saved'),
           description: 'Telegram settings saved successfully'
         });
 
@@ -176,7 +176,7 @@ export default function Settings() {
       }
     } catch (error) {
       toast({
-        title: t('settings_error'),
+        title: t('settings.settings_error'),
         description: error.message || 'Failed to save Telegram settings',
         variant: 'destructive'
       });
@@ -253,21 +253,21 @@ export default function Settings() {
   return (
     <div className="space-y-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">{t('workspace_settings')}</h1>
+        <h1 className="text-3xl font-bold text-slate-900">{t('settings.workspace_settings')}</h1>
       </div>
 
       {/* Currency Settings */}
       <PremiumCollapsibleSection
         id="currency_settings"
         icon={DollarSign}
-        title={t('currency')}
-        subtitle={t('currency_subtitle')}
+        title={t('settings.currency')}
+        subtitle={t('settings.currency_subtitle')}
         defaultOpen={true}
         workspaceId={tenantId}
       >
         <div className="space-y-6">
           <div className="space-y-2">
-            <Label>{t('currency')}</Label>
+            <Label>{t('settings.currency')}</Label>
             <Select value={currencyCode} onValueChange={setCurrencyCode}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -283,7 +283,7 @@ export default function Settings() {
           </div>
 
           <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-            <p className="text-sm text-slate-600 mb-1">{t('currency_example')}:</p>
+            <p className="text-sm text-slate-600 mb-1">{t('settings.currency_example')}:</p>
             <p className="text-lg font-semibold text-slate-900">
               {formatCurrencyExample(currencyCode)}
             </p>
@@ -295,7 +295,7 @@ export default function Settings() {
               disabled={saving}
               className="bg-indigo-600 hover:bg-indigo-700"
             >
-              {saving ? '...' : t('save')}
+              {saving ? '...' : t('settings.save')}
             </Button>
           </div>
         </div>
@@ -305,14 +305,14 @@ export default function Settings() {
       <PremiumCollapsibleSection
         id="telegram_integration"
         icon={MessageSquare}
-        title={t('telegram_integration')}
-        subtitle={t('telegram_subtitle')}
+        title={t('settings.telegram_integration')}
+        subtitle={t('settings.telegram_subtitle')}
         defaultOpen={false}
         workspaceId={tenantId}
       >
         <div className="space-y-6">
           <div className="space-y-2">
-            <Label>{t('bot_token')}</Label>
+            <Label>{t('settings.bot_token')}</Label>
             {hasSavedToken && !telegramBotToken ? (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
                 <span className="text-sm text-emerald-800">✓ Token saved</span>
@@ -347,7 +347,7 @@ export default function Settings() {
           </div>
 
           <div className="space-y-2">
-            <Label>{t('chat_id')}</Label>
+            <Label>{t('settings.chat_id')}</Label>
             <Input
               value={telegramChatId}
               onChange={(e) => setTelegramChatId(e.target.value)}
@@ -362,14 +362,14 @@ export default function Settings() {
               disabled={testing || !telegramBotToken || !telegramChatId}
               variant="outline"
             >
-              {testing ? '...' : t('test_connection')}
+              {testing ? '...' : t('settings.test_connection')}
             </Button>
             <Button
               onClick={handleSaveTelegram}
               disabled={saving}
               className="bg-indigo-600 hover:bg-indigo-700"
             >
-              {saving ? '...' : t('save')}
+              {saving ? '...' : t('settings.save')}
             </Button>
           </div>
 
