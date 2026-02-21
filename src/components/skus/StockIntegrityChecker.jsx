@@ -292,22 +292,26 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       if (data.ok) {
         toast({
           title: '✓ Fixed',
-          description: `${skuCode}: Stock ${data.before.stock} → ${data.after.stock}`,
-          duration: 3000
+          description: `${skuCode}: Stock ${data.before.stock} → ${data.after.stock}. Verifying...`,
+          duration: 5000
         });
 
-        // Wait longer before rechecking to ensure database has committed
+        // Wait longer before rechecking to ensure database has committed (5 seconds)
         setTimeout(async () => {
           console.log(`[UI] Rechecking integrity after fixing ${skuCode}`);
-          const newResults = await runIntegrityCheckSilent();
-          if (newResults) {
-            console.log(`[UI] New check results:`, {
-              total: newResults.total_issues,
-              has_sku: newResults.issues.some(i => i.sku_code === skuCode)
-            });
-            setResults(newResults);
+          try {
+            const newResults = await runIntegrityCheckSilent();
+            if (newResults) {
+              console.log(`[UI] New check results:`, {
+                total: newResults.total_issues,
+                has_sku: newResults.issues.some(i => i.sku_code === skuCode)
+              });
+              setResults(newResults);
+            }
+          } catch (recheckerror) {
+            console.error(`[UI] Recheck error:`, recheckerror);
           }
-        }, 2500);
+        }, 5000);
       } else {
         throw new Error(data.error || 'Fix failed');
       }
