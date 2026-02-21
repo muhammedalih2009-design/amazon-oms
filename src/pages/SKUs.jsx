@@ -1266,7 +1266,7 @@ export default function SKUsPage() {
                         {supplier?.supplier_name || '-'}
                       </td>
                       <td className="py-4 px-6 text-right font-medium text-slate-900">
-                        ${(sku.cost_price || 0).toFixed(2)}
+                        {formatCurrency(sku.cost_price || 0, currency, locale)}
                       </td>
                       <td className={`py-4 px-6 text-right ${getStockColor(sku)}`}>
                         {getStockValue(sku)}
