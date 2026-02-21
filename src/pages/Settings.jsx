@@ -86,13 +86,13 @@ export default function Settings() {
   const handleSaveCurrency = async () => {
     setSaving(true);
     try {
-      const { data } = await base44.functions.invoke('updateWorkspaceSettings', {
+      const { data, status } = await base44.functions.invoke('updateWorkspaceSettings', {
         workspace_id: tenantId,
         currency_code: currencyCode
       });
 
-      // Success response is ok:true
-      if (data?.ok === true) {
+      // Success: check both data.ok and HTTP status
+      if (status === 200 && data?.ok === true) {
         toast({
           title: t('settings.settings_saved'),
           description: `${t('settings.currency')}: ${currencyCode}`
@@ -101,9 +101,10 @@ export default function Settings() {
         throw new Error(data?.error || 'Save failed');
       }
     } catch (error) {
+      console.error('Currency save error:', error);
       toast({
         title: t('settings.settings_error'),
-        description: error.message || 'Failed to save currency settings',
+        description: error.response?.data?.error || error.message || 'Failed to save currency settings',
         variant: 'destructive'
       });
     } finally {
@@ -156,10 +157,10 @@ export default function Settings() {
         payload.telegram_bot_token = telegramBotToken;
       }
 
-      const { data } = await base44.functions.invoke('updateWorkspaceSettings', payload);
+      const { data, status } = await base44.functions.invoke('updateWorkspaceSettings', payload);
 
-      // Success response is ok:true
-      if (data?.ok === true) {
+      // Success: check both data.ok and HTTP status
+      if (status === 200 && data?.ok === true) {
         // Mark as saved and reload to confirm persistence
         setHasSavedToken(true);
         setTelegramBotToken(''); // Clear token field after save
@@ -175,9 +176,10 @@ export default function Settings() {
         throw new Error(data?.error || 'Save failed');
       }
     } catch (error) {
+      console.error('Telegram save error:', error);
       toast({
         title: t('settings.settings_error'),
-        description: error.message || 'Failed to save Telegram settings',
+        description: error.response?.data?.error || error.message || 'Failed to save Telegram settings',
         variant: 'destructive'
       });
     } finally {
@@ -207,13 +209,13 @@ export default function Settings() {
 
     setTesting(true);
     try {
-      const { data } = await base44.functions.invoke('testTelegramNew', {
+      const { data, status } = await base44.functions.invoke('testTelegramNew', {
         workspace_id: tenantId,
         test_token: telegramBotToken,
         test_chat_id: telegramChatId
       });
 
-      if (data.ok === true && data.success) {
+      if (status === 200 && data.ok === true && data.success) {
         toast({
           title: 'Connection successful!',
           description: 'Test message sent to Telegram'
@@ -226,9 +228,10 @@ export default function Settings() {
         });
       }
     } catch (error) {
+      console.error('Telegram test error:', error);
       toast({
         title: 'Failed to test connection',
-        description: error.message || 'Network error',
+        description: error.response?.data?.error || error.message || 'Network error',
         variant: 'destructive'
       });
     } finally {
