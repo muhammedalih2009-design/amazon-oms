@@ -29,32 +29,48 @@ export default function BackgroundJobManager() {
         { useCache: false }
       );
 
-      // Filter out invalid/stale jobs - be very strict
+      console.log('[Job Manager] Fetched jobs:', activeJobs.length, activeJobs.map(j => ({
+        id: j.id,
+        type: j.job_type,
+        status: j.status,
+        total: j.total_count,
+        processed: j.processed_count,
+        created: j.created_date
+      })));
+
+      // STRICT VALIDATION: Filter out any invalid/stale jobs
       const validJobs = activeJobs.filter(job => {
         // Must have a valid job_type
         if (!job.job_type) {
-          console.log('[Job Manager] Filtering out job without job_type:', job.id);
+          console.warn('[Job Manager] ❌ Rejected: No job_type', job.id);
           return false;
         }
         
-        // Must have valid total_count (must exist and be > 0)
-        const totalCount = job.total_count || job.progress?.total || 0;
-        if (totalCount === 0) {
-          console.log('[Job Manager] Filtering out job with 0 total_count:', job.id, job.job_type);
+        // CRITICAL: Must have valid total_count > 0
+        if (!job.total_count || job.total_count === 0) {
+          console.warn('[Job Manager] ❌ Rejected: Zero total_count', job.id, job.job_type);
           return false;
         }
         
-        // Additional safety: if both processed and total are 0, skip it
-        const processedCount = job.processed_count || job.progress?.current || 0;
-        if (totalCount === 0 && processedCount === 0) {
-          console.log('[Job Manager] Filtering out job with 0/0 progress:', job.id);
+        // Reject stale jobs (older than 24 hours and still "running")
+        const jobAge = Date.now() - new Date(job.created_date).getTime();
+        const hoursSinceCreated = jobAge / (1000 * 60 * 60);
+        if (hoursSinceCreated > 24 && job.status === 'running') {
+          console.warn('[Job Manager] ❌ Rejected: Stale job (24h+)', job.id, job.job_type);
           return false;
         }
         
+        console.log('[Job Manager] ✅ Valid job:', job.id, job.job_type, `${job.processed_count || 0}/${job.total_count}`);
         return true;
       });
 
       setJobs(validJobs);
+
+      // If no valid jobs, clear the list completely
+      if (validJobs.length === 0 && jobs.length > 0) {
+        console.log('[Job Manager] Clearing all jobs - none are valid');
+        setJobs([]);
+      }
 
       // Reset poll interval if jobs exist
       if (validJobs.length > 0) {
