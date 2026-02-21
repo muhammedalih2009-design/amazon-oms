@@ -357,7 +357,28 @@ export default function BackgroundJobManager() {
             )}
 
             <div className="flex items-center gap-2">
-              {job.status === 'cancelling' ? (
+              {job.status === 'failed' ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => manageJob(job.id, 'retry')}
+                    className="flex-1"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    Retry
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => manageJob(job.id, 'revert')}
+                    className="flex-1"
+                  >
+                    <Ban className="w-3 h-3 mr-1" />
+                    Revert
+                  </Button>
+                </>
+              ) : job.status === 'cancelling' ? (
                 <Button
                   size="sm"
                   variant="destructive"
