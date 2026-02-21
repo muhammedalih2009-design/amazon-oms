@@ -566,6 +566,47 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
             </>
           )}
         </div>
+
+        {/* Reconcile Dialog */}
+        <AlertDialog open={reconcileOpen} onOpenChange={setReconcileOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reconcile All Stock Issues</AlertDialogTitle>
+              <AlertDialogDescription>
+                Set the target stock level for all {results?.issues?.length || 0} affected SKUs
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            
+            <div className="py-4">
+              <Label htmlFor="stock-input" className="text-sm font-medium text-slate-700 mb-2 block">
+                Target Stock Level
+              </Label>
+              <Input
+                id="stock-input"
+                type="number"
+                value={reconcileStock}
+                onChange={(e) => setReconcileStock(e.target.value)}
+                placeholder="Enter stock level (e.g., 0)"
+                className="text-lg"
+                disabled={reconciling}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                All SKUs with issues will be reconciled to this stock level
+              </p>
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={reconciling}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleBulkReconcile}
+                disabled={reconciling}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                {reconciling ? 'Reconciling...' : 'Reconcile'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
