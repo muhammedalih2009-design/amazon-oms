@@ -4,7 +4,8 @@ import { useTenant } from '@/components/hooks/useTenant';
 import { useLanguage } from '@/components/contexts/LanguageContext';
 import { useToast } from '@/components/ui/use-toast';
 import PremiumCollapsibleSection from '@/components/shared/PremiumCollapsibleSection';
-import { DollarSign, MessageSquare, Eye, EyeOff } from 'lucide-react';
+import ModuleManagementModal from '@/components/admin/ModuleManagementModal';
+import { DollarSign, MessageSquare, Eye, EyeOff, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,13 +30,14 @@ const CURRENCIES = [
 ];
 
 export default function Settings() {
-  const { tenantId } = useTenant();
+  const { tenantId, tenant, isOwner, isPlatformAdmin } = useTenant();
   const { t, isRTL } = useLanguage();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [showModuleModal, setShowModuleModal] = useState(false);
 
   // Currency settings
   const [currencyCode, setCurrencyCode] = useState('SAR');
@@ -255,8 +257,14 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-8">
+      <div className="mb-8 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-slate-900">{t('settings.workspace_settings')}</h1>
+        {(isOwner || isPlatformAdmin) && (
+          <Button onClick={() => setShowModuleModal(true)} variant="outline">
+            <Settings2 className="w-4 h-4 mr-2" />
+            Manage Modules
+          </Button>
+        )}
       </div>
 
       {/* Currency Settings */}
