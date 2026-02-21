@@ -61,10 +61,21 @@ export default function MonitoringPage() {
     staleTime: 10000
   });
 
+  const { data: allWorkspaces = [] } = useQuery({
+    queryKey: ['all-workspaces'],
+    queryFn: async () => {
+      if (!isSuperAdmin) return [];
+      const workspaces = await base44.entities.Tenant.filter({});
+      return workspaces.filter(w => !w.deleted_at);
+    },
+    enabled: isSuperAdmin,
+    staleTime: 60000
+  });
+
   const { data: jobs = [], refetch: refetchJobs } = useQuery({
     queryKey: ['background-jobs', isSuperAdmin, jobScope, tenantId, user?.id],
     queryFn: async () => {
-      // Call backend function with proper scope and permissions
+      // C) FIX: Call backend function with proper scope and permissions
       const result = await base44.functions.invoke('listMonitoringJobs', {
         scope: isSuperAdmin ? jobScope : 'workspace',
         workspace_id: jobScope === 'workspace' ? tenantId : undefined,
@@ -76,7 +87,15 @@ export default function MonitoringPage() {
         throw new Error(result.data.error || 'Failed to load jobs');
       }
       
-      return result.data.jobs || [];
+      // C) Enrich jobs with workspace names
+      const jobsData = result.data.jobs || [];
+      return jobsData.map(job => {
+        const workspace = allWorkspaces.find(w => w.id === job.tenant_id);
+        return {
+          ...job,
+          workspace_name: workspace?.name || 'Unknown Workspace'
+        };
+      });
     },
     staleTime: 3000,
     enabled: isSuperAdmin || !!tenantId
@@ -461,65 +480,66 @@ export default function MonitoringPage() {
                   ) : (
                     filtered.map(job => (
                     <div key={job.id} className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2 flex-wrap">
-                            <Badge variant={getJobStatusBadge(job.status)}>
-                              {job.status}
-                            </Badge>
-                            <span className="font-medium text-slate-900">{job.job_type}</span>
-                            {isSuperAdmin && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="secondary" className="text-xs">
-                                      {job.workspace_name || job.tenant_id}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Workspace ID: {job.tenant_id}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
-                          </div>
-                          
-                          {job.progress_percent > 0 && (
-                            <div className="mb-2">
-                              <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
-                                <span>Progress</span>
-                                <span>{job.progress_percent}%</span>
-                              </div>
-                              <div className="w-full bg-slate-200 rounded-full h-2">
-                                <div 
-                                  className="bg-indigo-600 h-2 rounded-full transition-all"
-                                  style={{ width: `${job.progress_percent}%` }}
-                                />
-                              </div>
-                            </div>
-                          )}
+                     <div className="flex items-start justify-between">
+                       <div className="flex-1">
+                         <div className="flex items-center gap-3 mb-2 flex-wrap">
+                           <Badge variant={getJobStatusBadge(job.status)}>
+                             {job.status}
+                           </Badge>
+                           <span className="font-medium text-slate-900">{job.job_type}</span>
+                           {isSuperAdmin && (
+                             <TooltipProvider>
+                               <Tooltip>
+                                 <TooltipTrigger asChild>
+                                   <Badge variant="secondary" className="text-xs">
+                                     {job.workspace_name || 'Unknown'}
+                                   </Badge>
+                                 </TooltipTrigger>
+                                 <TooltipContent>
+                                   <p>Workspace ID: {job.tenant_id}</p>
+                                 </TooltipContent>
+                               </Tooltip>
+                             </TooltipProvider>
+                           )}
+                           {job.started_by && (
+                             <Badge variant="outline" className="text-xs">
+                               By: {job.started_by}
+                             </Badge>
+                           )}
+                         </div>
 
-                          {job.processed_count !== undefined && (
-                            <p className="text-xs text-slate-500">
-                              Processed: {job.processed_count}
-                              {job.total_count && ` / ${job.total_count}`}
-                            </p>
-                          )}
+                         {job.progress_percent > 0 && (
+                           <div className="mb-2">
+                             <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                               <span>Progress: {job.processed_count || 0} / {job.total_count || 0}</span>
+                               <span>{job.progress_percent}%</span>
+                             </div>
+                             <div className="w-full bg-slate-200 rounded-full h-2">
+                               <div 
+                                 className="bg-indigo-600 h-2 rounded-full transition-all"
+                                 style={{ width: `${job.progress_percent}%` }}
+                               />
+                             </div>
+                           </div>
+                         )}
 
-                          {job.status === 'paused' && job.progress_percent > 0 && (
-                            <p className="text-xs text-amber-600 mt-1">
-                              ⏸ Paused at {job.progress_percent}%
-                            </p>
-                          )}
+                         {job.status === 'paused' && job.progress_percent > 0 && (
+                           <p className="text-xs text-amber-600 mt-1">
+                             ⏸ Paused at {job.progress_percent}%
+                           </p>
+                         )}
 
-                          {job.error_message && (
-                            <p className="text-xs text-red-600 mt-2">{job.error_message}</p>
-                          )}
+                         {job.error_message && (
+                           <p className="text-xs text-red-600 mt-2">{job.error_message}</p>
+                         )}
 
-                          <p className="text-xs text-slate-400 mt-2">
-                            Started: {new Date(job.created_date).toLocaleString()}
-                          </p>
-                        </div>
+                         <div className="flex items-center gap-4 text-xs text-slate-400 mt-2">
+                           <span>Started: {new Date(job.created_date).toLocaleString()}</span>
+                           {job.updated_date && job.updated_date !== job.created_date && (
+                             <span>Updated: {new Date(job.updated_date).toLocaleString()}</span>
+                           )}
+                         </div>
+                       </div>
 
                         <div className="flex gap-2 ml-4">
                           {/* Pause button */}

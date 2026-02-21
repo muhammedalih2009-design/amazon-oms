@@ -9,23 +9,24 @@ import { useToast } from '@/components/ui/use-toast';
 
 export default function BackgroundJobManager() {
   const { tenant, isPlatformAdmin, user } = useTenant();
+  const { toast } = useToast();
   
-  // CRITICAL: Check platform admin FIRST - before any hooks
+  // CRITICAL: Move all hooks BEFORE any conditional returns (React rules of hooks)
+  const tenantId = tenant?.id;
+  const [jobs, setJobs] = useState([]);
+  const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
+  const pollIntervalRef = useRef(null);
+  
+  // Check platform admin AFTER all hooks
   const isSuperAdmin = isPlatformAdmin || user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
   
-  // SECURITY: Early return BEFORE any other hooks
+  // SECURITY: Early return AFTER all hooks (fixes hooks order warning)
   if (!isSuperAdmin) {
     if (process.env.NODE_ENV !== 'production') {
       console.log('[Job Manager] Access denied - not platform admin');
     }
     return null;
   }
-
-  const tenantId = tenant?.id;
-  const [jobs, setJobs] = useState([]);
-  const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
-  const { toast } = useToast();
-  const pollIntervalRef = useRef(null);
   
   // Debug logging (only in dev)
   useEffect(() => {
