@@ -395,21 +395,10 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
                     <p className="text-sm font-semibold text-slate-700">
                       Found {results.issues.length} issue(s)
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => setReconcileOpen(true)}
-                        className="bg-indigo-50 border-indigo-200 hover:bg-indigo-100"
-                      >
-                        <RotateCcw className="w-4 h-4 mr-2" />
-                        Reconcile Stock
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={exportResults}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Export CSV
-                      </Button>
-                    </div>
+                    <Button variant="outline" size="sm" onClick={exportResults}>
+                      <Download className="w-4 h-4 mr-2" />
+                      Export CSV
+                    </Button>
                   </div>
 
                   <div className="space-y-2 max-h-96 overflow-y-auto">
