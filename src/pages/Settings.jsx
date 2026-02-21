@@ -30,7 +30,7 @@ const CURRENCIES = [
 ];
 
 export default function Settings() {
-  const { tenantId, tenant, isOwner, isPlatformAdmin } = useTenant();
+  const { tenantId, tenant, isOwner, isPlatformAdmin, refresh } = useTenant();
   const { t, isRTL } = useLanguage();
   const { toast } = useToast();
 
@@ -99,6 +99,11 @@ export default function Settings() {
           title: t('settings.settings_saved'),
           description: `${t('settings.currency')}: ${currencyCode}`
         });
+        
+        // CRITICAL: Refresh workspace context to update currency globally
+        if (refresh) {
+          await refresh();
+        }
       } else {
         throw new Error(data?.error || 'Save failed');
       }
