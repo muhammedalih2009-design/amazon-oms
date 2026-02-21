@@ -208,10 +208,11 @@ export function hasModulePermission(permissions, moduleKey, permissionType = 'vi
 }
 
 /**
- * Get sidebar nav items filtered by user permissions
+ * Get sidebar nav items filtered by user permissions AND module enablement
  * SECURITY: Returns empty array if noAccess=true
+ * B) FIX: Respects workspace-level module enablement
  */
-export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin) {
+export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModules = null) {
   // HARD BLOCK: No workspace access = no sidebar items
   if (noAccess && !isPlatformAdmin) {
     return [];
@@ -222,14 +223,29 @@ export function getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin)
       // Must have a route to be navigable
       if (!module.route) return false;
 
+      // B) Check if module is enabled for workspace (if enabledModules provided)
+      if (enabledModules && !isPlatformAdmin) {
+        const isEnabled = enabledModules.includes(module.key);
+        if (!isEnabled) {
+          return false; // Hide from sidebar
+        }
+      }
+
       // Owner sees everything (no permission checks)
       if (isOwner) return true;
 
       // If module has permissions, check view access
       if (module.hasPermissions) {
-        return permissions[module.key]?.view === true;
+        // Support both new key and legacy key for backward compatibility
+        return permissions[module.key]?.view === true || permissions[module.key.replace('_', '')]?.view === true;
       }
 
       return true;
-    });
+    })
+    .map(module => ({
+      key: module.key,
+      label: module.label,
+      route: module.route,
+      icon: module.icon
+    }));
 }

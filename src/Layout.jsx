@@ -54,8 +54,14 @@ function LayoutContent({ children, currentPageName }) {
   const { t, language, toggleLanguage, isRTL } = useLanguage();
   const { theme, toggleTheme, isDark } = useTheme();
 
-  // DYNAMIC: Compute sidebar items based on user permissions
-  const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin);
+  // B) DYNAMIC: Compute sidebar items based on permissions AND enabled modules
+  const enabledModuleKeys = isModuleEnabled ? 
+    (workspaceModules?.map(m => m.module_key).filter(k => {
+      const mod = workspaceModules.find(wm => wm.module_key === k);
+      return mod?.enabled === true;
+    }) || null) : null;
+  
+  const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModuleKeys);
 
   const getInitials = (name) => {
     if (!name) return 'U';

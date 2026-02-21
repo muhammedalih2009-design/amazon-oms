@@ -72,6 +72,7 @@ import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
+import ModuleDisabled from './pages/ModuleDisabled';
 import __Layout from './Layout.jsx';
 
 
@@ -101,6 +102,7 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
+    "ModuleDisabled": ModuleDisabled,
 }
 
 export const pagesConfig = {

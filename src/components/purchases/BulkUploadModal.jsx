@@ -175,7 +175,17 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
   const pollJobStatus = async (id) => {
     try {
       const job = await base44.asServiceRole.entities.BackgroundJob.get(id);
-      if (!job) return;
+      if (!job) {
+        console.warn('[BulkUploadModal] Job not found:', id);
+        return;
+      }
+
+      console.log('[BulkUploadModal] Job status poll:', {
+        id: job.id,
+        status: job.status,
+        progress: `${job.processed_count || 0}/${job.total_count || 0}`,
+        percent: job.progress_percent
+      });
 
       setJobStatus({
         status: job.status,
@@ -187,17 +197,25 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
         error_message: job.error_message || null
       });
 
-      if (job.status === 'completed' || job.status === 'failed') {
-        if (pollInterval) clearInterval(pollInterval);
+      // E) FIX: Terminal states include 'completed', 'failed', 'cancelled'
+      if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+        console.log('[BulkUploadModal] Job terminal state reached:', job.status);
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          setPollInterval(null);
+        }
         setStep(4);
       }
     } catch (error) {
-      console.error('Poll error:', error);
+      console.error('[BulkUploadModal] Poll error:', error);
     }
   };
 
   const handleClose = () => {
-    if (pollInterval) clearInterval(pollInterval);
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      setPollInterval(null);
+    }
     setStep(1);
     setFile(null);
     setRows([]);
@@ -209,6 +227,15 @@ export default function BulkUploadModal({ open, onClose, tenantId, onSuccess }) 
       onSuccess?.();
     }
   };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pollInterval]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
