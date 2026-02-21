@@ -53,7 +53,7 @@ import { TableSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 
 export default function SKUsPage() {
-  const { tenantId, subscription, isActive, tenant, permissions, membership } = useTenant();
+  const { tenantId, subscription, isActive, tenant, permissions, membership, currency, locale } = useTenant();
   const { toast } = useToast();
   
   // CRITICAL FIX: Check both legacy "skus" and new "skus_products" keys for backward compatibility
