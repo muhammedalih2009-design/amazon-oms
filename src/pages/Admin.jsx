@@ -37,6 +37,7 @@ import ExportSettings from '@/components/admin/ExportSettings';
 import DeleteLinkVerification from '@/components/admin/DeleteLinkVerification';
 import CloneWorkspaceModal from '@/components/admin/CloneWorkspaceModal';
 import ModuleSelector from '@/components/admin/ModuleSelector';
+import ModuleManagementModal from '@/components/admin/ModuleManagementModal';
 import RecentWorkspacesMonitor from '@/components/admin/RecentWorkspacesMonitor';
 import UserManagementTab from '@/components/admin/UserManagementTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -70,6 +71,8 @@ export default function AdminPage() {
   const [repairingMemberships, setRepairingMemberships] = useState(false);
   const [cloneWorkspaceOpen, setCloneWorkspaceOpen] = useState(false);
   const [cloneSourceWorkspace, setCloneSourceWorkspace] = useState(null);
+  const [moduleManagementOpen, setModuleManagementOpen] = useState(false);
+  const [moduleManagementWorkspace, setModuleManagementWorkspace] = useState(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -655,6 +658,18 @@ export default function AdminPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
+                            setModuleManagementWorkspace(workspace);
+                            setModuleManagementOpen(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          <Settings className="w-4 h-4 mr-1" />
+                          Modules
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
                             setCloneSourceWorkspace(workspace);
                             setCloneWorkspaceOpen(true);
                           }}
@@ -815,6 +830,17 @@ export default function AdminPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Module Management Modal */}
+      <ModuleManagementModal
+        open={moduleManagementOpen}
+        onClose={() => {
+          setModuleManagementOpen(false);
+          setModuleManagementWorkspace(null);
+        }}
+        workspaceId={moduleManagementWorkspace?.id}
+        workspaceName={moduleManagementWorkspace?.name}
+      />
 
       {/* Clone Workspace Modal */}
       <CloneWorkspaceModal
