@@ -50,7 +50,7 @@ const adminNavItems = [
 
 function LayoutContent({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { tenant, user, loading, subscription, isPlatformAdmin, permissions, isOwner, isModuleEnabled, noAccess, hasWorkspaceAccess } = useTenant();
+  const { tenant, user, loading, subscription, isPlatformAdmin, permissions, isOwner, isModuleEnabled, noAccess, hasWorkspaceAccess, workspaceModules } = useTenant();
   const { t, language, toggleLanguage, isRTL } = useLanguage();
   const { theme, toggleTheme, isDark } = useTheme();
 
