@@ -137,12 +137,13 @@ export default function SKUsPage() {
   }, [tenantId]);
 
   const loadData = async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
     try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      
       const [skusData, suppliersData, stockData] = await Promise.all([
         base44.entities.SKU.filter({ tenant_id: tenantId }),
         base44.entities.Supplier.filter({ tenant_id: tenantId }),
@@ -153,17 +154,16 @@ export default function SKUsPage() {
       setCurrentStock(stockData);
       setSelectedRows([]);
     } catch (error) {
+      console.error('[SKUs] Load data error:', error);
       toast({
         title: 'Error loading data',
         description: error.message,
         variant: 'destructive'
       });
     } finally {
-      if (isRefresh) {
-        setRefreshing(false);
-      } else {
-        setLoading(false);
-      }
+      // CRITICAL: Always clear loading states, even on error
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -939,7 +939,7 @@ export default function SKUsPage() {
           <Button 
             variant="outline" 
             onClick={handleExportCSV}
-            disabled={filteredSkus.length === 0}
+            disabled={filteredSkus.length === 0 || loading}
             className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
             title={!canView ? "You don't have permission to view SKUs" : ""}
           >
@@ -952,7 +952,7 @@ export default function SKUsPage() {
               console.log('[SKUs] Bulk Upload clicked', { canEdit, workspace_id: tenantId });
               setShowUploadModal(true);
             }}
-            disabled={!isActive || !canEdit}
+            disabled={!canEdit || loading}
             className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
             title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
@@ -965,7 +965,7 @@ export default function SKUsPage() {
               console.log('[SKUs] Bulk Update clicked', { canEdit, workspace_id: tenantId });
               setShowUpdateModal(true);
             }}
-            disabled={!isActive || !canEdit}
+            disabled={!canEdit || loading}
             className="border-purple-200 text-purple-600 hover:bg-purple-50"
             title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
@@ -977,7 +977,7 @@ export default function SKUsPage() {
               console.log('[SKUs] Add SKU clicked', { canEdit, workspace_id: tenantId });
               setShowAddModal(true);
             }}
-            disabled={!isActive || !canEdit}
+            disabled={!canEdit || loading}
             className="bg-indigo-600 hover:bg-indigo-700"
             title={!canEdit ? "You need edit permission for SKUs/Products" : ""}
           >
