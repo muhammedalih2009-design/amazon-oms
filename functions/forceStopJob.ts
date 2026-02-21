@@ -89,15 +89,18 @@ Deno.serve(async (req) => {
       meta: {
         job_type: job.job_type,
         previous_status: job.status,
+        new_status: newStatus,
         user_email: user.email
       }
     });
 
-    console.log('[forceStopJob] Successfully stopped job:', job_id);
+    console.log(`[forceStopJob] Success: Job ${job_id} -> ${newStatus}`);
 
     return Response.json({
+      ok: true,
       success: true,
-      message: 'Job force stop requested'
+      message: `Job ${newStatus === 'cancelled' ? 'cancelled immediately' : 'cancellation requested'}`,
+      status: newStatus
     });
   } catch (error) {
     console.error('Error force stopping job:', error);
