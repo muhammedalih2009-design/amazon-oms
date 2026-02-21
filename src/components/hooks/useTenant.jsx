@@ -239,11 +239,14 @@ export function TenantProvider({ children }) {
     // Platform admin can see all modules
     if (isPlatformAdmin) return true;
     
+    // Dashboard and Settings are always enabled
+    if (moduleKey === 'dashboard' || moduleKey === 'settings') return true;
+    
     // If no modules configured, assume all enabled (backward compatibility)
     if (!workspaceModules || workspaceModules.length === 0) return true;
     
     const module = workspaceModules.find(m => m.module_key === moduleKey);
-    // B) If module not found in config, default to enabled for backward compatibility
+    // If module not found in config, default to enabled for backward compatibility
     return module ? module.enabled === true : true;
   };
 

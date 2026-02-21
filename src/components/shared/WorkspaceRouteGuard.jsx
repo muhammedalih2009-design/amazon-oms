@@ -16,6 +16,7 @@ import { PAGE_MODULE_MAP } from '@/components/hooks/useTenant';
 
 const SAFE_PAGES = ['NoAccess', 'AcceptInvite', 'ModuleDisabled', 'AcceptPlatformInvite'];
 const ADMIN_PAGES = ['Admin', 'EmergencyRestore', 'RateLimitMonitor', 'Monitoring', 'OwnerLog'];
+const ALWAYS_ACCESSIBLE = ['Dashboard', 'Settings']; // Core pages always accessible
 
 export default function WorkspaceRouteGuard({ children, pageName }) {
   const { hasWorkspaceAccess, loading, isPlatformAdmin, canAccessModule } = useTenant();
@@ -29,8 +30,8 @@ export default function WorkspaceRouteGuard({ children, pageName }) {
     // Allow platform admin to access all pages
     if (isPlatformAdmin) return;
 
-    // Allow safe pages and admin-only pages
-    if (SAFE_PAGES.includes(pageName) || ADMIN_PAGES.includes(pageName)) return;
+    // Allow safe pages, admin-only pages, and always-accessible core pages
+    if (SAFE_PAGES.includes(pageName) || ADMIN_PAGES.includes(pageName) || ALWAYS_ACCESSIBLE.includes(pageName)) return;
 
     // Block access if no workspace membership
     if (!hasWorkspaceAccess) {

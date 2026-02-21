@@ -7,9 +7,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader, Save, RefreshCw } from 'lucide-react';
 import { WORKSPACE_MODULES } from '@/components/shared/modulesConfig';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useTenant } from '@/components/hooks/useTenant';
 
 export default function ModuleManagementModal({ open, onClose, workspaceId, workspaceName }) {
   const { toast } = useToast();
+  const { refresh } = useTenant();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [moduleStates, setModuleStates] = useState({});
@@ -89,10 +91,13 @@ export default function ModuleManagementModal({ open, onClose, workspaceId, work
 
       setInitialStates(moduleStates);
       
-      // Reload page to reflect changes
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
+      // CRITICAL: Refresh workspace context to update modules instantly
+      if (refresh) {
+        await refresh();
+      }
+      
+      // Close modal and let context update propagate
+      onClose();
     } catch (error) {
       console.error('[Module Management] Save error:', error);
       toast({
@@ -155,7 +160,7 @@ export default function ModuleManagementModal({ open, onClose, workspaceId, work
                     <Switch
                       checked={moduleStates[module.key] || false}
                       onCheckedChange={() => handleToggle(module.key)}
-                      disabled={module.key === 'settings'} // Settings always enabled
+                      disabled={module.key === 'settings' || module.key === 'dashboard'} // Dashboard and Settings always enabled
                     />
                   </div>
                 </div>

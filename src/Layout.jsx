@@ -59,13 +59,18 @@ function LayoutContent({ children, currentPageName }) {
     if (isPlatformAdmin) return null; // Platform admin sees all
     if (!tenant?.id) return null;
     
+    // Always include dashboard and settings
+    const alwaysEnabled = ['dashboard', 'settings'];
+    
     // If no modules configured, all are enabled by default
     if (!workspaceModules || workspaceModules.length === 0) return null;
     
-    // Return only enabled module keys
-    return workspaceModules
+    // Return enabled module keys + always-enabled core modules
+    const enabledKeys = workspaceModules
       .filter(m => m.enabled === true)
       .map(m => m.module_key);
+    
+    return [...new Set([...alwaysEnabled, ...enabledKeys])];
   }, [isPlatformAdmin, tenant, workspaceModules]);
   
   const navItems = getSidebarItems(permissions, isOwner, noAccess, isPlatformAdmin, enabledModuleKeys);

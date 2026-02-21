@@ -53,13 +53,15 @@ Deno.serve(async (req) => {
 
         if (existing.length > 0) {
           await base44.asServiceRole.entities.WorkspaceModule.update(existing[0].id, {
-            enabled: enabled !== undefined ? enabled : true
+            enabled: enabled !== undefined ? enabled : true,
+            actor_user_id: user.id
           });
         } else {
           await base44.asServiceRole.entities.WorkspaceModule.create({
             workspace_id,
             module_key,
-            enabled: enabled !== undefined ? enabled : true
+            enabled: enabled !== undefined ? enabled : true,
+            actor_user_id: user.id
           });
         }
 
@@ -96,7 +98,8 @@ Deno.serve(async (req) => {
           .map(key => ({
             workspace_id,
             module_key: key,
-            enabled: true
+            enabled: true,
+            actor_user_id: user.id
           }));
 
         if (toCreate.length > 0) {
@@ -136,15 +139,20 @@ Deno.serve(async (req) => {
           'tasks', 'team', 'settings'
         ];
 
+        // CRITICAL: Dashboard and Settings always enabled
+        const alwaysEnabled = ['dashboard', 'settings'];
+        const effectiveEnabled = [...new Set([...modules_to_enable, ...alwaysEnabled])];
+
         for (const moduleKey of allModules) {
-          const shouldBeEnabled = modules_to_enable.includes(moduleKey);
+          const shouldBeEnabled = effectiveEnabled.includes(moduleKey);
           const existingModule = existingMap.get(moduleKey);
 
           if (existingModule) {
             // Update existing
             if (existingModule.enabled !== shouldBeEnabled) {
               await base44.asServiceRole.entities.WorkspaceModule.update(existingModule.id, {
-                enabled: shouldBeEnabled
+                enabled: shouldBeEnabled,
+                actor_user_id: user.id
               });
             }
           } else {
@@ -152,7 +160,8 @@ Deno.serve(async (req) => {
             await base44.asServiceRole.entities.WorkspaceModule.create({
               workspace_id,
               module_key: moduleKey,
-              enabled: shouldBeEnabled
+              enabled: shouldBeEnabled,
+              actor_user_id: user.id
             });
           }
         }
