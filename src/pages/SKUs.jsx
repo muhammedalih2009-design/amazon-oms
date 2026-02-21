@@ -286,27 +286,38 @@ export default function SKUsPage() {
         }
       });
 
-      // Fetch existing suppliers and create new ones in batch
+      // F) FIX: Fetch existing suppliers and create new ones in batch (preserve original casing)
       const supplierMap = new Map();
       if (uniqueSupplierNames.size > 0) {
         const existingSuppliers = await base44.entities.Supplier.filter({ tenant_id: tenantId });
         existingSuppliers.forEach(s => {
-          supplierMap.set(s.supplier_name.toLowerCase().trim(), s.id);
+          const key = (s.supplier_name || '').toLowerCase().trim();
+          if (key) {
+            supplierMap.set(key, s.id);
+          }
         });
 
         const newSupplierNames = Array.from(uniqueSupplierNames)
           .filter(name => !supplierMap.has(name));
 
         if (newSupplierNames.length > 0) {
+          console.log(`[SKU Upload] Creating ${newSupplierNames.length} new suppliers:`, newSupplierNames);
+          
           const newSuppliers = await base44.entities.Supplier.bulkCreate(
             newSupplierNames.map(name => ({
               tenant_id: tenantId,
-              supplier_name: name
+              supplier_name: name // F) Store with original casing from CSV
             }))
           );
+          
           newSuppliers.forEach(s => {
-            supplierMap.set(s.supplier_name.toLowerCase().trim(), s.id);
+            const key = (s.supplier_name || '').toLowerCase().trim();
+            if (key) {
+              supplierMap.set(key, s.id);
+            }
           });
+          
+          console.log(`[SKU Upload] Created suppliers:`, newSuppliers.map(s => ({ id: s.id, name: s.supplier_name })));
         }
       }
 
@@ -339,10 +350,18 @@ export default function SKUsPage() {
             throw new Error(`Duplicate SKU code: ${row.sku_code}`);
           }
 
-          // Get supplier ID from pre-built map
+          // F) FIX: Get supplier ID from pre-built map (ensure case-insensitive lookup)
           let supplierId = null;
-          if (row.supplier) {
-            supplierId = supplierMap.get(row.supplier.toLowerCase().trim()) || null;
+          let supplierName = null;
+          if (row.supplier && row.supplier.trim()) {
+            const supplierKey = row.supplier.trim().toLowerCase();
+            supplierId = supplierMap.get(supplierKey) || null;
+            supplierName = row.supplier.trim();
+            
+            // Debug log if supplier not found
+            if (!supplierId) {
+              console.warn(`[SKU Upload] Supplier not found: "${row.supplier}" (row ${i + 1})`);
+            }
           }
 
           // Add to valid SKUs array for bulk insert
@@ -351,11 +370,12 @@ export default function SKUsPage() {
             sku_code: row.sku_code.trim(),
             product_name: row.product_name.trim(),
             cost_price: costValue,
-            supplier_id: supplierId,
+            supplier_id: supplierId, // F) Ensure this is set
             image_url: row.image_url || null,
             import_batch_id: batch.id,
             _initialStock: stockValue,
-            _rowNumber: i + 1
+            _rowNumber: i + 1,
+            _supplierName: supplierName // F) Keep for debugging
           });
 
           // Mark as processed in Set to prevent duplicates within same file
@@ -378,8 +398,8 @@ export default function SKUsPage() {
         const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
         const batchToInsert = validSKUs.slice(i, i + BATCH_SIZE);
         
-        // Remove temporary fields before insert
-        const cleanedBatch = batchToInsert.map(({ _initialStock, _rowNumber, ...sku }) => sku);
+        // F) Remove temporary fields before insert (keep supplier_id)
+        const cleanedBatch = batchToInsert.map(({ _initialStock, _rowNumber, _supplierName, ...sku }) => sku);
         
         try {
           const insertedSKUs = await base44.entities.SKU.bulkCreate(cleanedBatch);
