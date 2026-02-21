@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
       processed_count: 0,
       success_count: 0,
       failed_count: 0,
+      progress_percent: 0,
       started_at: new Date().toISOString(),
       actor_user_id: user.id,
       meta: {
@@ -36,9 +37,19 @@ Deno.serve(async (req) => {
       }
     });
 
-    // Trigger async execution
-    base44.functions.invoke('executePurchasesImport', { job_id: job.id }).catch(err => {
+    // Trigger async execution using service role to ensure it has permission
+    base44.asServiceRole.functions.invoke('executePurchasesImport', { job_id: job.id }).catch(async (err) => {
       console.error('[Start Purchases Import] Async execution failed:', err);
+      // Mark job as failed if execution doesn't start
+      try {
+        await base44.asServiceRole.entities.BackgroundJob.update(job.id, {
+          status: 'failed',
+          error_message: `Failed to start execution: ${err.message}`,
+          completed_at: new Date().toISOString()
+        });
+      } catch (updateErr) {
+        console.error('[Start Purchases Import] Failed to update job status:', updateErr);
+      }
     });
 
     return Response.json({

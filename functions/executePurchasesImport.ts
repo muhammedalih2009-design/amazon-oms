@@ -22,6 +22,11 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, message: 'Job cancelled' });
     }
 
+    // Update status to running
+    await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+      status: 'running'
+    });
+
     const { tenant_id } = job;
     const rows = job.params?.rows || (job.params?.rows_json ? JSON.parse(job.params.rows_json) : []);
 
@@ -209,19 +214,25 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('[Execute Purchases Import] Error:', error);
 
-    const payload = await req.json();
-    const job_id = payload?.job_id;
+    try {
+      const payload = await req.json();
+      const job_id = payload?.job_id;
 
-    // Mark job as failed
-    if (job_id) {
-      const job = await base44.asServiceRole.entities.BackgroundJob.get(job_id);
-      if (job) {
-        await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-          status: 'failed',
-          error_message: error.message || 'Unknown error',
-          completed_at: new Date().toISOString()
-        });
+      // Mark job as failed
+      if (job_id) {
+        try {
+          const base44 = createClientFromRequest(req);
+          await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+            status: 'failed',
+            error_message: error.message || 'Unknown error',
+            completed_at: new Date().toISOString()
+          });
+        } catch (updateErr) {
+          console.error('[Execute Purchases Import] Failed to update job status:', updateErr);
+        }
       }
+    } catch (parseErr) {
+      console.error('[Execute Purchases Import] Error parsing request:', parseErr);
     }
 
     return Response.json({
