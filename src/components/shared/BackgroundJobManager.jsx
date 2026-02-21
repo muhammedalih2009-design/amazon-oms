@@ -8,7 +8,24 @@ import { X, Pause, Play, Ban, Loader2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function BackgroundJobManager() {
-  const { tenant, isPlatformAdmin } = useTenant();
+  const { tenant, isPlatformAdmin, user } = useTenant();
+  
+  // CRITICAL: Check platform admin BEFORE any hooks or state
+  const isSuperAdmin = isPlatformAdmin || user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
+  
+  // Debug logging (only in dev)
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Job Manager] User access check:', {
+        email: user?.email,
+        isPlatformAdmin,
+        isSuperAdmin,
+        hudEnabled: isSuperAdmin,
+        pollingEnabled: isSuperAdmin
+      });
+    }
+  }, [user, isPlatformAdmin, isSuperAdmin]);
+
   const tenantId = tenant?.id;
   const [jobs, setJobs] = useState([]);
   const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
@@ -16,25 +33,26 @@ export default function BackgroundJobManager() {
   const pollIntervalRef = useRef(null);
 
   // SECURITY: Only show Jobs HUD for Super Admin
-  if (!isPlatformAdmin) {
+  if (!isSuperAdmin) {
+    console.log('[Job Manager] Access denied - not platform admin');
     return null;
   }
 
   const fetchJobs = async () => {
-    if (!tenantId) {
-      console.log('[Job Manager] No tenantId - skipping fetch');
+    if (!isSuperAdmin) {
+      console.log('[Job Manager] Not super admin - skipping fetch');
       return;
     }
 
     try {
+      // Platform admin sees ALL active jobs across ALL workspaces
       const activeJobs = await apiClient.list(
         'BackgroundJob',
         { 
-          tenant_id: tenantId,
           status: { $in: ['queued', 'running', 'throttled', 'paused', 'cancelling'] }
         },
         '-created_date',
-        5,
+        20,
         { useCache: false }
       );
 
@@ -172,10 +190,10 @@ export default function BackgroundJobManager() {
     }
   };
 
-  // Main effect: Start/stop polling based on tenantId and jobs
+  // Main effect: Start/stop polling based on super admin status
   useEffect(() => {
-    if (!tenantId) {
-      console.log('[Job Manager] No tenantId - clearing jobs and stopping poll');
+    if (!isSuperAdmin) {
+      console.log('[Job Manager] Not super admin - no polling');
       setJobs([]);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -185,18 +203,18 @@ export default function BackgroundJobManager() {
     }
 
     // Initial fetch
-    console.log('[Job Manager] Initial fetch for tenant:', tenantId);
+    console.log('[Job Manager] Initial fetch (super admin)');
     fetchJobs();
 
-    // Start polling every 10 seconds
+    // Start polling every 5 seconds for faster updates
     if (!pollIntervalRef.current) {
-      console.log('[Job Manager] Starting polling (10s interval)');
+      console.log('[Job Manager] Starting polling (5s interval)');
       pollIntervalRef.current = setInterval(() => {
         fetchJobs();
-      }, 10000);
+      }, 5000);
     }
 
-    // Cleanup on unmount or tenant change
+    // Cleanup on unmount
     return () => {
       console.log('[Job Manager] Cleaning up polling interval');
       if (pollIntervalRef.current) {
@@ -204,7 +222,7 @@ export default function BackgroundJobManager() {
         pollIntervalRef.current = null;
       }
     };
-  }, [tenantId]);
+  }, [isSuperAdmin]);
 
   // Don't render if no valid jobs exist
   if (!jobs || jobs.length === 0) {
@@ -331,7 +349,7 @@ export default function BackgroundJobManager() {
             </div>
 
             <p className="text-xs text-slate-500">
-              Polling every 10s
+              Polling every 5s • Workspace: {job.tenant_id?.slice(0, 8)}
             </p>
           </div>
         </Card>

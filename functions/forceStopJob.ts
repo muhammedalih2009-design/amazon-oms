@@ -27,43 +27,57 @@ Deno.serve(async (req) => {
 
     console.log('[forceStopJob] Found job:', { id: job.id, type: job.job_type, status: job.status, tenant: job.tenant_id });
 
-    // Validate permission
-    const isPlatformAdmin = user.role === 'admin' || user.email === 'your-admin@email.com';
+    // SECURITY: Platform Admin only
+    const isPlatformAdmin = user.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
+    
     if (!isPlatformAdmin) {
-      const memberships = await base44.asServiceRole.entities.Membership.filter({
-        workspace_id: job.tenant_id,
-        user_id: user.id
-      });
-      
-      const isWorkspaceAdmin = memberships.some(m => m.role === 'owner' || m.role === 'admin');
-      if (!isWorkspaceAdmin) {
-        return Response.json({ error: 'Permission denied' }, { status: 403 });
-      }
+      console.warn('[forceStopJob] Permission denied for user:', user.email);
+      return Response.json({ 
+        error: 'Access denied. Only platform administrators can manage background jobs.' 
+      }, { status: 403 });
     }
 
-    // Validate status - allow queued jobs to be cancelled too
-    if (!['queued', 'running', 'throttled', 'pausing', 'resuming', 'paused'].includes(job.status)) {
+    // Check if job is already in terminal state (idempotent)
+    if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+      console.log(`[forceStopJob] Job ${job_id} already in terminal state: ${job.status}`);
+      return Response.json({ 
+        success: true,
+        message: `Job already ${job.status}`,
+        status: job.status
+      });
+    }
+
+    // Validate status - allow queued/running/paused jobs to be cancelled
+    if (!['queued', 'running', 'throttled', 'pausing', 'resuming', 'paused', 'cancelling'].includes(job.status)) {
       console.log(`[forceStopJob] Cannot stop job ${job_id} with status: ${job.status}`);
       return Response.json({ 
-        error: `Cannot force stop job with status: ${job.status}. Only queued/running/paused jobs can be stopped.` 
+        error: `Cannot force stop job with status: ${job.status}` 
       }, { status: 400 });
     }
 
-    console.log(`[forceStopJob] Stopping job ${job_id} (status: ${job.status})`);
+    console.log(`[forceStopJob] Stopping job ${job_id} (current status: ${job.status})`);
 
-    // CRITICAL FIX: If job is queued, mark as cancelled immediately (not running yet)
-    // If job is running, mark as cancelling (worker will see and stop)
+    // CRITICAL: Immediate cancellation for queued jobs, mark as "cancelling" for running jobs
     const newStatus = job.status === 'queued' ? 'cancelled' : 'cancelling';
+    const now = new Date().toISOString();
     
-    await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
+    const updates = {
       status: newStatus,
       can_resume: false,
-      cancel_requested_at: new Date().toISOString(),
-      ...(newStatus === 'cancelled' && {
-        completed_at: new Date().toISOString(),
-        error_message: 'Cancelled by user before execution started'
-      })
-    });
+      cancel_requested_at: now,
+      last_heartbeat_at: now
+    };
+
+    // If queued, mark as completed immediately
+    if (newStatus === 'cancelled') {
+      updates.completed_at = now;
+      updates.error_message = 'Cancelled by platform admin before execution started';
+      updates.progress_percent = 0;
+    }
+    
+    await base44.asServiceRole.entities.BackgroundJob.update(job_id, updates);
+    
+    console.log(`[forceStopJob] Job ${job_id} marked as ${newStatus}`);
 
     // Audit log
     await base44.asServiceRole.entities.AuditLog.create({
