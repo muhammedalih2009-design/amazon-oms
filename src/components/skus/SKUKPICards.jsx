@@ -2,7 +2,7 @@ import React from 'react';
 import { Package, DollarSign, AlertTriangle, Boxes } from 'lucide-react';
 import { KPISkeleton } from '@/components/ui/LoadingSkeleton';
 import { useTenant } from '@/components/hooks/useTenant';
-import formatCurrency from '@/components/utils/formatCurrency';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 
 export default function SKUKPICards({ skus, currentStock, loading, lowStockThreshold = 5, filteredSkus }) {
   const { currency, locale } = useTenant();

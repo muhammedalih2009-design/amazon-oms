@@ -3,7 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { apiClient } from '@/components/utils/apiClient';
 import { useTenant } from '@/components/hooks/useTenant';
 import { useDebounce } from '@/components/hooks/useDebounce';
-import formatCurrency from '@/components/utils/formatCurrency';
+import { formatCurrency } from '@/components/utils/formatCurrency';
 import { 
   Package, 
   Plus, 
