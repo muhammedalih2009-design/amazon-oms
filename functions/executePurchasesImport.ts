@@ -47,7 +47,12 @@ Deno.serve(async (req) => {
     });
 
     const { tenant_id } = job;
+    // E) FIX: Support both old (rows_json) and new (rows) formats
     const rows = job.params?.rows || (job.params?.rows_json ? JSON.parse(job.params.rows_json) : []);
+    
+    if (!rows || rows.length === 0) {
+      throw new Error('No rows to process');
+    }
 
     // Preload data once
     const [skus, suppliers, allPurchases, currentStock] = await Promise.all([

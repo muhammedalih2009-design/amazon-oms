@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
       },
       params: {
         filename,
-        rows_json: JSON.stringify(rows)
+        rows: rows // E) FIX: Store rows directly, not stringified
       }
     });
 
