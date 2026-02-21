@@ -56,12 +56,69 @@ export default function TelegramExportModal({
     return () => clearInterval(interval);
   };
 
-  const handleStart = async () => {
+  const loadSuppliers = async () => {
+    setLoadingSuppliers(true);
     try {
+      // Group items by supplier
+      const supplierMap = {};
+      items.forEach(item => {
+        const supplier = item.supplier || 'Unassigned';
+        if (!supplierMap[supplier]) {
+          supplierMap[supplier] = { skus: new Set(), qty: 0 };
+        }
+        supplierMap[supplier].skus.add(item.sku_code);
+        supplierMap[supplier].qty += (item.to_buy || 0);
+      });
+
+      const suppliersList = Object.entries(supplierMap).map(([name, data]) => ({
+        name,
+        skus: data.skus.size,
+        qty: data.qty
+      }));
+
+      setSuppliers(suppliersList);
+      // Select all by default
+      setSelectedSuppliers(new Set(suppliersList.map(s => s.name)));
+    } finally {
+      setLoadingSuppliers(false);
+    }
+  };
+
+  const handleProceedToSuppliers = async () => {
+    await loadSuppliers();
+    setStep('suppliers');
+  };
+
+  const toggleSupplier = (supplierName) => {
+    const newSelected = new Set(selectedSuppliers);
+    if (newSelected.has(supplierName)) {
+      newSelected.delete(supplierName);
+    } else {
+      newSelected.add(supplierName);
+    }
+    setSelectedSuppliers(newSelected);
+  };
+
+  const handleStart = async () => {
+    if (selectedSuppliers.size === 0) {
+      toast({
+        title: 'No suppliers selected',
+        description: 'Please select at least one supplier to export',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      // Filter items by selected suppliers
+      const filteredItems = items.filter(item => 
+        selectedSuppliers.has(item.supplier || 'Unassigned')
+      );
+
       // Create background job and get job ID
       const response = await base44.functions.invoke('startTelegramExport', {
         tenantId,
-        rows: items.map(item => ({
+        rows: filteredItems.map(item => ({
           imageUrl: item.image_url || '',
           supplier: item.supplier || 'Unassigned',
           sku: item.sku_code || '',
