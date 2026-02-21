@@ -103,12 +103,13 @@ Deno.serve(async (req) => {
         target_type: 'WorkspaceSettings',
         target_id: result.id,
         meta: {
-          currency_code: updateData.currency_code,
+          currency_code: updateData.currency_code || null,
           telegram_updated: !!(updateData.telegram_bot_token || updateData.telegram_chat_id)
         }
       });
     } catch (auditError) {
       console.warn('[updateWorkspaceSettings] Audit log failed (non-blocking):', auditError.message);
+      // Don't throw - audit log failure should not block settings update
     }
 
     // SUCCESS: Always return after DB update succeeds
