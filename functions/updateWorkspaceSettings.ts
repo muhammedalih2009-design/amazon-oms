@@ -52,7 +52,6 @@ Deno.serve(async (req) => {
     // Only include fields that are in the WorkspaceSettings schema
     const updateData = {
       workspace_id,
-      actor_user_id: user.id, // Required for audit trail
       updated_by_user_id: user.id // Track who updated
     };
 
@@ -77,19 +76,16 @@ Deno.serve(async (req) => {
 
     try {
       if (existing.length > 0) {
-        // Update existing - exclude actor_user_id from update payload
+        // Update existing
         const entityId = existing[0].id;
         console.log(`[updateWorkspaceSettings] Updating existing ID=${entityId}`);
         
-        // Remove actor_user_id for update (only needed on create)
-        const { actor_user_id, ...updatePayload } = updateData;
-        
         result = await base44.asServiceRole.entities.WorkspaceSettings.update(
           entityId,
-          updatePayload
+          updateData
         );
       } else {
-        // Create new - actor_user_id IS required on create
+        // Create new
         console.log(`[updateWorkspaceSettings] Creating new WorkspaceSettings`);
         result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
       }
