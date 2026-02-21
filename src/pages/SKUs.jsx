@@ -553,27 +553,33 @@ export default function SKUsPage() {
   const handleResetAllStock = async () => {
     setResettingStock(true);
     setShowResetStockDialog(false);
+    setResetConfirmText('');
 
     try {
-      // Call atomic backend function
-      const response = await base44.functions.invoke('resetStockToZero', { tenantId });
-
-      toast({
-        title: '✓ Stock reset complete',
-        description: `All stock set to 0. Archived ${response.archived_movements_count} movements. Affected ${response.affected_skus} SKUs. Integrity fixed.`
+      // Start background job for stock reset
+      const { data, status } = await base44.functions.invoke('startResetStock', { 
+        workspace_id: tenantId 
       });
 
-      // Auto refresh
-      loadData();
+      if (status === 200 && data?.ok) {
+        toast({
+          title: 'Stock reset started',
+          description: `Background job created to reset ${data.total_items} SKUs. You can monitor progress in the floating widget.`,
+          duration: 5000
+        });
+      } else {
+        throw new Error(data?.error || 'Failed to start reset job');
+      }
     } catch (error) {
+      console.error('[SKUs] Reset stock error:', error);
       toast({
         title: 'Reset failed',
-        description: error.message,
+        description: error.response?.data?.error || error.message || 'Failed to start stock reset',
         variant: 'destructive'
       });
+    } finally {
+      setResettingStock(false);
     }
-
-    setResettingStock(false);
   };
 
   const handleDeleteSelected = async () => {
