@@ -66,11 +66,10 @@ Deno.serve(async (req) => {
         // Log audit
         await base44.asServiceRole.entities.AuditLog.create({
           workspace_id,
-          user_id: user.id,
-          user_email: user.email,
+          actor_user_id: user.id,
           action: enabled ? 'module_enabled' : 'module_disabled',
-          entity_type: 'WorkspaceModule',
-          metadata: {
+          target_type: 'WorkspaceModule',
+          meta: {
             module_key,
             enabled
           }
@@ -107,11 +106,10 @@ Deno.serve(async (req) => {
         // Log audit
         await base44.asServiceRole.entities.AuditLog.create({
           workspace_id,
-          user_id: user.id,
-          user_email: user.email,
+          actor_user_id: user.id,
           action: 'module_change',
-          entity_type: 'WorkspaceModule',
-          metadata: {
+          target_type: 'WorkspaceModule',
+          meta: {
             action: 'initialize',
             modules_created: toCreate.length
           }
@@ -162,11 +160,10 @@ Deno.serve(async (req) => {
         // Log audit
         await base44.asServiceRole.entities.AuditLog.create({
           workspace_id,
-          user_id: user.id,
-          user_email: user.email,
+          actor_user_id: user.id,
           action: 'module_change',
-          entity_type: 'WorkspaceModule',
-          metadata: {
+          target_type: 'WorkspaceModule',
+          meta: {
             action: 'bulk_update',
             enabled_count: modules_to_enable.length
           }
