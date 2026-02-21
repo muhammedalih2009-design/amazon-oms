@@ -26,9 +26,6 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [checking, setChecking] = useState(false);
   const [results, setResults] = useState(null);
   const [fixingSkus, setFixingSkus] = useState(new Set());
-  const [reconcileOpen, setReconcileOpen] = useState(false);
-  const [reconcileStock, setReconcileStock] = useState('0');
-  const [reconciling, setReconciling] = useState(false);
   const { toast } = useToast();
 
   const runIntegrityCheckSilent = async () => {
