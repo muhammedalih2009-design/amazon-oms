@@ -10,8 +10,22 @@ import { useToast } from '@/components/ui/use-toast';
 export default function BackgroundJobManager() {
   const { tenant, isPlatformAdmin, user } = useTenant();
   
-  // CRITICAL: Check platform admin BEFORE any hooks or state
+  // CRITICAL: Check platform admin FIRST - before any hooks
   const isSuperAdmin = isPlatformAdmin || user?.email?.toLowerCase() === 'muhammedalih.2009@gmail.com';
+  
+  // SECURITY: Early return BEFORE any other hooks
+  if (!isSuperAdmin) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Job Manager] Access denied - not platform admin');
+    }
+    return null;
+  }
+
+  const tenantId = tenant?.id;
+  const [jobs, setJobs] = useState([]);
+  const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
+  const { toast } = useToast();
+  const pollIntervalRef = useRef(null);
   
   // Debug logging (only in dev)
   useEffect(() => {
@@ -20,23 +34,11 @@ export default function BackgroundJobManager() {
         email: user?.email,
         isPlatformAdmin,
         isSuperAdmin,
-        hudEnabled: isSuperAdmin,
-        pollingEnabled: isSuperAdmin
+        hudEnabled: true,
+        pollingEnabled: true
       });
     }
   }, [user, isPlatformAdmin, isSuperAdmin]);
-
-  const tenantId = tenant?.id;
-  const [jobs, setJobs] = useState([]);
-  const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
-  const { toast } = useToast();
-  const pollIntervalRef = useRef(null);
-
-  // SECURITY: Only show Jobs HUD for Super Admin
-  if (!isSuperAdmin) {
-    console.log('[Job Manager] Access denied - not platform admin');
-    return null;
-  }
 
   const fetchJobs = async () => {
     if (!isSuperAdmin) {
