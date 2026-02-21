@@ -283,7 +283,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
     try {
       const { data } = await base44.functions.invoke('fixStockIssuesForSku', {
-        tenant_id: tenantId,
+        workspace_id: tenantId,
         sku_code: skuCode
       });
 
