@@ -77,16 +77,19 @@ Deno.serve(async (req) => {
 
     try {
       if (existing.length > 0) {
-        // Update existing
+        // Update existing - exclude actor_user_id from update payload
         const entityId = existing[0].id;
         console.log(`[updateWorkspaceSettings] Updating existing ID=${entityId}`);
         
+        // Remove actor_user_id for update (only needed on create)
+        const { actor_user_id, ...updatePayload } = updateData;
+        
         result = await base44.asServiceRole.entities.WorkspaceSettings.update(
           entityId,
-          updateData
+          updatePayload
         );
       } else {
-        // Create new
+        // Create new - actor_user_id IS required on create
         console.log(`[updateWorkspaceSettings] Creating new WorkspaceSettings`);
         result = await base44.asServiceRole.entities.WorkspaceSettings.create(updateData);
       }
