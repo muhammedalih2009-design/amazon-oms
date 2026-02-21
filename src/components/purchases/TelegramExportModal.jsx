@@ -14,11 +14,14 @@ export default function TelegramExportModal({
   dateRange 
 }) {
   const { toast } = useToast();
-  const [step, setStep] = useState('confirm'); // confirm, processing, completed
+  const [step, setStep] = useState('confirm'); // confirm, suppliers, processing, completed
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
   const [polling, setPolling] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [suppliers, setSuppliers] = useState([]);
+  const [selectedSuppliers, setSelectedSuppliers] = useState(new Set());
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false);
 
   const supplierCount = [...new Set(items.map(i => i.supplier || 'Unassigned'))].length;
 
