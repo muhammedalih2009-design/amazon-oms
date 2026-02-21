@@ -844,17 +844,32 @@ export default function Purchases() {
           <p className="text-slate-500">Record inventory purchases</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
-          {isAdmin && <BackfillSuppliers tenantId={tenantId} onComplete={() => loadData(true)} />}
-          {isAdmin && selectedPurchases.length > 0 && (
-            <Button 
-              variant="destructive"
-              onClick={handleBulkDeleteClick}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete Selected ({selectedPurchases.length})
-            </Button>
-          )}
+           <RefreshButton onRefresh={() => loadData(true)} loading={refreshing} />
+           {isAdmin && <BackfillSuppliers tenantId={tenantId} onComplete={() => loadData(true)} />}
+           {isAdmin && selectedPurchases.length > 0 && (
+             <Button 
+               variant="destructive"
+               onClick={handleBulkDeleteClick}
+             >
+               <Trash2 className="w-4 h-4 mr-2" />
+               Delete Selected ({selectedPurchases.length} - {totalSelectedQty} units)
+             </Button>
+           )}
+           {isAdmin && purchases.length > 0 && (
+             <Button 
+               variant="destructive"
+               onClick={() => {
+                 setSelectedPurchases(purchases.map(p => p.id));
+                 setDeletingPurchase(null);
+                 setDeleteWarning(null);
+                 setDeleteMode(null);
+                 setShowDeleteDialog(true);
+               }}
+             >
+               <Trash2 className="w-4 h-4 mr-2" />
+               Delete All ({purchases.length})
+             </Button>
+           )}
           {cart.length > 0 && (
             <Button 
               onClick={() => setShowCartForm(true)}
