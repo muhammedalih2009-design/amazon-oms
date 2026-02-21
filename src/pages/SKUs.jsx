@@ -55,9 +55,9 @@ export default function SKUsPage() {
   const { tenantId, subscription, isActive, tenant, permissions, membership } = useTenant();
   const { toast } = useToast();
   
-  // FIX: Use correct module key "skus_products"
-  const canView = permissions?.skus_products?.view === true;
-  const canEdit = permissions?.skus_products?.edit === true;
+  // CRITICAL FIX: Check both legacy "skus" and new "skus_products" keys for backward compatibility
+  const canView = permissions?.skus_products?.view === true || permissions?.skus?.view === true;
+  const canEdit = permissions?.skus_products?.edit === true || permissions?.skus?.edit === true;
   
   // DEBUG: Log permissions on load (TEMP - remove after fix confirmed)
   useEffect(() => {
