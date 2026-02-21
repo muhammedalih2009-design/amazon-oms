@@ -57,13 +57,12 @@ Deno.serve(async (req) => {
     const fixedIssues = [];
     let createdMovementsCount = 0;
 
-    // Fix 1: Create missing OUT movements for fulfilled orders
-    const fulfilledOrderIds = new Set(orders.map(o => o.id));
-    const linesForFulfilledOrders = orderLines.filter(line => 
-      line.sku_id === sku.id && fulfilledOrderIds.has(line.order_id)
-    );
+    // Fix 1: Create missing OUT movements for all non-returned order lines
+    const linesForThisSku = orderLines.filter(line => line.sku_id === sku.id);
+    
+    console.log(`[Fix SKU] Found ${linesForThisSku.length} order lines for this SKU`);
 
-    for (const line of linesForFulfilledOrders) {
+    for (const line of linesForThisSku) {
       const hasMovement = movements.some(m => 
         m.reference_type === 'order_line' && 
         m.reference_id === line.id &&
@@ -71,6 +70,8 @@ Deno.serve(async (req) => {
       );
 
       if (!hasMovement) {
+        console.log(`[Fix SKU] Missing OUT movement for order line ${line.id} (qty: ${line.quantity})`);
+        
         // Create missing movement (idempotent - check again before insert)
         const doubleCheck = await base44.asServiceRole.entities.StockMovement.filter({
           tenant_id: workspace_id,
@@ -80,7 +81,10 @@ Deno.serve(async (req) => {
         });
 
         if (doubleCheck.length === 0) {
-          await base44.asServiceRole.entities.StockMovement.create({
+          const orderData = orders.find(o => o.id === line.order_id);
+          const movementDate = orderData?.order_date || new Date().toISOString().split('T')[0];
+          
+          const newMovement = await base44.asServiceRole.entities.StockMovement.create({
             tenant_id: workspace_id,
             sku_id: sku.id,
             sku_code: sku.sku_code,
@@ -88,13 +92,53 @@ Deno.serve(async (req) => {
             quantity: -line.quantity,
             reference_type: 'order_line',
             reference_id: line.id,
-            movement_date: orders.find(o => o.id === line.order_id)?.order_date || new Date().toISOString().split('T')[0],
-            notes: `Auto-fix: Missing OUT movement for fulfilled order`,
+            movement_date: movementDate,
+            notes: `Auto-fix: Missing OUT movement for order line`,
             is_archived: false
           });
           createdMovementsCount++;
           fixedIssues.push('missing_out_movement');
-          console.log(`[Fix SKU] Created missing OUT movement for order line ${line.id}`);
+          console.log(`[Fix SKU] ✓ Created movement ${newMovement.id}: -${line.quantity} units`);
+        }
+      }
+    }
+    
+    // Fix 1b: Create IN movements for purchases (if they exist but no movement record)
+    console.log(`[Fix SKU] Found ${purchases.length} purchase records`);
+    
+    for (const purchase of purchases) {
+      const hasMovement = movements.some(m => 
+        m.reference_type === 'purchase' && 
+        m.reference_id === purchase.id &&
+        m.movement_type === 'purchase'
+      );
+
+      if (!hasMovement && purchase.quantity_remaining > 0) {
+        console.log(`[Fix SKU] Missing IN movement for purchase ${purchase.id} (qty: ${purchase.quantity_remaining})`);
+        
+        const doubleCheck = await base44.asServiceRole.entities.StockMovement.filter({
+          tenant_id: workspace_id,
+          reference_type: 'purchase',
+          reference_id: purchase.id,
+          movement_type: 'purchase'
+        });
+
+        if (doubleCheck.length === 0) {
+          const newMovement = await base44.asServiceRole.entities.StockMovement.create({
+            tenant_id: workspace_id,
+            sku_id: sku.id,
+            sku_code: sku.sku_code,
+            movement_type: 'purchase',
+            quantity: purchase.quantity_remaining,
+            reference_type: 'purchase',
+            reference_id: purchase.id,
+            movement_date: purchase.purchase_date,
+            notes: `Auto-fix: Missing IN movement for purchase`,
+            is_archived: false
+          });
+          createdMovementsCount++;
+          fixedIssues.push('missing_in_movement');
+          console.log(`[Fix SKU] ✓ Created movement ${newMovement.id}: +${purchase.quantity_remaining} units`);
         }
       }
     }
