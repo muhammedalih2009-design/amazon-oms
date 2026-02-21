@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { apiClient } from '@/components/utils/apiClient';
+import { base44 } from '@/api/base44Client';
 import { useTenant } from '@/components/hooks/useTenant';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,17 +47,14 @@ export default function BackgroundJobManager() {
     }
 
     try {
-      // Platform admin sees ALL active jobs across ALL workspaces
-      const activeJobs = await apiClient.list(
-        'BackgroundJob',
-        { 
-          status: { $in: ['queued', 'running', 'throttled', 'paused', 'cancelling'] }
-        },
-        '-created_date',
-        20,
-        { useCache: false }
-      );
+      // Call dedicated server endpoint (403 for non-admins)
+      const { data } = await base44.functions.invoke('listBackgroundJobs', {});
+      
+      if (!data.ok) {
+        throw new Error(data.error || 'Failed to fetch jobs');
+      }
 
+      const activeJobs = data.jobs || [];
       console.log('[Job Manager] Fetched jobs from API:', activeJobs.length);
 
       // STRICT VALIDATION: Filter out any invalid/stale jobs
@@ -120,6 +117,16 @@ export default function BackgroundJobManager() {
       }
     } catch (error) {
       console.error('[Job Manager] Fetch error:', error);
+      
+      // If 403, stop polling permanently
+      if (error.response?.status === 403 || error.status === 403) {
+        console.error('[Job Manager] 403 - stopping polling');
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }
+      
       // On error, clear jobs to avoid showing stale data
       setJobs([]);
     }
@@ -142,10 +149,10 @@ export default function BackgroundJobManager() {
       const payload = { job_id: jobId };
       console.log('[Job Manager] Force stop payload:', payload);
 
-      const result = await apiClient.invokeFunction('forceStopJob', payload);
-      console.log('[Job Manager] Force stop response:', result);
+      const { data } = await base44.functions.invoke('forceStopJob', payload);
+      console.log('[Job Manager] Force stop response:', data);
 
-      if (result.success || result.ok) {
+      if (data.success || data.ok) {
         toast({
           title: 'Force stop requested',
           description: 'Job is being terminated...',
@@ -153,7 +160,7 @@ export default function BackgroundJobManager() {
         });
         fetchJobs();
       } else {
-        throw new Error(result.error || 'Unknown error');
+        throw new Error(data.error || 'Unknown error');
       }
     } catch (error) {
       console.error('[Job Manager] Force stop error:', error);
@@ -168,20 +175,20 @@ export default function BackgroundJobManager() {
 
   const manageJob = async (jobId, action) => {
     try {
-      const result = await apiClient.invokeFunction('manageBackgroundJob', {
+      const { data } = await base44.functions.invoke('manageBackgroundJob', {
         job_id: jobId,
         action
       });
 
-      if (result.ok) {
+      if (data.ok) {
         toast({
           title: 'Success',
-          description: result.message,
+          description: data.message,
           duration: 3000
         });
         fetchJobs();
       } else {
-        throw new Error(result.error);
+        throw new Error(data.error);
       }
     } catch (error) {
       toast({

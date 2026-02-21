@@ -19,8 +19,8 @@ Deno.serve(async (req) => {
 
     console.log('[checkStuckJobs] Starting stuck jobs check...');
 
-    // Find jobs stuck in "cancelling" for more than 10 minutes
-    const stuckCancelTimeout = 10 * 60 * 1000; // 10 minutes
+    // Find jobs stuck in "cancelling" for more than 2 minutes
+    const stuckCancelTimeout = 2 * 60 * 1000; // 2 minutes
     const now = Date.now();
 
     const allCancellingJobs = await base44.asServiceRole.entities.BackgroundJob.filter({
