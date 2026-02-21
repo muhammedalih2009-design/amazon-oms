@@ -53,81 +53,125 @@ Deno.serve(async (req) => {
     let sentCount = 0;
     let failedCount = 0;
     const failedItems = [];
+    let processedCount = 0;
 
-    // Process each item
-    for (let i = 0; i < rows.length; i++) {
-      const item = rows[i];
-      
+    // Group items by supplier
+    const groupedBySupplier = {};
+    rows.forEach(item => {
+      const supplier = item.supplier || 'Unassigned';
+      if (!groupedBySupplier[supplier]) {
+        groupedBySupplier[supplier] = [];
+      }
+      groupedBySupplier[supplier].push(item);
+    });
+
+    // Process each supplier group
+    for (const [supplier, items] of Object.entries(groupedBySupplier)) {
       try {
-        // Build caption with supplier grouping
-        const caption = `
-📦 *${item.supplier || 'Unassigned'}*
+        // Calculate supplier summary
+        const totalSkus = items.length;
+        const totalQty = items.reduce((sum, item) => sum + (item.toBuy || 0), 0);
+        const totalCost = items.reduce((sum, item) => sum + ((item.toBuy || 0) * (item.unitCost || 0)), 0);
 
-SKU: \`${item.sku || 'N/A'}\`
-Product: ${item.product || 'N/A'}
-Qty: ${item.toBuy}
-Unit Cost: $${(item.unitCost || 0).toFixed(2)}
-Est. Total: $${((item.toBuy || 0) * (item.unitCost || 0)).toFixed(2)}
-        `.trim();
+        // Send supplier header message
+        const headerCaption = `📦 *${supplier}*\n${totalSkus} SKUs | ${totalQty} items | $${totalCost.toFixed(2)}`;
 
-        // Try to send photo if URL exists, otherwise send text message
-        if (item.imageUrl && item.imageUrl.trim().length > 0) {
-          const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              photo: item.imageUrl,
-              caption: caption,
-              parse_mode: 'Markdown'
-            })
-          });
+        const headerResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: headerCaption,
+            parse_mode: 'Markdown'
+          })
+        });
 
-          if (!response.ok) {
-            throw new Error(`Telegram API error: ${response.statusText}`);
-          }
-
-          sentCount++;
-        } else {
-          // Send text message if no image
-          const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: caption,
-              parse_mode: 'Markdown'
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error(`Telegram API error: ${response.statusText}`);
-          }
-
-          sentCount++;
+        if (!headerResponse.ok) {
+          throw new Error(`Failed to send supplier header: ${headerResponse.statusText}`);
         }
 
-        // Rate limiting - 100ms between messages to avoid Telegram throttling
+        sentCount++;
+        processedCount++;
         await new Promise(resolve => setTimeout(resolve, 100));
 
-      } catch (itemError) {
-        console.error(`[Telegram Export] Failed to send item ${i + 1}:`, itemError);
+        // Send each item under this supplier
+        for (const item of items) {
+          try {
+            const itemCaption = `SKU: \`${item.sku || 'N/A'}\`\nProduct: ${item.product || 'N/A'}\nQty: ${item.toBuy}\nUnit Cost: $${(item.unitCost || 0).toFixed(2)}\nEst. Total: $${((item.toBuy || 0) * (item.unitCost || 0)).toFixed(2)}`;
+
+            // Try to send photo if URL exists, otherwise send text message
+            if (item.imageUrl && item.imageUrl.trim().length > 0) {
+              const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  photo: item.imageUrl,
+                  caption: itemCaption,
+                  parse_mode: 'Markdown'
+                })
+              });
+
+              if (!response.ok) {
+                throw new Error(`Telegram API error: ${response.statusText}`);
+              }
+            } else {
+              const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: itemCaption,
+                  parse_mode: 'Markdown'
+                })
+              });
+
+              if (!response.ok) {
+                throw new Error(`Telegram API error: ${response.statusText}`);
+              }
+            }
+
+            sentCount++;
+            processedCount++;
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+          } catch (itemError) {
+            console.error(`[Telegram Export] Failed to send item ${item.sku}:`, itemError);
+            failedCount++;
+            processedCount++;
+            failedItems.push({
+              sku_code: item.sku,
+              product: item.product,
+              supplier: supplier,
+              error_message: itemError.message
+            });
+          }
+
+          // Update job progress
+          const progress = Math.round((processedCount / totalItems) * 100);
+          await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+            processed_count: processedCount,
+            success_count: sentCount,
+            failed_count: failedCount,
+            progress_percent: progress
+          }).catch(() => {});
+        }
+
+      } catch (supplierError) {
+        console.error(`[Telegram Export] Failed to send supplier header ${supplier}:`, supplierError);
         failedCount++;
-        failedItems.push({
-          sku_code: item.sku,
-          product: item.product,
-          error_message: itemError.message
+        processedCount++;
+        
+        // Mark all items in this supplier as failed
+        items.forEach(item => {
+          failedItems.push({
+            sku_code: item.sku,
+            product: item.product,
+            supplier: supplier,
+            error_message: supplierError.message
+          });
         });
       }
-
-      // Update job progress
-      const progress = Math.round(((i + 1) / totalItems) * 100);
-      await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-        processed_count: i + 1,
-        success_count: sentCount,
-        failed_count: failedCount,
-        progress_percent: progress
-      }).catch(() => {});
     }
 
     // Mark job as complete
