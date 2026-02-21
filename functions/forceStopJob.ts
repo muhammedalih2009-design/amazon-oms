@@ -51,11 +51,18 @@ Deno.serve(async (req) => {
 
     console.log(`[forceStopJob] Stopping job ${job_id} (status: ${job.status})`);
 
-    // P0 FIX: Update to cancelling with timestamp
+    // CRITICAL FIX: If job is queued, mark as cancelled immediately (not running yet)
+    // If job is running, mark as cancelling (worker will see and stop)
+    const newStatus = job.status === 'queued' ? 'cancelled' : 'cancelling';
+    
     await base44.asServiceRole.entities.BackgroundJob.update(job_id, {
-      status: 'cancelling',
+      status: newStatus,
       can_resume: false,
-      cancel_requested_at: new Date().toISOString()
+      cancel_requested_at: new Date().toISOString(),
+      ...(newStatus === 'cancelled' && {
+        completed_at: new Date().toISOString(),
+        error_message: 'Cancelled by user before execution started'
+      })
     });
 
     // Audit log

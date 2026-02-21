@@ -8,12 +8,17 @@ import { X, Pause, Play, Ban, Loader2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function BackgroundJobManager() {
-  const { tenant } = useTenant();
+  const { tenant, isPlatformAdmin } = useTenant();
   const tenantId = tenant?.id;
   const [jobs, setJobs] = useState([]);
   const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
   const { toast } = useToast();
   const pollIntervalRef = useRef(null);
+
+  // SECURITY: Only show Jobs HUD for Super Admin
+  if (!isPlatformAdmin) {
+    return null;
+  }
 
   const fetchJobs = async () => {
     if (!tenantId) {
