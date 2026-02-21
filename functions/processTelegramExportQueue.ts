@@ -3,7 +3,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const { jobId, tenantId } = await req.json();
+    const { jobId, tenantId, resumeFromCheckpoint } = await req.json();
 
     if (!jobId || !tenantId) {
       return Response.json({ error: 'Missing jobId or tenantId' }, { status: 400 });
@@ -18,8 +18,20 @@ Deno.serve(async (req) => {
     // Update job status to running
     await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
       status: 'running',
-      started_at: new Date().toISOString()
+      started_at: new Date().toISOString(),
+      last_heartbeat_at: new Date().toISOString()
     });
+
+    // Heartbeat sender - sends every 10 seconds to prevent timeout
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+          last_heartbeat_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('[Heartbeat] Failed to send heartbeat:', err);
+      }
+    }, 10000);
 
     // Get workspace settings for Telegram credentials
     const settingsData = await base44.asServiceRole.entities.WorkspaceSettings.filter({
@@ -50,10 +62,20 @@ Deno.serve(async (req) => {
 
     const rows = job.params?.rows || [];
     const totalItems = rows.length;
-    let sentCount = 0;
-    let failedCount = 0;
-    const failedItems = [];
-    let processedCount = 0;
+    let sentCount = job.success_count || 0;
+    let failedCount = job.failed_count || 0;
+    const failedItems = job.result?.failedItems || [];
+    let processedCount = job.processed_count || 0;
+
+    // Parse checkpoint to know where we left off
+    let checkpoint = null;
+    if (job.checkpoint_json) {
+      try {
+        checkpoint = JSON.parse(job.checkpoint_json);
+      } catch (e) {
+        console.log('[Checkpoint] Failed to parse checkpoint');
+      }
+    }
 
     // Group items by supplier
     const groupedBySupplier = {};
@@ -67,6 +89,10 @@ Deno.serve(async (req) => {
 
     // Process each supplier group
     for (const [supplier, items] of Object.entries(groupedBySupplier)) {
+      // Skip suppliers that were already fully processed
+      if (checkpoint && checkpoint.completedSuppliers && checkpoint.completedSuppliers.includes(supplier)) {
+        continue;
+      }
       try {
         // Calculate supplier summary
         const totalSkus = items.length;
@@ -95,7 +121,14 @@ Deno.serve(async (req) => {
         await new Promise(resolve => setTimeout(resolve, 100));
 
         // Send each item under this supplier
+        let itemIndex = 0;
         for (const item of items) {
+          // Skip items already processed in this supplier (for resume)
+          if (checkpoint && checkpoint.lastProcessedSupplier === supplier && itemIndex < (checkpoint.lastProcessedItemIndex || 0)) {
+            itemIndex++;
+            continue;
+          }
+
           try {
             const itemCaption = `SKU: \`${item.sku || 'N/A'}\`\nProduct: ${item.product || 'N/A'}\nQty: ${item.toBuy}\nUnit Cost: $${(item.unitCost || 0).toFixed(2)}\nEst. Total: $${((item.toBuy || 0) * (item.unitCost || 0)).toFixed(2)}`;
 
@@ -147,15 +180,41 @@ Deno.serve(async (req) => {
             });
           }
 
-          // Update job progress
-          const progress = Math.round((processedCount / totalItems) * 100);
-          await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-            processed_count: processedCount,
-            success_count: sentCount,
-            failed_count: failedCount,
-            progress_percent: progress
-          }).catch(() => {});
+          itemIndex++;
+
+          // Update job progress and checkpoint every 10 items
+          if (itemIndex % 10 === 0) {
+            const progress = Math.round((processedCount / totalItems) * 100);
+            const checkpointData = {
+              lastProcessedSupplier: supplier,
+              lastProcessedItemIndex: itemIndex,
+              completedSuppliers: []
+            };
+            
+            await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+              processed_count: processedCount,
+              success_count: sentCount,
+              failed_count: failedCount,
+              progress_percent: progress,
+              checkpoint_json: JSON.stringify(checkpointData),
+              result: {
+                totalItems,
+                sentCount,
+                failedCount,
+                failedItems
+              }
+            }).catch(() => {});
+          }
         }
+
+        // Mark this supplier as completed
+        checkpoint = checkpoint || { completedSuppliers: [] };
+        if (!checkpoint.completedSuppliers) checkpoint.completedSuppliers = [];
+        checkpoint.completedSuppliers.push(supplier);
+        
+        await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+          checkpoint_json: JSON.stringify(checkpoint)
+        }).catch(() => {});
 
       } catch (supplierError) {
         console.error(`[Telegram Export] Failed to send supplier header ${supplier}:`, supplierError);
@@ -175,6 +234,8 @@ Deno.serve(async (req) => {
     }
 
     // Mark job as complete
+    clearInterval(heartbeatInterval);
+    
     await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
       status: 'completed',
       processed_count: totalItems,
@@ -182,6 +243,7 @@ Deno.serve(async (req) => {
       failed_count: failedCount,
       progress_percent: 100,
       completed_at: new Date().toISOString(),
+      checkpoint_json: null,
       result: {
         totalItems,
         sentCount,
@@ -200,6 +262,16 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('[Telegram Export Queue] Error:', error);
+    clearInterval(heartbeatInterval);
+    
+    // Save error and make job resumable
+    await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+      status: 'failed',
+      error_message: error.message,
+      completed_at: new Date().toISOString(),
+      can_resume: true
+    }).catch(() => {});
+    
     return Response.json({ 
       error: error.message,
       details: error.stack 
