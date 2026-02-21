@@ -53,6 +53,7 @@ import Admin from './pages/Admin';
 import BackupData from './pages/BackupData';
 import Dashboard from './pages/Dashboard';
 import EmergencyRestore from './pages/EmergencyRestore';
+import ModuleDisabled from './pages/ModuleDisabled';
 import Monitoring from './pages/Monitoring';
 import NoAccess from './pages/NoAccess';
 import Orders from './pages/Orders';
@@ -72,7 +73,6 @@ import SuppliersStores from './pages/SuppliersStores';
 import Tasks from './pages/Tasks';
 import Team from './pages/Team';
 import WorkspaceDetails from './pages/WorkspaceDetails';
-import ModuleDisabled from './pages/ModuleDisabled';
 import __Layout from './Layout.jsx';
 
 
@@ -83,6 +83,7 @@ export const PAGES = {
     "BackupData": BackupData,
     "Dashboard": Dashboard,
     "EmergencyRestore": EmergencyRestore,
+    "ModuleDisabled": ModuleDisabled,
     "Monitoring": Monitoring,
     "NoAccess": NoAccess,
     "Orders": Orders,
@@ -102,7 +103,6 @@ export const PAGES = {
     "Tasks": Tasks,
     "Team": Team,
     "WorkspaceDetails": WorkspaceDetails,
-    "ModuleDisabled": ModuleDisabled,
 }
 
 export const pagesConfig = {

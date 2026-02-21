@@ -618,25 +618,34 @@ export default function PurchaseRequests() {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end" onPointerDownOutside={(e) => {
+              <PopoverContent className="w-auto p-4" align="end" onPointerDownOutside={(e) => {
                 // Only allow outside close if both dates are selected
                 if (!dateRange?.to) {
                   e.preventDefault();
                 }
               }}>
-                <Calendar
-                  mode="range"
-                  selected={dateRange}
-                  onSelect={(range) => {
-                    setDateRange(range);
-                    // Only close if both dates are selected
-                    if (range?.to) {
-                      setCalendarOpen(false);
-                    }
-                  }}
-                  numberOfMonths={2}
-                  disabled={(date) => false}
-                />
+                <div className="space-y-3">
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={(range) => {
+                      setDateRange(range);
+                    }}
+                    numberOfMonths={2}
+                    disabled={(date) => false}
+                  />
+                  <Button
+                    onClick={() => {
+                      if (dateRange?.from && dateRange?.to) {
+                        setCalendarOpen(false);
+                      }
+                    }}
+                    disabled={!dateRange?.from || !dateRange?.to}
+                    className="w-full"
+                  >
+                    Done
+                  </Button>
+                </div>
               </PopoverContent>
             </Popover>
             <Button 
