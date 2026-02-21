@@ -9,71 +9,33 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { workspace_id, target_stock, sku_codes } = await req.json();
+    const { workspace_id, sku_codes } = await req.json();
 
-    if (!workspace_id || sku_codes?.length === 0 || target_stock === undefined) {
+    if (!workspace_id || !sku_codes?.length) {
       return Response.json({ 
         ok: false, 
-        error: 'workspace_id, sku_codes array, and target_stock required' 
+        error: 'workspace_id and sku_codes array required' 
       }, { status: 400 });
     }
 
-    console.log(`[Bulk Reconcile] Starting bulk reconciliation for ${sku_codes.length} SKUs to stock ${target_stock}`);
+    console.log(`[Bulk Reconcile] Starting bulk reconciliation for ${sku_codes.length} SKUs to stock 0`);
 
     let reconciled_count = 0;
 
+    // Call fixStockIssuesForSku for each SKU
     for (const sku_code of sku_codes) {
       try {
-        // Fetch SKU data
-        const [skus, currentStock] = await Promise.all([
-          base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id, sku_code }),
-          base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id, sku_code })
-        ]);
+        const result = await base44.asServiceRole.functions.invoke('fixStockIssuesForSku', {
+          workspace_id,
+          sku_code
+        });
 
-        const sku = skus[0];
-        if (!sku) {
-          console.log(`[Bulk Reconcile] SKU not found: ${sku_code}`);
-          continue;
-        }
-
-        const stock = currentStock[0];
-        const before_stock = stock?.quantity_available || 0;
-
-        // Create corrective movement if needed
-        if (before_stock !== target_stock) {
-          const difference = target_stock - before_stock;
-          
-          await base44.asServiceRole.entities.StockMovement.create({
-            tenant_id: workspace_id,
-            sku_id: sku.id,
-            sku_code: sku.sku_code,
-            movement_type: 'manual',
-            quantity: difference,
-            reference_type: 'manual',
-            reference_id: null,
-            movement_date: new Date().toISOString().split('T')[0],
-            notes: `Bulk reconciliation: Adjusted stock from ${before_stock} to ${target_stock}`,
-            is_archived: false
-          });
-        }
-
-        // Update current stock
-        if (stock) {
-          await base44.asServiceRole.entities.CurrentStock.update(stock.id, {
-            quantity_available: target_stock
-          });
+        if (result.ok) {
+          reconciled_count++;
+          console.log(`[Bulk Reconcile] ✓ ${sku_code}: ${result.before} → ${result.after}`);
         } else {
-          await base44.asServiceRole.entities.CurrentStock.create({
-            tenant_id: workspace_id,
-            sku_id: sku.id,
-            sku_code: sku.sku_code,
-            quantity_available: target_stock
-          });
+          console.warn(`[Bulk Reconcile] Failed for ${sku_code}: ${result.error}`);
         }
-
-        reconciled_count++;
-        console.log(`[Bulk Reconcile] ✓ Reconciled ${sku_code}: ${before_stock} → ${target_stock}`);
-
       } catch (skuError) {
         console.error(`[Bulk Reconcile] Error reconciling ${sku_code}:`, skuError);
       }
@@ -84,8 +46,7 @@ Deno.serve(async (req) => {
     return Response.json({
       ok: true,
       reconciled_count,
-      total_skus: sku_codes.length,
-      target_stock
+      total_skus: sku_codes.length
     });
 
   } catch (error) {
