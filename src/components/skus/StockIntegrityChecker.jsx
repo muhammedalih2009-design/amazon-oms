@@ -291,8 +291,8 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
 
       if (data.ok) {
         toast({
-          title: '✓ Fixed',
-          description: `${skuCode}: Stock ${data.before.stock} → ${data.after.stock}. Verifying...`,
+          title: '✓ Reconciled',
+          description: `${skuCode}: Stock reconciled from ${data.before} to ${data.after}`,
           duration: 5000
         });
 
