@@ -36,7 +36,7 @@ import {
  */
 
 export const WORKSPACE_MODULES = [
-  // REORDERED: Dashboard first, then core workflow pages
+  // A) REORDERED PER SPEC: Dashboard → SKUs → Suppliers → Purchase Requests → Purchases → Orders
   {
     key: "dashboard",
     label: "Dashboard",
@@ -65,15 +65,6 @@ export const WORKSPACE_MODULES = [
     adminOnly: false
   },
   {
-    key: "orders",
-    label: "Orders",
-    route: "Orders",
-    icon: ShoppingCart,
-    group: "Operations",
-    hasPermissions: true,
-    adminOnly: false
-  },
-  {
     key: "purchase_requests",
     label: "Purchase Requests",
     route: "PurchaseRequests",
@@ -88,6 +79,15 @@ export const WORKSPACE_MODULES = [
     route: "Purchases",
     icon: Truck,
     group: "Inventory",
+    hasPermissions: true,
+    adminOnly: false
+  },
+  {
+    key: "orders",
+    label: "Orders",
+    route: "Orders",
+    icon: ShoppingCart,
+    group: "Operations",
     hasPermissions: true,
     adminOnly: false
   },

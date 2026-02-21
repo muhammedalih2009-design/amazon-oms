@@ -50,7 +50,16 @@ export default function DateRangeFilter({ dateRange, onDateRangeChange }) {
           <Calendar
             mode="range"
             selected={dateRange}
-            onSelect={(range) => onDateRangeChange(range)}
+            onSelect={(range) => {
+              // I) FIX: Only close popover when full range is selected
+              if (range?.from && range?.to) {
+                onDateRangeChange(range);
+                // Popover will auto-close when both dates are selected
+              } else if (range?.from && !range?.to) {
+                // First date selected - keep popover open
+                onDateRangeChange(range);
+              }
+            }}
             numberOfMonths={2}
           />
         </PopoverContent>
