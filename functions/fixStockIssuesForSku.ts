@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     
     const updatedMovements = await base44.asServiceRole.entities.StockMovement.filter({ 
       tenant_id: workspace_id, 
-      sku_code, 
+      sku_id: sku.id,
       is_archived: false 
     });
     

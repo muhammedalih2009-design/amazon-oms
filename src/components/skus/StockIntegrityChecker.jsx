@@ -26,6 +26,7 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
   const [checking, setChecking] = useState(false);
   const [results, setResults] = useState(null);
   const [fixingSkus, setFixingSkus] = useState(new Set());
+  const [bulkFixing, setBulkFixing] = useState(false);
   const { toast } = useToast();
 
   const runIntegrityCheckSilent = async () => {
@@ -334,6 +335,50 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     }
   };
 
+  const handleBulkFix = async () => {
+    if (!results || results.issues.length === 0) return;
+
+    setBulkFixing(true);
+    const uniqueSkus = [...new Set(results.issues.map(i => i.sku_code))];
+    
+    toast({
+      title: 'Bulk Reconciliation Started',
+      description: `Processing ${uniqueSkus.length} SKU(s)...`,
+    });
+
+    let fixed = 0;
+    let failed = 0;
+
+    for (const skuCode of uniqueSkus) {
+      try {
+        const { data } = await base44.functions.invoke('fixStockIssuesForSku', {
+          workspace_id: tenantId,
+          sku_code: skuCode
+        });
+
+        if (data.ok) {
+          fixed++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
+        console.error(`Bulk fix error for ${skuCode}:`, error);
+        failed++;
+      }
+    }
+
+    setBulkFixing(false);
+
+    toast({
+      title: 'Bulk Reconciliation Complete',
+      description: `Fixed: ${fixed}, Failed: ${failed}`,
+      duration: 5000
+    });
+
+    // Recheck after bulk fix
+    setTimeout(() => runIntegrityCheckSilent(), 2000);
+  };
+
 
 
   return (
@@ -391,15 +436,27 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
               {/* Issues List */}
               {results.issues.length > 0 ? (
                <>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-slate-700">
-                      Found {results.issues.length} issue(s)
-                    </p>
-                    <Button variant="outline" size="sm" onClick={exportResults}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Export CSV
-                    </Button>
-                  </div>
+                 <div className="flex items-center justify-between gap-2 flex-wrap">
+                   <p className="text-sm font-semibold text-slate-700">
+                     Found {results.issues.length} issue(s)
+                   </p>
+                   <div className="flex gap-2">
+                     <Button 
+                       variant="default" 
+                       size="sm" 
+                       onClick={handleBulkFix}
+                       disabled={bulkFixing}
+                       className="bg-indigo-600 hover:bg-indigo-700"
+                     >
+                       <RefreshCw className={`w-4 h-4 mr-2 ${bulkFixing ? 'animate-spin' : ''}`} />
+                       {bulkFixing ? 'Fixing All...' : 'Fix All Issues'}
+                     </Button>
+                     <Button variant="outline" size="sm" onClick={exportResults}>
+                       <Download className="w-4 h-4 mr-2" />
+                       Export CSV
+                     </Button>
+                   </div>
+                 </div>
 
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {results.issues.map((issue, idx) => {
