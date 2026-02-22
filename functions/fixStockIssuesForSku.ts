@@ -21,17 +21,21 @@ Deno.serve(async (req) => {
     console.log(`[Reconcile SKU] Starting reconciliation for ${sku_code} in workspace ${workspace_id}`);
 
     // Fetch all data for this SKU
-    const [skus, currentStock, movements, tenantData] = await Promise.all([
-      base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id, sku_code }),
-      base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id, sku_code }),
-      base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id, sku_code, is_archived: false }),
-      base44.asServiceRole.entities.Tenant.filter({ id: workspace_id })
-    ]);
-
-    const sku = skus[0];
+    const allSkus = await base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id });
+    const sku = allSkus.find(s => s.sku_code === sku_code);
+    
     if (!sku) {
+      console.log(`[Reconcile SKU] SKU not found: ${sku_code}`);
       return Response.json({ ok: false, error: 'SKU not found' }, { status: 404 });
     }
+    
+    console.log(`[Reconcile SKU] Found SKU: ${sku.sku_code} (ID: ${sku.id})`);
+
+    const [currentStock, movements, tenantData] = await Promise.all([
+      base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id, sku_id: sku.id }),
+      base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id, sku_id: sku.id, is_archived: false }),
+      base44.asServiceRole.entities.Tenant.filter({ id: workspace_id })
+    ]);
 
     const stock = currentStock[0];
     const before_stock = stock?.quantity_available || 0;
