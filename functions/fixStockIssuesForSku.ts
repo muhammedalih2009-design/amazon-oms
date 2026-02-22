@@ -21,10 +21,11 @@ Deno.serve(async (req) => {
     console.log(`[Reconcile SKU] Starting reconciliation for ${sku_code} in workspace ${workspace_id}`);
 
     // Fetch all data for this SKU
-    const [skus, currentStock, movements] = await Promise.all([
+    const [skus, currentStock, movements, tenantData] = await Promise.all([
       base44.asServiceRole.entities.SKU.filter({ tenant_id: workspace_id, sku_code }),
       base44.asServiceRole.entities.CurrentStock.filter({ tenant_id: workspace_id, sku_code }),
-      base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id, sku_code, is_archived: false })
+      base44.asServiceRole.entities.StockMovement.filter({ tenant_id: workspace_id, sku_code, is_archived: false }),
+      base44.asServiceRole.entities.Tenant.filter({ id: workspace_id })
     ]);
 
     const sku = skus[0];
@@ -34,21 +35,86 @@ Deno.serve(async (req) => {
 
     const stock = currentStock[0];
     const before_stock = stock?.quantity_available || 0;
-    const before_movements_count = movements.length;
+    let created_movements = 0;
 
-    // Calculate what stock should be based on movement history
-    const calculated_stock = movements.reduce((sum, m) => sum + (m.quantity || 0), 0);
+    // Step 1: Check for and create missing OUT movements for fulfilled orders
+    console.log(`[Reconcile SKU] Step 1: Checking for missing OUT movements`);
+    
+    const tenant = tenantData[0];
+    const lastResetAt = tenant?.last_stock_reset_at ? new Date(tenant.last_stock_reset_at) : null;
+    
+    // Get all orders for this SKU that are fulfilled
+    const allOrders = await base44.asServiceRole.entities.Order.filter({ 
+      tenant_id: workspace_id,
+      status: 'fulfilled'
+    });
+    
+    const fulfilledOrders = lastResetAt 
+      ? allOrders.filter(o => {
+          const orderDate = new Date(o.order_date || o.created_date);
+          return orderDate > lastResetAt;
+        })
+      : allOrders;
+
+    // Get order lines for this SKU
+    const orderLines = await base44.asServiceRole.entities.OrderLine.filter({
+      tenant_id: workspace_id,
+      sku_id: sku.id
+    });
+
+    // Check each fulfilled order line for missing movement
+    for (const line of orderLines) {
+      if (line.is_returned) continue;
+      
+      const order = fulfilledOrders.find(o => o.id === line.order_id);
+      if (!order) continue;
+      
+      const hasMovement = movements.some(m => 
+        m.reference_type === 'order_line' && 
+        m.reference_id === line.id &&
+        m.movement_type === 'order_fulfillment'
+      );
+
+      if (!hasMovement) {
+        console.log(`[Reconcile SKU] Creating missing OUT movement for order ${order.amazon_order_id}, line ${line.id}`);
+        
+        await base44.asServiceRole.entities.StockMovement.create({
+          tenant_id: workspace_id,
+          sku_id: sku.id,
+          sku_code: sku.sku_code,
+          movement_type: 'order_fulfillment',
+          quantity: -line.quantity,
+          reference_type: 'order_line',
+          reference_id: line.id,
+          movement_date: order.order_date || new Date().toISOString().split('T')[0],
+          notes: `Retroactive OUT for order ${order.amazon_order_id}`,
+          is_archived: false
+        });
+        
+        created_movements++;
+      }
+    }
+
+    // Step 2: Re-fetch movements and calculate expected stock
+    console.log(`[Reconcile SKU] Step 2: Recalculating stock after creating ${created_movements} missing movements`);
+    
+    const updatedMovements = await base44.asServiceRole.entities.StockMovement.filter({ 
+      tenant_id: workspace_id, 
+      sku_code, 
+      is_archived: false 
+    });
+    
+    const calculated_stock = updatedMovements.reduce((sum, m) => sum + (m.quantity || 0), 0);
     const expected_stock = Math.max(0, calculated_stock);
 
     console.log(`[Reconcile SKU] Current: ${before_stock}, Calculated from history: ${calculated_stock}, Expected: ${expected_stock}`);
 
-    // If there's a mismatch, create a corrective movement
+    // Step 3: If there's still a mismatch, create a corrective movement
     if (before_stock !== expected_stock) {
       const difference = expected_stock - before_stock;
       
       console.log(`[Reconcile SKU] Mismatch detected. Creating corrective movement: ${difference}`);
       
-      // Create corrective movement
       await base44.asServiceRole.entities.StockMovement.create({
         tenant_id: workspace_id,
         sku_id: sku.id,
@@ -61,6 +127,8 @@ Deno.serve(async (req) => {
         notes: `Auto-reconciliation: Adjusted stock from ${before_stock} to ${expected_stock}`,
         is_archived: false
       });
+      
+      created_movements++;
     }
 
     // Update current stock
