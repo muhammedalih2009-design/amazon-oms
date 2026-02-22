@@ -113,13 +113,14 @@ Deno.serve(async (req) => {
     });
     
     const calculated_stock = updatedMovements.reduce((sum, m) => sum + (m.quantity || 0), 0);
-    const expected_stock = Math.max(0, calculated_stock);
 
-    console.log(`[Reconcile SKU] Current: ${before_stock}, Calculated from history: ${calculated_stock}, Expected: ${expected_stock}`);
+    console.log(`[Reconcile SKU] Current: ${before_stock}, Calculated from history: ${calculated_stock}`);
 
-    // Step 3: If there's still a mismatch, create a corrective movement
-    if (before_stock !== expected_stock) {
-      const difference = expected_stock - before_stock;
+    // Step 3: Handle mismatch by creating corrective movement
+    // CRITICAL: If calculated is 0 but current stock > 0, this means NO movements exist at all
+    // We need to create a baseline movement to match current stock
+    if (calculated_stock !== before_stock) {
+      const difference = before_stock - calculated_stock;
       
       console.log(`[Reconcile SKU] Mismatch detected. Creating corrective movement: ${difference}`);
       
@@ -132,12 +133,16 @@ Deno.serve(async (req) => {
         reference_type: 'manual',
         reference_id: null,
         movement_date: new Date().toISOString().split('T')[0],
-        notes: `Auto-reconciliation: Adjusted stock from ${before_stock} to ${expected_stock}`,
+        notes: calculated_stock === 0 
+          ? `Baseline correction: Set movement history to match current stock of ${before_stock}`
+          : `Auto-reconciliation: Adjusted from calculated ${calculated_stock} to current ${before_stock}`,
         is_archived: false
       });
       
       created_movements++;
     }
+    
+    const expected_stock = before_stock;
 
     // Update current stock
     if (stock) {
