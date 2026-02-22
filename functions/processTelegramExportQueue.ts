@@ -118,7 +118,9 @@ Deno.serve(async (req) => {
 
         sentCount++;
         processedCount++;
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Wait 1 second after sending supplier header
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Send each item under this supplier
         let itemIndex = 0;
@@ -166,18 +168,28 @@ Deno.serve(async (req) => {
 
             sentCount++;
             processedCount++;
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Wait 1 second between each item to avoid rate limits
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
           } catch (itemError) {
             console.error(`[Telegram Export] Failed to send item ${item.sku}:`, itemError);
             failedCount++;
             processedCount++;
-            failedItems.push({
+            
+            // Log detailed failure information
+            const failureLog = {
               sku_code: item.sku,
               product: item.product,
               supplier: supplier,
-              error_message: itemError.message
-            });
+              error_message: itemError.message,
+              failed_at: new Date().toISOString(),
+              item_index: itemIndex,
+              image_url: item.imageUrl || 'N/A'
+            };
+            
+            failedItems.push(failureLog);
+            console.error('[Telegram Export] Detailed failure log:', JSON.stringify(failureLog));
           }
 
           itemIndex++;
@@ -215,21 +227,37 @@ Deno.serve(async (req) => {
         await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
           checkpoint_json: JSON.stringify(checkpoint)
         }).catch(() => {});
+        
+        // Wait 30 seconds between supplier batches to avoid overwhelming Telegram API
+        const remainingSuppliers = Object.keys(groupedBySupplier).filter(s => 
+          !checkpoint.completedSuppliers.includes(s)
+        );
+        
+        if (remainingSuppliers.length > 0) {
+          console.log(`[Telegram Export] Completed supplier: ${supplier}. Waiting 30 seconds before next supplier...`);
+          await new Promise(resolve => setTimeout(resolve, 30000));
+        }
 
       } catch (supplierError) {
         console.error(`[Telegram Export] Failed to send supplier header ${supplier}:`, supplierError);
         failedCount++;
         processedCount++;
         
-        // Mark all items in this supplier as failed
-        items.forEach(item => {
-          failedItems.push({
+        // Mark all items in this supplier as failed with detailed logging
+        items.forEach((item, idx) => {
+          const failureLog = {
             sku_code: item.sku,
             product: item.product,
             supplier: supplier,
-            error_message: supplierError.message
-          });
+            error_message: `Supplier header failed: ${supplierError.message}`,
+            failed_at: new Date().toISOString(),
+            item_index: idx,
+            reason: 'supplier_header_failure'
+          };
+          failedItems.push(failureLog);
         });
+        
+        console.error(`[Telegram Export] Marked ${items.length} items as failed for supplier: ${supplier}`);
       }
     }
 
