@@ -332,6 +332,19 @@ export default function TelegramExportModal({
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Current supplier */}
+              {status.currentSupplier && (
+                <div className="bg-indigo-50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-slate-600 mb-1">Current Supplier</p>
+                  <p className="text-sm font-semibold text-indigo-900">{status.currentSupplier}</p>
+                  {status.lastSentAt && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Last sent: {new Date(status.lastSentAt).toLocaleTimeString()}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Progress bar */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -465,7 +478,7 @@ export default function TelegramExportModal({
                 </Button>
               )}
 
-              {status.status === 'failed' && (
+              {(status.status === 'failed' || status.sentItems < status.totalItems) && (
                 <Button
                   onClick={handleResume}
                   disabled={resuming}
@@ -477,7 +490,7 @@ export default function TelegramExportModal({
                       Resuming...
                     </>
                   ) : (
-                    '▶️ Resume Export'
+                    '▶️ Resume from where it stopped'
                   )}
                 </Button>
               )}

@@ -190,13 +190,13 @@ Deno.serve(async (req) => {
 
           itemIndex++;
 
-          // Update job progress and checkpoint every 10 items
-          if (itemIndex % 10 === 0) {
+          // Update job progress and checkpoint every 5 items
+          if (itemIndex % 5 === 0) {
             const progress = Math.round((processedCount / totalItems) * 100);
             const checkpointData = {
               lastProcessedSupplier: supplier,
               lastProcessedItemIndex: itemIndex,
-              completedSuppliers: []
+              completedSuppliers: checkpoint?.completedSuppliers || []
             };
             
             await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
@@ -209,7 +209,9 @@ Deno.serve(async (req) => {
                 totalItems,
                 sentCount,
                 failedCount,
-                failedItems
+                failedItems,
+                currentSupplier: supplier,
+                lastSentAt: new Date().toISOString()
               }
             }).catch(() => {});
           }
@@ -262,17 +264,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Mark job as complete
+    // Mark job as complete only if all items were processed
     clearInterval(heartbeatInterval);
     
+    const finalStatus = sentCount === totalItems ? 'completed' : 'failed';
+    
     await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-      status: 'completed',
+      status: finalStatus,
       processed_count: totalItems,
       success_count: sentCount,
       failed_count: failedCount,
       progress_percent: 100,
       completed_at: new Date().toISOString(),
-      checkpoint_json: null,
+      checkpoint_json: finalStatus === 'failed' ? job.checkpoint_json : null, // Keep checkpoint if failed for resume
+      can_resume: finalStatus === 'failed' && sentCount < totalItems,
       result: {
         totalItems,
         sentCount,
