@@ -118,9 +118,7 @@ Deno.serve(async (req) => {
 
         sentCount++;
         processedCount++;
-        
-        // Wait 1 second after sending supplier header
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
         // Send each item under this supplier
         let itemIndex = 0;
@@ -168,9 +166,7 @@ Deno.serve(async (req) => {
 
             sentCount++;
             processedCount++;
-            
-            // Wait 1 second between each item to avoid rate limits
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
           } catch (itemError) {
             console.error(`[Telegram Export] Failed to send item ${item.sku}:`, itemError);
@@ -228,23 +224,19 @@ Deno.serve(async (req) => {
           checkpoint_json: JSON.stringify(checkpoint)
         }).catch(() => {});
         
-        // Wait 30 seconds between supplier batches to avoid overwhelming Telegram API
+        // Wait 10 seconds between supplier batches with heartbeats
         const remainingSuppliers = Object.keys(groupedBySupplier).filter(s => 
           !checkpoint.completedSuppliers.includes(s)
         );
         
         if (remainingSuppliers.length > 0) {
-          console.log(`[Telegram Export] Completed supplier: ${supplier}. Waiting 30 seconds before next supplier...`);
+          console.log(`[Telegram Export] Completed supplier: ${supplier}. Waiting 10 seconds before next supplier...`);
+          await new Promise(resolve => setTimeout(resolve, 10000));
           
-          // Send heartbeats during the 30-second wait to prevent auto-cancellation
-          for (let i = 0; i < 6; i++) {
-            await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds * 6 = 30 seconds
-            
-            // Send heartbeat
-            await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-              last_heartbeat_at: new Date().toISOString()
-            }).catch(err => console.error('[Heartbeat] Failed to send:', err));
-          }
+          // Send heartbeat after wait
+          await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+            last_heartbeat_at: new Date().toISOString()
+          }).catch(() => {});
         }
 
       } catch (supplierError) {
