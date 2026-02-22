@@ -41,7 +41,8 @@ export default function StockMovementHistory({ sku, tenantId, currentStock, isOw
     try {
       const data = await base44.entities.StockMovement.filter({ 
         tenant_id: tenantId, 
-        sku_id: sku.id 
+        sku_id: sku.id,
+        is_archived: false  // Only show non-archived movements
       });
       
       // Sort by date descending (newest first)
