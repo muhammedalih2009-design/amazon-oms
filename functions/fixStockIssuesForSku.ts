@@ -159,7 +159,8 @@ Deno.serve(async (req) => {
       before: before_stock,
       after: expected_stock,
       history_total: calculated_stock,
-      corrected: before_stock !== expected_stock
+      created_movements,
+      corrected: before_stock !== expected_stock || created_movements > 0
     });
 
   } catch (error) {
