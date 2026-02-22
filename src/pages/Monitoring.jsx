@@ -564,7 +564,7 @@ export default function MonitoringPage() {
                           )}
 
                           {/* Resume button */}
-                          {job.status === 'paused' && job.can_resume !== false && (
+                          {job.status === 'paused' && (
                             <Button
                               size="sm"
                               className="bg-indigo-600 hover:bg-indigo-700"
