@@ -277,7 +277,9 @@ export default function StockMovementHistory({ sku, tenantId, currentStock, isOw
 
   const stock = currentStock.find(s => s.sku_id === sku.id);
   const currentQty = stock?.quantity_available || 0;
-  const calculatedStock = movements.reduce((total, m) => total + (m.quantity || 0), 0);
+  const calculatedStock = movements
+    .filter(m => !m.is_archived)  // Only count non-archived movements
+    .reduce((total, m) => total + (m.quantity || 0), 0);
   const isAccurate = calculatedStock === currentQty;
 
   return (
