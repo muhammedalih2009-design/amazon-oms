@@ -367,8 +367,6 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
       }
     }
 
-    setBulkFixing(false);
-
     toast({
       title: 'Bulk Reconciliation Complete',
       description: `Fixed: ${fixed}, Failed: ${failed}`,
@@ -376,7 +374,13 @@ export default function StockIntegrityChecker({ tenantId, open, onClose }) {
     });
 
     // Recheck after bulk fix
-    setTimeout(() => runIntegrityCheckSilent(), 2000);
+    setTimeout(async () => {
+      const newResults = await runIntegrityCheckSilent();
+      if (newResults) {
+        setResults(newResults);
+      }
+      setBulkFixing(false);
+    }, 2000);
   };
 
 
