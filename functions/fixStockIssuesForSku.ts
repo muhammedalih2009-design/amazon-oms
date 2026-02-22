@@ -40,6 +40,10 @@ Deno.serve(async (req) => {
     const stock = currentStock[0];
     const before_stock = stock?.quantity_available || 0;
     let created_movements = 0;
+    
+    console.log(`[Reconcile SKU] Current stock record:`, stock);
+    console.log(`[Reconcile SKU] Before stock: ${before_stock}`);
+    console.log(`[Reconcile SKU] Existing movements: ${movements.length}`);
 
     // Step 1: Check for and create missing OUT movements for fulfilled orders
     console.log(`[Reconcile SKU] Step 1: Checking for missing OUT movements`);
