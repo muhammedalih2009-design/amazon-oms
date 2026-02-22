@@ -112,13 +112,21 @@ export default function MonitoringPage() {
     setRefreshing(false);
   };
 
-  // Auto-refresh jobs every 3 seconds
+  // Auto-refresh jobs only when tab is visible and when on Jobs tab
+  const [activeTab, setActiveTab] = React.useState('errors');
+  
   React.useEffect(() => {
+    // Only poll if on Jobs tab and page is visible
+    if (activeTab !== 'jobs' || document.hidden) {
+      return;
+    }
+    
     const interval = setInterval(() => {
       refetchJobs();
-    }, 3000);
+    }, 5000); // Reduced from 3s to 5s
+    
     return () => clearInterval(interval);
-  }, [refetchJobs]);
+  }, [refetchJobs, activeTab]);
 
   const handleJobAction = async (jobId, action) => {
     setActioningJob(jobId);
@@ -258,7 +266,7 @@ export default function MonitoringPage() {
       </div>
 
       {/* Detailed Tabs */}
-      <Tabs defaultValue="errors" className="space-y-4">
+      <Tabs defaultValue="errors" className="space-y-4" onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="errors">
             <AlertCircle className="w-4 h-4 mr-2" />
