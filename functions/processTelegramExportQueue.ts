@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
 
         sentCount++;
         processedCount++;
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
         // Send each item under this supplier
         let itemIndex = 0;
@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
             sentCount++;
             processedCount++;
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 2000));
 
           } catch (itemError) {
             console.error(`[Telegram Export] Failed to send item ${item.sku}:`, itemError);
