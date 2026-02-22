@@ -153,13 +153,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Verify
+    // Verify - wait a moment for DB to commit
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     const verify = await base44.asServiceRole.entities.CurrentStock.filter({
       tenant_id: workspace_id,
       sku_id: sku.id
     });
 
     console.log(`[Reconcile SKU] Final stock: ${verify[0]?.quantity_available}`);
+    console.log(`[Reconcile SKU] Summary: ${created_movements} movements created, stock adjusted from ${before_stock} to ${expected_stock}`);
 
     return Response.json({
       ok: true,
