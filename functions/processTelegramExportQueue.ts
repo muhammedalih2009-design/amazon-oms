@@ -235,7 +235,16 @@ Deno.serve(async (req) => {
         
         if (remainingSuppliers.length > 0) {
           console.log(`[Telegram Export] Completed supplier: ${supplier}. Waiting 30 seconds before next supplier...`);
-          await new Promise(resolve => setTimeout(resolve, 30000));
+          
+          // Send heartbeats during the 30-second wait to prevent auto-cancellation
+          for (let i = 0; i < 6; i++) {
+            await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds * 6 = 30 seconds
+            
+            // Send heartbeat
+            await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+              last_heartbeat_at: new Date().toISOString()
+            }).catch(err => console.error('[Heartbeat] Failed to send:', err));
+          }
         }
 
       } catch (supplierError) {
