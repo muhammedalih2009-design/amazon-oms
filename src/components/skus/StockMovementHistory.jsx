@@ -71,10 +71,12 @@ export default function StockMovementHistory({ sku, tenantId, currentStock, isOw
   const handleRecalculateStock = async () => {
     setReconciling(true);
     try {
-      // Calculate expected stock from movement history
-      const calculatedStock = movements.reduce((total, movement) => {
-        return total + (movement.quantity || 0);
-      }, 0);
+      // Calculate expected stock from NON-ARCHIVED movement history only
+      const calculatedStock = movements
+        .filter(m => !m.is_archived)  // Explicitly filter non-archived
+        .reduce((total, movement) => {
+          return total + (movement.quantity || 0);
+        }, 0);
 
       // Get current stock
       const stock = currentStock.find(s => s.sku_id === sku.id);
