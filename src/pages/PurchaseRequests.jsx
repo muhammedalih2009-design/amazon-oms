@@ -41,18 +41,20 @@ export default function PurchaseRequests() {
   const [telegramModalOpen, setTelegramModalOpen] = useState(false);
 
   useEffect(() => {
-    if (tenantId) loadData();
+    if (tenantId) {
+      loadData();
+      checkTelegramConfig();
+    }
   }, [tenantId]);
-
-  useEffect(() => {
-    checkTelegramConfig();
-  }, []);
 
   const checkTelegramConfig = async () => {
     try {
-      const { data } = await base44.functions.invoke('checkTelegramConfig', {});
-      setTelegramConfigured(data.configured);
+      const { data } = await base44.functions.invoke('checkTelegramConfig', {
+        workspace_id: tenantId
+      });
+      setTelegramConfigured(data.configured === true);
     } catch (error) {
+      console.error('Failed to check Telegram config:', error);
       setTelegramConfigured(false);
     } finally {
       setCheckingTelegram(false);
