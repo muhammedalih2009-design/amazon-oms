@@ -110,10 +110,12 @@ export default function TelegramExportModal({
     }
 
     try {
-      // Filter items by selected suppliers
-      const filteredItems = items.filter(item => 
-        selectedSuppliers.has(item.supplier || 'Unassigned')
-      );
+      // Filter items by selected suppliers AND items that have quantity > 0
+      const filteredItems = items.filter(item => {
+        const hasValidSupplier = selectedSuppliers.has(item.supplier || 'Unassigned');
+        const hasValidQuantity = Number(item.to_buy || 0) > 0;
+        return hasValidSupplier && hasValidQuantity;
+      });
 
       // Create background job and get job ID
       const response = await base44.functions.invoke('startTelegramExport', {
