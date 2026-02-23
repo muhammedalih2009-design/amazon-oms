@@ -2,43 +2,6 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
 const PLATFORM_OWNER_EMAIL = "muhammedalih.2009@gmail.com";
 
-function requireWorkspaceId(payload) {
-  if (!payload.workspace_id && !payload.tenant_id) {
-    throw new Error("workspace_id or tenant_id required in payload");
-  }
-  return payload.workspace_id || payload.tenant_id;
-}
-
-async function guardWorkspaceAccess(base44, user, workspace_id) {
-  if (!workspace_id) {
-    throw new Error("workspace_id required");
-  }
-
-  if (!user || !user.email) {
-    throw new Error("Authentication required");
-  }
-
-  if (user.email.toLowerCase() === PLATFORM_OWNER_EMAIL.toLowerCase()) {
-    return true;
-  }
-
-  const memberships = await base44.asServiceRole.entities.Membership.filter({
-    user_email: user.email.toLowerCase(),
-    tenant_id: workspace_id
-  });
-
-  if (!memberships || memberships.length === 0) {
-    throw new Error("Cross-workspace access denied");
-  }
-
-  const membership = memberships[0];
-  if (membership.deleted_at) {
-    throw new Error("Access revoked");
-  }
-
-  return membership;
-}
-
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -50,11 +13,28 @@ Deno.serve(async (req) => {
 
     const payload = await req.json();
 
-    // SECURITY: Require and validate workspace_id
-    const workspace_id = requireWorkspaceId(payload);
+    // Get workspace_id
+    const workspace_id = payload.workspace_id || payload.tenant_id;
+    if (!workspace_id) {
+      return Response.json({ error: 'workspace_id required' }, { status: 400 });
+    }
 
-    // SECURITY: Verify user has access to this workspace
-    await guardWorkspaceAccess(base44, user, workspace_id);
+    // Verify user has access (platform owner or has membership)
+    if (user.email.toLowerCase() !== PLATFORM_OWNER_EMAIL.toLowerCase()) {
+      const memberships = await base44.asServiceRole.entities.Membership.filter({
+        user_email: user.email.toLowerCase(),
+        tenant_id: workspace_id
+      });
+
+      if (!memberships || memberships.length === 0) {
+        return Response.json({ error: 'Access denied' }, { status: 403 });
+      }
+
+      const membership = memberships[0];
+      if (membership.deleted_at) {
+        return Response.json({ error: 'Access revoked' }, { status: 403 });
+      }
+    }
 
     // Get workspace settings
     const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
@@ -65,7 +45,7 @@ Deno.serve(async (req) => {
       return Response.json({
         currency_code: 'SAR',
         telegram_config_present: false,
-        telegram_chat_id_masked: null
+        telegram_chat_id_display: null
       });
     }
 
