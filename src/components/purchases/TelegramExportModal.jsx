@@ -178,6 +178,29 @@ export default function TelegramExportModal({
     }
   };
 
+  const handleRetryFailed = async () => {
+    try {
+      const response = await base44.functions.invoke('retryFailedTelegramItems', { jobId });
+      
+      toast({
+        title: 'Failed Items Reset',
+        description: `${response.data.count} failed items marked as pending. Click Resume to retry.`
+      });
+
+      // Refresh status
+      const statusResponse = await base44.functions.invoke('getTelegramExportStatus', { jobId });
+      setStatus(statusResponse.data);
+      
+    } catch (error) {
+      console.error('[Retry Failed] Error:', error);
+      toast({
+        title: 'Failed to Retry',
+        description: error.message || 'Unknown error occurred',
+        variant: 'destructive'
+      });
+    }
+  };
+
   const downloadFailedItems = () => {
     if (!status?.failedItemsLog || status.failedItemsLog.length === 0) return;
 
@@ -358,18 +381,22 @@ export default function TelegramExportModal({
               </div>
 
               {/* Summary stats */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <div className="bg-green-50 rounded p-2 text-center">
                   <p className="text-xs text-slate-600">Sent</p>
                   <p className="text-lg font-bold text-green-600">{status.sentItems || 0}</p>
                 </div>
-                <div className="bg-slate-50 rounded p-2 text-center">
-                  <p className="text-xs text-slate-600">Processing</p>
-                  <p className="text-lg font-bold text-slate-600">{status.processedItems || 0}</p>
+                <div className="bg-blue-50 rounded p-2 text-center">
+                  <p className="text-xs text-slate-600">Pending</p>
+                  <p className="text-lg font-bold text-blue-600">{status.pendingItems || 0}</p>
                 </div>
                 <div className="bg-red-50 rounded p-2 text-center">
                   <p className="text-xs text-slate-600">Failed</p>
                   <p className="text-lg font-bold text-red-600">{status.failedItems || 0}</p>
+                </div>
+                <div className="bg-slate-50 rounded p-2 text-center">
+                  <p className="text-xs text-slate-600">Total</p>
+                  <p className="text-lg font-bold text-slate-900">{status.totalItems || 0}</p>
                 </div>
               </div>
 
@@ -478,22 +505,34 @@ export default function TelegramExportModal({
                 </Button>
               )}
 
-              {(status.status === 'failed' || status.sentItems < status.totalItems) && (
-                <Button
-                  onClick={handleResume}
-                  disabled={resuming}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700"
-                >
-                  {resuming ? (
-                    <>
-                      <Loader className="w-4 h-4 mr-2 animate-spin" />
-                      Resuming...
-                    </>
-                  ) : (
-                    '▶️ Resume from where it stopped'
-                  )}
-                </Button>
-              )}
+              <div className="space-y-2">
+                {status.canResume && status.pendingItems > 0 && (
+                  <Button
+                    onClick={handleResume}
+                    disabled={resuming}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    {resuming ? (
+                      <>
+                        <Loader className="w-4 h-4 mr-2 animate-spin" />
+                        Resuming...
+                      </>
+                    ) : (
+                      `▶️ Resume (${status.pendingItems} pending)`
+                    )}
+                  </Button>
+                )}
+                
+                {status.failedItems > 0 && (
+                  <Button
+                    onClick={handleRetryFailed}
+                    variant="outline"
+                    className="w-full border-amber-500 text-amber-700 hover:bg-amber-50"
+                  >
+                    🔄 Retry {status.failedItems} Failed Items
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2">
