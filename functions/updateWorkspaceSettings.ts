@@ -45,15 +45,9 @@ Deno.serve(async (req) => {
     }
 
     // Check if settings exist
-    let existing = [];
-    try {
-      existing = await base44.asServiceRole.entities.WorkspaceSettings.filter({
-        workspace_id
-      });
-    } catch (err) {
-      console.warn('[updateWorkspaceSettings] Query error (will create new):', err.message);
-      // Continue to create new if query fails
-    }
+    const existing = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+      workspace_id
+    });
 
     // Only include fields that are in the WorkspaceSettings schema
     const updateData = {
@@ -72,12 +66,10 @@ Deno.serve(async (req) => {
       updateData.telegram_chat_id = telegram_chat_id.trim();
     }
 
-    console.log('[updateWorkspaceSettings] Updating workspace settings:', {
-      workspace_id,
-      user_email: user.email,
+    console.log(`[updateWorkspaceSettings] workspace_id=${workspace_id} user=${user.email} updating:`, {
       currency: updateData.currency_code || 'unchanged',
       token: updateData.telegram_bot_token ? `length=${updateData.telegram_bot_token.length}` : 'not provided',
-      chatId: updateData.telegram_chat_id ? `exists=${!!updateData.telegram_chat_id}` : 'not provided'
+      chatId: updateData.telegram_chat_id ? `first3chars=${updateData.telegram_chat_id.substring(0, 3)}...` : 'not provided'
     });
 
     let result;
@@ -112,8 +104,8 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error('[updateWorkspaceSettings] Fatal error:', error.message);
-    const statusCode = error.status || 500;
+    const statusCode = error.status || 400;
     const errorMessage = error.message || 'Failed to update workspace settings';
-    return Response.json({ ok: false, error: errorMessage }, { status: 200 }); // Return 200 with ok:false for frontend handling
+    return Response.json({ ok: false, error: errorMessage }, { status: statusCode });
   }
 });

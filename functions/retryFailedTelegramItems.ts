@@ -10,7 +10,7 @@ Deno.serve(async (req) => {
     }
 
     // Get all failed items for this job
-    const failedItems = await base44.asServiceRole.entities.TelegramExportPlanItem.filter({
+    const failedItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
       job_id: jobId,
       status: 'failed'
     });
@@ -24,11 +24,10 @@ Deno.serve(async (req) => {
 
     // Reset failed items back to pending
     for (const item of failedItems) {
-      await base44.asServiceRole.entities.TelegramExportPlanItem.update(item.id, {
+      await base44.asServiceRole.entities.TelegramExportItem.update(item.id, {
         status: 'pending',
         error_message: null,
-        sent_at: null,
-        telegram_message_id: null
+        sent_at: null
       });
     }
 

@@ -81,6 +81,6 @@ Deno.serve(async (req) => {
       success: false,
       error: error.message || 'Network error: Unable to reach Telegram API',
       type: 'network_error'
-    }, { status: 200 }); // Return 200 with ok:false instead of 500
+    });
   }
 });

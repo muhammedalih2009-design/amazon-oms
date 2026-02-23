@@ -19,45 +19,25 @@ Deno.serve(async (req) => {
     await guardWorkspaceAccess(base44, user, workspace_id);
 
     // Get workspace settings
-    console.log('[getWorkspaceSettings] Fetching settings for workspace:', workspace_id);
-    
-    let settings;
-    try {
-      settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
-        workspace_id
-      });
-    } catch (err) {
-      console.warn('[getWorkspaceSettings] Query error:', err.message);
-      // Return defaults if query fails
-      return Response.json({
-        currency_code: 'SAR',
-        telegram_config_present: false,
-        telegram_chat_id_display: null
-      });
-    }
+    const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+      workspace_id
+    });
 
-    if (!settings || settings.length === 0) {
+    if (settings.length === 0) {
       return Response.json({
         currency_code: 'SAR',
         telegram_config_present: false,
-        telegram_chat_id_display: null
+        telegram_chat_id_masked: null
       });
     }
 
     const ws = settings[0];
 
-    const response = {
+    return Response.json({
       currency_code: ws.currency_code || 'SAR',
       telegram_config_present: !!(ws.telegram_bot_token && ws.telegram_chat_id),
       telegram_chat_id_display: ws.telegram_chat_id || null
-    };
-
-    // Optionally include token if requested (for testing purposes only)
-    if (payload.include_token === true) {
-      response.telegram_bot_token = ws.telegram_bot_token || null;
-    }
-
-    return Response.json(response);
+    });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
