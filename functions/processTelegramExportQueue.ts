@@ -130,6 +130,7 @@ Deno.serve(async (req) => {
 
     let sentCount = 0;
     let failedCount = 0;
+    let itemsSentInCurrentBatch = 0;
 
     // Get current stats from DB
     const allItems = await base44.asServiceRole.entities.TelegramExportItem.filter({ job_id: jobId });
@@ -216,6 +217,15 @@ Deno.serve(async (req) => {
             });
 
             sentCount++;
+            itemsSentInCurrentBatch++;
+
+            // Check if we need to pause after 50 items
+            if (itemsSentInCurrentBatch >= 50) {
+              console.log(`[Telegram Export] Sent 50 items in batch. Pausing for 60 seconds...`);
+              await new Promise(resolve => setTimeout(resolve, 60000)); // 60 seconds pause
+              itemsSentInCurrentBatch = 0; // Reset batch counter
+              console.log(`[Telegram Export] Resuming after 60 second pause`);
+            }
 
             // Update job progress immediately after each send
             const progressDone = sentCount + failedCount;
