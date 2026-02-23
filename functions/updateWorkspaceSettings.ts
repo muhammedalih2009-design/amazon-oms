@@ -45,9 +45,15 @@ Deno.serve(async (req) => {
     }
 
     // Check if settings exist
-    const existing = await base44.asServiceRole.entities.WorkspaceSettings.filter({
-      workspace_id
-    });
+    let existing = [];
+    try {
+      existing = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+        workspace_id
+      });
+    } catch (err) {
+      console.warn('[updateWorkspaceSettings] Query error (will create new):', err.message);
+      // Continue to create new if query fails
+    }
 
     // Only include fields that are in the WorkspaceSettings schema
     const updateData = {
@@ -104,8 +110,8 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error('[updateWorkspaceSettings] Fatal error:', error.message);
-    const statusCode = error.status || 400;
+    const statusCode = error.status || 500;
     const errorMessage = error.message || 'Failed to update workspace settings';
-    return Response.json({ ok: false, error: errorMessage }, { status: statusCode });
+    return Response.json({ ok: false, error: errorMessage }, { status: 200 }); // Return 200 with ok:false for frontend handling
   }
 });
