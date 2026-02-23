@@ -10,6 +10,17 @@ export default function PurchaseRequestsPrint() {
   useEffect(() => {
     const loadPayload = async () => {
       try {
+        // Check authentication first
+        try {
+          await base44.auth.me();
+        } catch (authError) {
+          // Not authenticated - redirect to login with clean URL
+          const currentUrl = window.location.href;
+          const loginUrl = `/login?from_url=${encodeURIComponent(currentUrl)}`;
+          window.location.href = loginUrl;
+          return;
+        }
+
         const urlParams = new URLSearchParams(window.location.search);
         const jobId = urlParams.get('jobId');
 
