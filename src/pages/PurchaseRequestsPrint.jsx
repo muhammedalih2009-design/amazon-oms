@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { base44 } from '@/api/base44Client';
 
+// CRITICAL: This page must work WITHOUT Layout to avoid authentication redirect loops
+// It's designed as a standalone print page that can be accessed directly via jobId
+
 export default function PurchaseRequestsPrint() {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState(null);
@@ -13,17 +16,23 @@ export default function PurchaseRequestsPrint() {
         const urlParams = new URLSearchParams(window.location.search);
         const jobId = urlParams.get('jobId');
 
-        // Primary path: fetch from backend via jobId
+        // Primary path: fetch from backend via jobId (no auth needed - jobId is the security)
         if (jobId) {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
-
           try {
-            const response = await base44.functions.invoke('getPrintJob', { jobId });
-            clearTimeout(timeoutId);
+            const response = await fetch(`https://base44-backend.deno.dev/functions/getPrintJob`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId })
+            });
 
-            if (response.data?.payload) {
-              setPayload(response.data.payload);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            if (data?.payload) {
+              setPayload(data.payload);
               setLoading(false);
               return;
             } else {
@@ -32,33 +41,16 @@ export default function PurchaseRequestsPrint() {
               return;
             }
           } catch (fetchError) {
-            clearTimeout(timeoutId);
-
-            // Handle specific error codes
             if (fetchError.message?.includes('404') || fetchError.message?.includes('not found')) {
               setError('Print job not found. It may have been deleted. Please regenerate PDF.');
             } else if (fetchError.message?.includes('410') || fetchError.message?.includes('expired')) {
               setError('Print job expired. Please go back and regenerate PDF (jobs expire after 10 minutes).');
-            } else if (fetchError.message?.includes('405') || fetchError.message?.includes('Method')) {
-              setError('Print service method mismatch. Please try again.');
-            } else if (fetchError.name === 'AbortError') {
-              setError('Request timeout. Please check your connection and try again.');
             } else {
               setError(`Failed to load print job: ${fetchError.message}`);
             }
             setLoading(false);
             return;
           }
-        }
-
-        // Fallback: try sessionStorage (backward compatibility)
-        const storedPayload = sessionStorage.getItem('pr_print_payload');
-        if (storedPayload) {
-          const parsed = JSON.parse(storedPayload);
-          setPayload(parsed);
-          setLoading(false);
-          sessionStorage.removeItem('pr_print_payload');
-          return;
         }
 
         // No data source found
@@ -463,10 +455,8 @@ export default function PurchaseRequestsPrint() {
                               loading="lazy"
                               crossOrigin="anonymous"
                               onError={(e) => {
-                                // Only show placeholder after genuine load failure
                                 if (!e.target.dataset.retried) {
                                   e.target.dataset.retried = 'true';
-                                  // Force reload once
                                   const originalSrc = e.target.src;
                                   e.target.src = '';
                                   setTimeout(() => {
@@ -509,3 +499,6 @@ export default function PurchaseRequestsPrint() {
     </html>
   );
 }
+
+// Mark this page to NOT use Layout wrapper
+PurchaseRequestsPrint.noLayout = true;
