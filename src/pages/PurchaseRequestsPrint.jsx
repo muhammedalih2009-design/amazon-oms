@@ -19,17 +19,7 @@ export default function PurchaseRequestsPrint() {
         // Primary path: fetch from backend via jobId (no auth needed - jobId is the security)
         if (jobId) {
           try {
-            const response = await fetch(`https://base44-backend.deno.dev/functions/getPrintJob`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ jobId })
-            });
-
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
+            const { data } = await base44.functions.invoke('getPrintJob', { jobId });
 
             if (data?.payload) {
               setPayload(data.payload);
