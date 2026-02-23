@@ -19,6 +19,8 @@ Deno.serve(async (req) => {
     await guardWorkspaceAccess(base44, user, workspace_id);
 
     // Get workspace settings
+    console.log('[getWorkspaceSettings] Fetching settings for workspace:', workspace_id);
+    
     let settings;
     try {
       settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({

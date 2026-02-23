@@ -17,6 +17,8 @@ Deno.serve(async (req) => {
     const payload = await req.json();
     const workspace_id = requireWorkspaceId(payload);
 
+    console.log('[checkTelegramConfig] Checking for workspace:', workspace_id);
+
     // Verify workspace access
     await guardWorkspaceAccess(base44, user, workspace_id);
 
