@@ -19,15 +19,26 @@ Deno.serve(async (req) => {
     await guardWorkspaceAccess(base44, user, workspace_id);
 
     // Get workspace settings
-    const settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
-      workspace_id
-    });
-
-    if (settings.length === 0) {
+    let settings;
+    try {
+      settings = await base44.asServiceRole.entities.WorkspaceSettings.filter({
+        workspace_id
+      });
+    } catch (err) {
+      console.warn('[getWorkspaceSettings] Query error:', err.message);
+      // Return defaults if query fails
       return Response.json({
         currency_code: 'SAR',
         telegram_config_present: false,
-        telegram_chat_id_masked: null
+        telegram_chat_id_display: null
+      });
+    }
+
+    if (!settings || settings.length === 0) {
+      return Response.json({
+        currency_code: 'SAR',
+        telegram_config_present: false,
+        telegram_chat_id_display: null
       });
     }
 
