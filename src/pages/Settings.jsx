@@ -194,11 +194,13 @@ export default function Settings() {
   };
 
   const handleTestTelegram = async () => {
-    // Validate before testing
-    if (!telegramBotToken || telegramBotToken === '************') {
+    // Validate: allow testing with saved token OR new token
+    const tokenToTest = telegramBotToken || (hasSavedToken ? 'use_saved' : null);
+    
+    if (!tokenToTest) {
       toast({
         title: 'Validation error',
-        description: 'Please enter a valid bot token first',
+        description: 'Please enter a bot token first or save one',
         variant: 'destructive'
       });
       return;
@@ -215,13 +217,29 @@ export default function Settings() {
 
     setTesting(true);
     try {
+      // If using saved token, need to fetch it from backend
+      let actualToken = telegramBotToken;
+      
+      if (!telegramBotToken && hasSavedToken) {
+        // Fetch saved token from backend
+        const { data: settingsData } = await base44.functions.invoke('getWorkspaceSettings', {
+          workspace_id: tenantId,
+          include_token: true
+        });
+        actualToken = settingsData.telegram_bot_token;
+      }
+
+      if (!actualToken) {
+        throw new Error('Could not retrieve bot token');
+      }
+
       const { data, status } = await base44.functions.invoke('testTelegramNew', {
         workspace_id: tenantId,
-        test_token: telegramBotToken,
+        test_token: actualToken,
         test_chat_id: telegramChatId
       });
 
-      if (status === 200 && data.ok === true && data.success) {
+      if (data.ok === true && data.success) {
         toast({
           title: 'Connection successful!',
           description: 'Test message sent to Telegram'
@@ -237,7 +255,7 @@ export default function Settings() {
       console.error('Telegram test error:', error);
       toast({
         title: 'Failed to test connection',
-        description: error.response?.data?.error || error.message || 'Network error',
+        description: error.message || 'Network error',
         variant: 'destructive'
       });
     } finally {
@@ -374,7 +392,7 @@ export default function Settings() {
           <div className={`flex gap-3 ${isRTL ? 'flex-row-reverse' : ''}`}>
             <Button
               onClick={handleTestTelegram}
-              disabled={testing || !telegramBotToken || !telegramChatId}
+              disabled={testing || (!telegramBotToken && !hasSavedToken) || !telegramChatId}
               variant="outline"
             >
               {testing ? '...' : t('settings.test_connection')}
