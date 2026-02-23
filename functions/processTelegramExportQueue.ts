@@ -159,9 +159,13 @@ Deno.serve(async (req) => {
           })
         });
 
-        if (!headerResponse.ok) {
-          throw new Error(`Failed to send supplier header: ${headerResponse.statusText}`);
+        const headerResult = await headerResponse.json();
+        
+        if (!headerResponse.ok || !headerResult.ok) {
+          throw new Error(`Failed to send supplier header: ${headerResult.description || headerResponse.statusText}`);
         }
+        
+        console.log(`[Telegram] Supplier header sent for ${supplier}, message_id: ${headerResult.result?.message_id}`);
 
         // Update job with current supplier
         await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
@@ -191,9 +195,13 @@ Deno.serve(async (req) => {
                 })
               });
 
-              if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.statusText}`);
+              const result = await response.json();
+              
+              if (!response.ok || !result.ok) {
+                throw new Error(`Telegram API error: ${result.description || response.statusText}`);
               }
+              
+              console.log(`[Telegram] Successfully sent photo for ${item.sku_code}, message_id: ${result.result?.message_id}`);
             } else {
               const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                 method: 'POST',
@@ -205,9 +213,13 @@ Deno.serve(async (req) => {
                 })
               });
 
-              if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.statusText}`);
+              const result = await response.json();
+              
+              if (!response.ok || !result.ok) {
+                throw new Error(`Telegram API error: ${result.description || response.statusText}`);
               }
+              
+              console.log(`[Telegram] Successfully sent message for ${item.sku_code}, message_id: ${result.result?.message_id}`);
             }
 
             // Mark item as sent
