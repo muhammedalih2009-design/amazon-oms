@@ -3,9 +3,13 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   let heartbeatInterval = null;
+  let jobId = null;
 
   try {
-    const { jobId, tenantId, resumeFromCheckpoint } = await req.json();
+    const payload = await req.json();
+    jobId = payload.jobId;
+    const tenantId = payload.tenantId;
+    const resumeFromCheckpoint = payload.resumeFromCheckpoint;
 
     if (!jobId || !tenantId) {
       return Response.json({ error: 'Missing jobId or tenantId' }, { status: 400 });
@@ -64,6 +68,8 @@ Deno.serve(async (req) => {
       });
       return Response.json({ error: 'Telegram credentials missing' }, { status: 400 });
     }
+
+    console.log('[Telegram Export] Using bot token and chat ID from WorkspaceSettings');
 
     // Check if this is a new job or resume
     const existingItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
@@ -333,12 +339,14 @@ Deno.serve(async (req) => {
     
     // Mark job as failed but resumable
     try {
-      await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-        status: 'failed',
-        error_message: error.message,
-        completed_at: new Date().toISOString(),
-        can_resume: true
-      });
+      if (jobId) {
+        await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+          status: 'failed',
+          error_message: error.message,
+          completed_at: new Date().toISOString(),
+          can_resume: true
+        });
+      }
     } catch (e) {
       console.error('[Error] Failed to update job on error:', e);
     }
