@@ -31,12 +31,13 @@ export default function PurchaseRequestsPrint() {
               return;
             }
           } catch (fetchError) {
-            if (fetchError.message?.includes('404') || fetchError.message?.includes('not found')) {
+            const errorMsg = fetchError.response?.data?.error || fetchError.message || 'Unknown error';
+            if (errorMsg.includes('not found') || errorMsg.includes('404')) {
               setError('Print job not found. It may have been deleted. Please regenerate PDF.');
-            } else if (fetchError.message?.includes('410') || fetchError.message?.includes('expired')) {
+            } else if (errorMsg.includes('expired') || errorMsg.includes('410')) {
               setError('Print job expired. Please go back and regenerate PDF (jobs expire after 10 minutes).');
             } else {
-              setError(`Failed to load print job: ${fetchError.message}`);
+              setError(`Failed to load print job: ${errorMsg}`);
             }
             setLoading(false);
             return;
