@@ -33,11 +33,18 @@ Deno.serve(async (req) => {
 
     const ws = settings[0];
 
-    return Response.json({
+    const response = {
       currency_code: ws.currency_code || 'SAR',
       telegram_config_present: !!(ws.telegram_bot_token && ws.telegram_chat_id),
       telegram_chat_id_display: ws.telegram_chat_id || null
-    });
+    };
+
+    // Optionally include token if requested (for testing purposes only)
+    if (payload.include_token === true) {
+      response.telegram_bot_token = ws.telegram_bot_token || null;
+    }
+
+    return Response.json(response);
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
