@@ -22,38 +22,38 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Get checkpoint items for detailed status
-    const allItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
+    // Get plan items
+    const allItems = await base44.asServiceRole.entities.TelegramExportPlanItem.filter({
       job_id: jobId
     });
 
-    const sentItems = allItems.filter(i => i.status === 'sent');
-    const failedItems = allItems.filter(i => i.status === 'failed');
-    const pendingItems = allItems.filter(i => i.status === 'pending');
+    const productItems = allItems.filter(p => p.item_type === 'product');
+    const sentProducts = productItems.filter(p => p.status === 'sent');
+    const failedProducts = productItems.filter(p => p.status === 'failed');
+    const pendingProducts = productItems.filter(p => p.status === 'pending');
 
     // Get failed items details
-    const failedItemsLog = failedItems.map(item => ({
+    const failedItemsLog = failedProducts.map(item => ({
       sku_code: item.sku_code,
       product: item.product_name,
-      supplier: item.supplier_id,
+      supplier: item.supplier_name_display,
       error_message: item.error_message,
-      index: item.index
+      sort_index: item.sort_index
     }));
 
     return Response.json({
       status: job.status,
-      totalItems: allItems.length || job.progress_total || 0,
-      sentItems: sentItems.length,
-      failedItems: failedItems.length,
-      pendingItems: pendingItems.length,
-      processedItems: sentItems.length + failedItems.length,
+      totalItems: productItems.length,
+      sentItems: sentProducts.length,
+      failedItems: failedProducts.length,
+      pendingItems: pendingProducts.length,
       progressPercent: job.progress_percent || 0,
       errorMessage: job.error_message,
       failedItemsLog,
       currentSupplier: job.result?.currentSupplier,
       lastSentItem: job.result?.lastSentItem,
       lastSentAt: job.result?.lastSentAt,
-      canResume: job.can_resume || pendingItems.length > 0,
+      canResume: job.can_resume || pendingProducts.length > 0,
       createdAt: job.created_date,
       completedAt: job.completed_at
     });

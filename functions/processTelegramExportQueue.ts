@@ -5,7 +5,7 @@ Deno.serve(async (req) => {
   let heartbeatInterval = null;
 
   try {
-    const { jobId, tenantId, resumeFromCheckpoint } = await req.json();
+    const { jobId, tenantId } = await req.json();
 
     if (!jobId || !tenantId) {
       return Response.json({ error: 'Missing jobId or tenantId' }, { status: 400 });
@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
       last_heartbeat_at: new Date().toISOString()
     });
 
-    // Heartbeat sender - sends every 5 seconds to prevent timeout
+    // Heartbeat sender - sends every 3 seconds to prevent timeout
     heartbeatInterval = setInterval(async () => {
       try {
         await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
@@ -32,9 +32,9 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString()
         });
       } catch (err) {
-        console.error('[Heartbeat] Failed to send heartbeat:', err);
+        console.error('[Heartbeat] Failed:', err);
       }
-    }, 5000);
+    }, 3000);
 
     // Get workspace settings for Telegram credentials
     const settingsData = await base44.asServiceRole.entities.WorkspaceSettings.filter({
@@ -42,13 +42,7 @@ Deno.serve(async (req) => {
     });
 
     if (!settingsData || settingsData.length === 0) {
-      clearInterval(heartbeatInterval);
-      await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-        status: 'failed',
-        error_message: 'Telegram settings not configured',
-        completed_at: new Date().toISOString()
-      });
-      return Response.json({ error: 'Telegram settings not found' }, { status: 400 });
+      throw new Error('Telegram settings not configured');
     }
 
     const settings = settingsData[0];
@@ -56,272 +50,316 @@ Deno.serve(async (req) => {
     const chatId = settings.telegram_chat_id;
 
     if (!botToken || !chatId) {
-      clearInterval(heartbeatInterval);
-      await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-        status: 'failed',
-        error_message: 'Telegram bot token or chat ID not configured',
-        completed_at: new Date().toISOString()
-      });
-      return Response.json({ error: 'Telegram credentials missing' }, { status: 400 });
+      throw new Error('Telegram bot token or chat ID not configured');
     }
 
-    // Check if this is a new job or resume
-    const existingItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
+    // Check if plan exists
+    const existingPlan = await base44.asServiceRole.entities.TelegramExportPlanItem.filter({
       job_id: jobId
     });
 
-    const rows = job.params?.rows || [];
-    const totalItems = rows.length;
-
-    // If no items exist yet, create all items as pending
-    if (existingItems.length === 0) {
-      console.log(`[Telegram Export] Creating ${totalItems} checkpoint items...`);
+    // Build send plan if doesn't exist
+    if (existingPlan.length === 0) {
+      console.log('[Telegram Export] Building send plan...');
       
-      const itemsToCreate = rows.map((item, index) => {
-        const supplier = item.supplier || 'Unassigned';
-        const itemKey = `${supplier}:${item.sku || index}:${index}`;
-        
-        return {
+      const rows = job.params?.rows || [];
+      
+      // Group products by supplier
+      const supplierGroups = {};
+      const unassignedProducts = [];
+
+      rows.forEach((item, idx) => {
+        const supplier = item.supplier?.trim();
+        if (!supplier || supplier === '') {
+          unassignedProducts.push({ ...item, originalIndex: idx });
+        } else {
+          if (!supplierGroups[supplier]) {
+            supplierGroups[supplier] = [];
+          }
+          supplierGroups[supplier].push({ ...item, originalIndex: idx });
+        }
+      });
+
+      // Build plan items
+      const planItems = [];
+      let sortIndex = 0;
+
+      // Add assigned suppliers first
+      for (const [supplier, products] of Object.entries(supplierGroups)) {
+        // Add supplier header
+        planItems.push({
           workspace_id: tenantId,
           job_id: jobId,
           supplier_id: supplier,
-          item_key: itemKey,
-          index,
-          sku_code: item.sku || 'N/A',
-          product_name: item.product || 'N/A',
-          quantity: item.toBuy || 0,
-          unit_cost: item.unitCost || 0,
-          image_url: item.imageUrl || '',
+          supplier_name_display: supplier,
+          item_type: 'supplier_header',
+          item_key: `supplier:${supplier}`,
+          sort_index: sortIndex++,
           status: 'pending'
-        };
-      });
-
-      // Bulk create all items
-      await base44.asServiceRole.entities.TelegramExportItem.bulkCreate(itemsToCreate);
-      console.log(`[Telegram Export] Created ${itemsToCreate.length} checkpoint items`);
-    }
-
-    // Get all pending items (resume-safe)
-    const pendingItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
-      job_id: jobId,
-      status: 'pending'
-    });
-
-    // Sort by index to maintain order
-    pendingItems.sort((a, b) => a.index - b.index);
-
-    console.log(`[Telegram Export] Starting send: ${pendingItems.length} pending items out of ${totalItems} total`);
-
-    // Group by supplier for organized sending
-    const groupedBySupplier = {};
-    pendingItems.forEach(item => {
-      const supplier = item.supplier_id || 'Unassigned';
-      if (!groupedBySupplier[supplier]) {
-        groupedBySupplier[supplier] = [];
-      }
-      groupedBySupplier[supplier].push(item);
-    });
-
-    let sentCount = 0;
-    let failedCount = 0;
-
-    // Get current stats from DB
-    const allItems = await base44.asServiceRole.entities.TelegramExportItem.filter({ job_id: jobId });
-    const alreadySent = allItems.filter(i => i.status === 'sent').length;
-    const alreadyFailed = allItems.filter(i => i.status === 'failed').length;
-    sentCount = alreadySent;
-    failedCount = alreadyFailed;
-
-    // Process each supplier group
-    for (const [supplier, items] of Object.entries(groupedBySupplier)) {
-      try {
-        // Send supplier header
-        const totalSkus = items.length;
-        const totalQty = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-        const totalCost = items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unit_cost || 0)), 0);
-
-        const headerCaption = `📦 *${supplier}*\n${totalSkus} SKUs | ${totalQty} items | $${totalCost.toFixed(2)}`;
-
-        const headerResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: headerCaption,
-            parse_mode: 'Markdown'
-          })
         });
 
-        if (!headerResponse.ok) {
-          throw new Error(`Failed to send supplier header: ${headerResponse.statusText}`);
-        }
-
-        // Update job with current supplier
-        await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-          result: {
-            currentSupplier: supplier,
-            lastSentAt: new Date().toISOString()
-          }
-        });
-
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        // Send each item
-        for (const item of items) {
-          try {
-            const itemCaption = `SKU: \`${item.sku_code}\`\nProduct: ${item.product_name}\nQty: ${item.quantity}\nUnit Cost: $${item.unit_cost.toFixed(2)}\nEst. Total: $${(item.quantity * item.unit_cost).toFixed(2)}`;
-
-            // Send photo if URL exists, otherwise text
-            if (item.image_url && item.image_url.trim().length > 0) {
-              const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: chatId,
-                  photo: item.image_url,
-                  caption: itemCaption,
-                  parse_mode: 'Markdown'
-                })
-              });
-
-              if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.statusText}`);
-              }
-            } else {
-              const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: chatId,
-                  text: itemCaption,
-                  parse_mode: 'Markdown'
-                })
-              });
-
-              if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.statusText}`);
-              }
-            }
-
-            // Mark item as sent
-            await base44.asServiceRole.entities.TelegramExportItem.update(item.id, {
-              status: 'sent',
-              sent_at: new Date().toISOString()
-            });
-
-            sentCount++;
-
-            // Update job progress immediately after each send
-            const progressDone = sentCount + failedCount;
-            const progressPercent = Math.floor((progressDone / totalItems) * 100);
-            
-            await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-              progress_done: progressDone,
-              progress_total: totalItems,
-              progress_percent: progressPercent,
-              success_count: sentCount,
-              failed_count: failedCount,
-              last_heartbeat_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              result: {
-                currentSupplier: supplier,
-                lastSentItem: item.sku_code,
-                lastSentAt: new Date().toISOString(),
-                totalItems,
-                sentCount,
-                failedCount
-              }
-            });
-
-            console.log(`[Telegram Export] Sent ${sentCount}/${totalItems}: ${item.sku_code}`);
-
-            // Wait 1 second between items
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-          } catch (itemError) {
-            console.error(`[Telegram Export] Failed to send item ${item.sku_code}:`, itemError);
-            
-            // Mark item as failed
-            await base44.asServiceRole.entities.TelegramExportItem.update(item.id, {
-              status: 'failed',
-              error_message: itemError.message
-            });
-
-            failedCount++;
-
-            // Update job with failure
-            const progressDone = sentCount + failedCount;
-            const progressPercent = Math.floor((progressDone / totalItems) * 100);
-            
-            await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
-              progress_done: progressDone,
-              progress_total: totalItems,
-              progress_percent: progressPercent,
-              success_count: sentCount,
-              failed_count: failedCount,
-              last_heartbeat_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-          }
-        }
-
-        // Wait 10 seconds between suppliers (heartbeat runs automatically)
-        const remainingSuppliers = Object.keys(groupedBySupplier).filter(s => s !== supplier);
-        if (remainingSuppliers.length > 0) {
-          console.log(`[Telegram Export] Completed supplier: ${supplier}. Waiting 10 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 10000));
-        }
-
-      } catch (supplierError) {
-        console.error(`[Telegram Export] Failed supplier header ${supplier}:`, supplierError);
-        
-        // Mark all items in this supplier as failed
-        for (const item of items) {
-          await base44.asServiceRole.entities.TelegramExportItem.update(item.id, {
-            status: 'failed',
-            error_message: `Supplier header failed: ${supplierError.message}`
+        // Add products for this supplier
+        products.forEach(product => {
+          planItems.push({
+            workspace_id: tenantId,
+            job_id: jobId,
+            supplier_id: supplier,
+            supplier_name_display: supplier,
+            item_type: 'product',
+            item_key: `product:${product.sku || product.originalIndex}`,
+            sort_index: sortIndex++,
+            sku_code: product.sku || 'N/A',
+            product_name: product.product || 'N/A',
+            quantity: product.toBuy || 0,
+            unit_cost: product.unitCost || 0,
+            image_url: product.imageUrl || '',
+            status: 'pending'
           });
-          failedCount++;
+        });
+      }
+
+      // Add Unassigned group LAST
+      if (unassignedProducts.length > 0) {
+        // Add Unassigned header
+        planItems.push({
+          workspace_id: tenantId,
+          job_id: jobId,
+          supplier_id: null,
+          supplier_name_display: 'Unassigned',
+          item_type: 'supplier_header',
+          item_key: 'supplier:Unassigned',
+          sort_index: sortIndex++,
+          status: 'pending'
+        });
+
+        // Add unassigned products
+        unassignedProducts.forEach(product => {
+          planItems.push({
+            workspace_id: tenantId,
+            job_id: jobId,
+            supplier_id: null,
+            supplier_name_display: 'Unassigned',
+            item_type: 'product',
+            item_key: `product:${product.sku || product.originalIndex}`,
+            sort_index: sortIndex++,
+            sku_code: product.sku || 'N/A',
+            product_name: product.product || 'N/A',
+            quantity: product.toBuy || 0,
+            unit_cost: product.unitCost || 0,
+            image_url: product.imageUrl || '',
+            status: 'pending'
+          });
+        });
+      }
+
+      // Bulk create plan
+      await base44.asServiceRole.entities.TelegramExportPlanItem.bulkCreate(planItems);
+      
+      const totalProducts = planItems.filter(p => p.item_type === 'product').length;
+      console.log(`[Telegram Export] Created plan: ${planItems.length} items (${totalProducts} products)`);
+
+      // Update job with total
+      await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+        progress_total: totalProducts,
+        progress_done: 0
+      });
+    }
+
+    // Get all plan items ordered by sort_index
+    const allPlanItems = await base44.asServiceRole.entities.TelegramExportPlanItem.filter({
+      job_id: jobId
+    });
+    allPlanItems.sort((a, b) => a.sort_index - b.sort_index);
+
+    const totalProducts = allPlanItems.filter(p => p.item_type === 'product').length;
+
+    // Get pending items
+    const pendingItems = allPlanItems.filter(p => p.status === 'pending');
+    console.log(`[Telegram Export] Processing ${pendingItems.length} pending items`);
+
+    let currentSupplier = null;
+    let lastSupplierSentIndex = -1;
+
+    // Process each pending item in order
+    for (const planItem of pendingItems) {
+      try {
+        // Send item based on type
+        if (planItem.item_type === 'supplier_header') {
+          // Send supplier header
+          const supplierProducts = allPlanItems.filter(p => 
+            p.supplier_name_display === planItem.supplier_name_display && 
+            p.item_type === 'product'
+          );
+          const totalSkus = supplierProducts.length;
+          const totalQty = supplierProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+          const totalCost = supplierProducts.reduce((sum, p) => sum + ((p.quantity || 0) * (p.unit_cost || 0)), 0);
+
+          const headerCaption = `📦 *${planItem.supplier_name_display}*\n${totalSkus} SKUs | ${totalQty} items | $${totalCost.toFixed(2)}`;
+
+          const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: headerCaption,
+              parse_mode: 'Markdown'
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Telegram API error: ${response.statusText}`);
+          }
+
+          const result = await response.json();
+          
+          // Mark header as sent
+          await base44.asServiceRole.entities.TelegramExportPlanItem.update(planItem.id, {
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            telegram_message_id: result.result?.message_id?.toString()
+          });
+
+          currentSupplier = planItem.supplier_name_display;
+          lastSupplierSentIndex = planItem.sort_index;
+          
+          console.log(`[Telegram Export] Sent header: ${planItem.supplier_name_display}`);
+
+        } else if (planItem.item_type === 'product') {
+          // Send product
+          const itemCaption = `SKU: \`${planItem.sku_code}\`\nProduct: ${planItem.product_name}\nQty: ${planItem.quantity}\nUnit Cost: $${planItem.unit_cost.toFixed(2)}\nEst. Total: $${(planItem.quantity * planItem.unit_cost).toFixed(2)}`;
+
+          let response;
+          if (planItem.image_url && planItem.image_url.trim().length > 0) {
+            response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: chatId,
+                photo: planItem.image_url,
+                caption: itemCaption,
+                parse_mode: 'Markdown'
+              })
+            });
+          } else {
+            response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: itemCaption,
+                parse_mode: 'Markdown'
+              })
+            });
+          }
+
+          if (!response.ok) {
+            throw new Error(`Telegram API error: ${response.statusText}`);
+          }
+
+          const result = await response.json();
+
+          // Mark product as sent
+          await base44.asServiceRole.entities.TelegramExportPlanItem.update(planItem.id, {
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            telegram_message_id: result.result?.message_id?.toString()
+          });
+
+          // Update progress
+          const sentProducts = allPlanItems.filter(p => p.item_type === 'product' && p.status === 'sent').length + 1;
+          const failedProducts = allPlanItems.filter(p => p.item_type === 'product' && p.status === 'failed').length;
+          const progressPercent = Math.floor((sentProducts / totalProducts) * 100);
+
+          await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+            progress_done: sentProducts,
+            progress_total: totalProducts,
+            progress_percent: progressPercent,
+            success_count: sentProducts,
+            failed_count: failedProducts,
+            last_heartbeat_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            result: {
+              currentSupplier: planItem.supplier_name_display,
+              lastSentItem: planItem.sku_code,
+              lastSentAt: new Date().toISOString()
+            }
+          });
+
+          console.log(`[Telegram Export] Sent product ${sentProducts}/${totalProducts}: ${planItem.sku_code}`);
+        }
+
+        // Wait 1 second between items
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Check if we just finished a supplier group (next item is a new supplier or we're done)
+        const nextItem = allPlanItems.find(p => p.sort_index === planItem.sort_index + 1);
+        if (nextItem && nextItem.item_type === 'supplier_header') {
+          // Wait 30 seconds between suppliers
+          console.log(`[Telegram Export] Completed supplier: ${currentSupplier}. Waiting 30 seconds...`);
+          
+          // During 30s wait, send heartbeat every 3 seconds (already covered by interval)
+          await new Promise(resolve => setTimeout(resolve, 30000));
+        }
+
+      } catch (itemError) {
+        console.error(`[Telegram Export] Failed item:`, itemError);
+        
+        // Mark item as failed
+        await base44.asServiceRole.entities.TelegramExportPlanItem.update(planItem.id, {
+          status: 'failed',
+          error_message: itemError.message
+        });
+
+        if (planItem.item_type === 'product') {
+          const failedProducts = allPlanItems.filter(p => p.item_type === 'product' && p.status === 'failed').length + 1;
+          await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
+            failed_count: failedProducts,
+            last_heartbeat_at: new Date().toISOString()
+          });
         }
       }
     }
 
-    // Check completion
-    const finalPendingItems = await base44.asServiceRole.entities.TelegramExportItem.filter({
-      job_id: jobId,
-      status: 'pending'
+    // Check completion - ONLY complete when ALL products are sent
+    const finalPlanItems = await base44.asServiceRole.entities.TelegramExportPlanItem.filter({
+      job_id: jobId
     });
 
-    const isComplete = finalPendingItems.length === 0;
-    const finalStatus = isComplete ? 'completed' : 'failed';
+    const productItems = finalPlanItems.filter(p => p.item_type === 'product');
+    const sentProducts = productItems.filter(p => p.status === 'sent').length;
+    const failedProducts = productItems.filter(p => p.status === 'failed').length;
+    const pendingProducts = productItems.filter(p => p.status === 'pending').length;
+
+    const allProductsSent = sentProducts === productItems.length;
+    const finalStatus = allProductsSent ? 'completed' : 'failed';
 
     clearInterval(heartbeatInterval);
     
     await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
       status: finalStatus,
-      progress_done: sentCount + failedCount,
-      progress_total: totalItems,
+      progress_done: sentProducts,
+      progress_total: productItems.length,
       progress_percent: 100,
-      success_count: sentCount,
-      failed_count: failedCount,
+      success_count: sentProducts,
+      failed_count: failedProducts,
       completed_at: new Date().toISOString(),
-      can_resume: !isComplete,
-      error_message: !isComplete ? `Stopped at ${sentCount}/${totalItems}. ${finalPendingItems.length} items pending.` : null,
+      can_resume: !allProductsSent,
+      error_message: !allProductsSent ? `Incomplete: ${sentProducts}/${productItems.length} products sent. ${pendingProducts} pending, ${failedProducts} failed.` : null,
       result: {
-        totalItems,
-        sentCount,
-        failedCount,
-        pendingCount: finalPendingItems.length
+        totalProducts: productItems.length,
+        sentProducts,
+        failedProducts,
+        pendingProducts
       }
     });
 
     return Response.json({
-      success: isComplete,
+      success: allProductsSent,
       jobId,
-      totalItems,
-      sentCount,
-      failedCount,
-      pendingCount: finalPendingItems.length
+      totalProducts: productItems.length,
+      sentProducts,
+      failedProducts,
+      pendingProducts
     });
 
   } catch (error) {
@@ -331,7 +369,6 @@ Deno.serve(async (req) => {
       clearInterval(heartbeatInterval);
     }
     
-    // Mark job as failed but resumable
     try {
       await base44.asServiceRole.entities.BackgroundJob.update(jobId, {
         status: 'failed',
@@ -340,7 +377,7 @@ Deno.serve(async (req) => {
         can_resume: true
       });
     } catch (e) {
-      console.error('[Error] Failed to update job on error:', e);
+      console.error('[Error] Failed to update job:', e);
     }
     
     return Response.json({ 
