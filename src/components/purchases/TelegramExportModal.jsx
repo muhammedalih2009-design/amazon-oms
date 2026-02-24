@@ -59,9 +59,17 @@ export default function TelegramExportModal({
   const loadSuppliers = async () => {
     setLoadingSuppliers(true);
     try {
-      // Group items by supplier
+      // CRITICAL: Filter out items with zero or invalid quantities BEFORE grouping
+      const validItems = items.filter(item => {
+        const qty = Number(item.to_buy || 0);
+        return qty > 0;
+      });
+
+      console.log('[TelegramExport] Total items:', items.length, 'Valid items (qty > 0):', validItems.length);
+
+      // Group valid items by supplier
       const supplierMap = {};
-      items.forEach(item => {
+      validItems.forEach(item => {
         const supplier = item.supplier || 'Unassigned';
         if (!supplierMap[supplier]) {
           supplierMap[supplier] = { skus: new Set(), qty: 0 };
@@ -75,6 +83,8 @@ export default function TelegramExportModal({
         skus: data.skus.size,
         qty: data.qty
       }));
+
+      console.log('[TelegramExport] Suppliers after grouping:', suppliersList);
 
       setSuppliers(suppliersList);
       // Select all by default
